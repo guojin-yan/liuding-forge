@@ -21,7 +21,6 @@ add_library(jyppx_cli_objects OBJECT
     onnx_verification.cpp
     onnx_reconstruction.cpp
     local_attempt.cpp
-    local_cuda_device.cpp
     local_search.cpp
     offline_workflow.cpp
     image_recipe.cpp

@@ -1,0 +1,2927 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+// Product: 六丁炼算 (Liuding Forge)
+// Project alias: JYPPX Training Framework
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
+#include "support.hpp"
+
+#include <jyppx/liuding/experiment/local_execution/devices.hpp>
+#include <jyppx/liuding/experiment/local_execution/process.hpp>
+#include <jyppx/liuding/experiment/local_execution/runner.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
+
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <charconv>
+#include <cstdlib>
+#include <limits>
+#include <memory>
+#include <set>
+#include <thread>
+#include <vector>
+
+namespace jyppx::liuding::experiment {
+namespace {
+using namespace local_execution_detail;
+namespace fs = std::filesystem;
+using local_execution_detail::bytes;
+using local_execution_detail::digest;
+using local_execution_detail::now_ms;
+using local_execution_detail::path_text;
+
+constexpr std::uint64_t kSpecBytes = 65536;
+constexpr std::uint64_t kCaptureBytes = 8U << 20U;
+constexpr std::uint64_t kMaximumAttempts = 16;
+constexpr std::uint64_t kTrainingOutputBytes = 1ULL << 30U;
+constexpr auto kTrainingOutputVerification = std::chrono::seconds(30);
+constexpr std::string_view kProducer = "jyppx.liuding.cli.local/v1";
+
+void require(bool condition, std::string_view message) {
+  if (!condition) throw InvalidArgument(std::string(message));
+}
+
+std::string text(const Json& value) {
+  const auto result = value.get<std::string>();
+  require(result.find('\0') == std::string::npos,
+          "Local execution strings must not contain NUL");
+  return result;
+}
+
+bool reserved_environment_name(std::string_view name) {
+  constexpr std::string_view prefix = "JYPPX_LIUDING_LOCAL_";
+  if (name.size() < prefix.size()) return false;
+  for (std::size_t index = 0; index < prefix.size(); ++index) {
+    auto current = static_cast<unsigned char>(name[index]);
+    if (current >= 'a' && current <= 'z')
+      current = static_cast<unsigned char>(current - 'a' + 'A');
+    if (current != static_cast<unsigned char>(prefix[index])) return false;
+  }
+  return true;
+}
+
+std::string environment_key(std::string_view name) {
+  std::string result(name);
+  for (auto& c : result) {
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+  }
+  return result;
+}
+
+void environment_reference_name(std::string_view name) {
+  const auto letter = [](unsigned char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+  };
+  require(!name.empty() && name.size() <= 128 && letter(name.front()) &&
+              std::all_of(name.begin(), name.end(),
+                          [&](unsigned char c) {
+                            return letter(c) || (c >= '0' && c <= '9');
+                          }) &&
+              !reserved_environment_name(name),
+          "Environment references require non-reserved portable names");
+}
+
+// Resolve only named variables. Never put resolved bytes or their digests in
+// the frozen spec, launch intent, result, or diagnostic text.
+std::string process_environment_value(const std::string& name) {
+#if defined(_WIN32)
+  const std::wstring wide_name(name.begin(), name.end());
+  SetLastError(ERROR_SUCCESS);
+  const auto capacity = GetEnvironmentVariableW(wide_name.c_str(), nullptr, 0);
+  if (capacity == 0) {
+    require(GetLastError() == ERROR_SUCCESS,
+            "A referenced process environment variable is unavailable");
+    return {};
+  }
+  require(capacity <= kSpecBytes + 1,
+          "Referenced environment value exceeds the launch bound");
+  std::vector<wchar_t> buffer(capacity);
+  SetLastError(ERROR_SUCCESS);
+  const auto length =
+      GetEnvironmentVariableW(wide_name.c_str(), buffer.data(), capacity);
+  require(length < capacity && (length != 0 || GetLastError() == ERROR_SUCCESS),
+          "Cannot read a referenced process environment variable");
+  if (length == 0) return {};
+  const auto count = WideCharToMultiByte(
+      CP_UTF8, WC_ERR_INVALID_CHARS, buffer.data(), static_cast<int>(length),
+      nullptr, 0, nullptr, nullptr);
+  require(
+      count > 0 && static_cast<std::uint64_t>(count) <= kSpecBytes,
+      "Referenced environment value is invalid or exceeds the launch bound");
+  std::string result(static_cast<std::size_t>(count), '\0');
+  require(WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, buffer.data(),
+                              static_cast<int>(length), result.data(), count,
+                              nullptr, nullptr) == count,
+          "Cannot encode a referenced process environment variable");
+  return result;
+#else
+  const auto* value = std::getenv(name.c_str());
+  require(value != nullptr,
+          "A referenced process environment variable is unavailable");
+  std::size_t length = 0;
+  while (length <= kSpecBytes && value[length] != '\0') ++length;
+  require(length <= kSpecBytes,
+          "Referenced environment value exceeds the launch bound");
+  return {value, length};
+#endif
+}
+
+std::uint64_t positive(const Json& value, std::uint64_t maximum) {
+  const auto result = unsigned_number(value, maximum);
+  require(result != 0, "Local execution bounds must be positive");
+  return result;
+}
+
+void schema(const Json& value, std::string_view format) {
+  require(value.at("format").get<std::string>() == format,
+          "Unknown local execution format");
+  if (unsigned_number(value.at("schema_version"), 1) != 1)
+    throw CompatibilityError("Unsupported local execution schema");
+}
+
+void identifier(std::string_view value) {
+  require(!value.empty() && value.size() <= 128 &&
+              std::all_of(value.begin(), value.end(),
+                          [](unsigned char c) {
+                            return (c >= 'a' && c <= 'z') ||
+                                   (c >= 'A' && c <= 'Z') ||
+                                   (c >= '0' && c <= '9') || c == '.' ||
+                                   c == '_' || c == '-';
+                          }),
+          "Local job IDs require 1-128 ASCII letters, digits, '.', '_' or '-'");
+}
+
+void ordinary_path(const fs::path& path) {
+  require(path.is_absolute(), "Local execution paths must be absolute");
+  auto part = path.lexically_normal();
+  while (!part.empty()) {
+    require(!fs::is_symlink(fs::symlink_status(part)),
+            "Local execution paths must not traverse symbolic links");
+#if defined(_WIN32)
+    const auto attributes = GetFileAttributesW(part.c_str());
+    require(attributes != INVALID_FILE_ATTRIBUTES &&
+                (attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0,
+            "Local execution paths must not traverse reparse points");
+#endif
+    const auto parent = part.parent_path();
+    if (parent == part) break;
+    part = parent;
+  }
+}
+
+// These files carry no state. Never unlink them: replacing the inode would
+// defeat a still-running owner's OS lock. Both kinds are non-inherited.
+class OwnerLock final {
+ public:
+  OwnerLock(const fs::path& root, std::string_view job, bool worker) {
+    const auto directory = root / ".local-attempt-locks";
+    fs::create_directories(directory);
+    ordinary_path(directory);
+    const auto path =
+        directory / (digest(job).hex + (worker ? ".worker" : ".dispatch"));
+    require(!fs::is_symlink(fs::symlink_status(path)),
+            "Local execution lock must not be a symbolic link");
+#if defined(_WIN32)
+    handle_ = CreateFileW(
+        path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle_ == INVALID_HANDLE_VALUE) {
+      const auto error = GetLastError();
+      if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION)
+        throw IoError("Cannot open local execution ownership lock");
+    } else {
+      BY_HANDLE_FILE_INFORMATION info{};
+      if (!GetFileInformationByHandle(handle_, &info) ||
+          (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        CloseHandle(handle_);
+        handle_ = INVALID_HANDLE_VALUE;
+        throw IoError("Invalid local execution ownership lock");
+      }
+    }
+#else
+    handle_ =
+        ::open(path.c_str(), O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (handle_ < 0)
+      throw IoError("Cannot open local execution ownership lock");
+    if (::flock(handle_, LOCK_EX | LOCK_NB) != 0) {
+      const auto error = errno;
+      ::close(handle_);
+      handle_ = -1;
+      if (error != EWOULDBLOCK && error != EAGAIN)
+        throw IoError("Cannot acquire local execution ownership lock");
+    }
+#endif
+  }
+  ~OwnerLock() {
+#if defined(_WIN32)
+    if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
+#else
+    if (handle_ >= 0) ::close(handle_);
+#endif
+  }
+  bool held() const noexcept {
+#if defined(_WIN32)
+    return handle_ != INVALID_HANDLE_VALUE;
+#else
+    return handle_ >= 0;
+#endif
+  }
+  OwnerLock(const OwnerLock&) = delete;
+  OwnerLock& operator=(const OwnerLock&) = delete;
+
+ private:
+#if defined(_WIN32)
+  HANDLE handle_ = INVALID_HANDLE_VALUE;
+#else
+  int handle_ = -1;
+#endif
+};
+
+struct TrainingInput {
+  std::string run;
+  std::string reference;
+  ArtifactDigest digest;
+  std::uint64_t size = 0;
+};
+
+struct TrainingOutput {
+  std::string reference;
+  RunArtifactKind kind = RunArtifactKind::artifact;
+  std::string role;
+  std::uint64_t maximum = 0;
+};
+
+struct TrainingSpec {
+  std::string model;
+  TrainingInput configuration;
+  TrainingInput data_manifest;
+  std::map<std::string, TrainingInput> artifacts;
+  std::optional<TrainingInput> resume;
+  std::optional<std::string> retry_checkpoint;
+  std::vector<TrainingOutput> outputs;
+};
+
+TrainingInput training_input(const Json& value, std::uint64_t limit) {
+  fields(value, {"run_id", "reference_id", "sha256", "size_bytes"});
+  TrainingInput result;
+  result.run = text(value.at("run_id"));
+  result.reference = text(value.at("reference_id"));
+  identifier(result.run);
+  identifier(result.reference);
+  result.digest.hex = text(value.at("sha256"));
+  validate_artifact_digest(result.digest);
+  result.size = positive(value.at("size_bytes"), limit);
+  return result;
+}
+
+TrainingSpec training_spec(const Json& value) {
+  fields(value, {"model_id", "configuration", "data_manifest", "resume"},
+         {"retry_resume", "outputs", "artifacts"});
+  TrainingSpec result;
+  result.model = text(value.at("model_id"));
+  identifier(result.model);
+  result.configuration = training_input(value.at("configuration"), 1U << 20U);
+  result.data_manifest = training_input(value.at("data_manifest"), 1U << 20U);
+  if (value.contains("artifacts")) {
+    const auto& artifacts = value.at("artifacts");
+    require(
+        artifacts.is_object() && !artifacts.empty() && artifacts.size() <= 16,
+        "Training artifacts require 1-16 named immutable inputs");
+    for (const auto& [name, binding] : artifacts.items()) {
+      identifier(name);
+      require(name.size() <= 64,
+              "Training artifact names must not exceed 64 bytes");
+      result.artifacts.emplace(name, training_input(binding, 1ULL << 30U));
+    }
+  }
+  if (!value.at("resume").is_null()) {
+    const auto& resume = value.at("resume");
+    fields(resume, {"checkpoint", "restore_policy"});
+    require(text(resume.at("restore_policy")) == "exact_only",
+            "Local training currently requires explicit exact_only restore");
+    result.resume = training_input(resume.at("checkpoint"), 1ULL << 30U);
+  }
+  if (value.contains("retry_resume")) {
+    const auto& retry = value.at("retry_resume");
+    fields(retry, {"checkpoint_reference_id", "restore_policy"});
+    require(text(retry.at("restore_policy")) == "exact_only",
+            "Retry checkpoint continuation requires exact_only restore");
+    result.retry_checkpoint = text(retry.at("checkpoint_reference_id"));
+    identifier(*result.retry_checkpoint);
+  }
+  if (value.contains("outputs")) {
+    const auto& outputs = value.at("outputs");
+    require(outputs.is_array() && !outputs.empty() && outputs.size() <= 64,
+            "Local training declares between 1 and 64 expected outputs");
+    std::set<std::string> ids;
+    std::uint64_t total = 0;
+    Json rows = Json::array();
+    for (const auto& item : outputs) {
+      fields(item, {"reference_id", "kind", "role", "max_size_bytes"});
+      TrainingOutput output;
+      output.reference = text(item.at("reference_id"));
+      identifier(output.reference);
+      require(!output.reference.starts_with("local.") &&
+                  ids.insert(output.reference).second,
+              "Local training outputs require unique, non-reserved references");
+      const auto kind = text(item.at("kind"));
+      require(kind == "artifact" || kind == "checkpoint",
+              "Unknown local training output kind");
+      output.kind = kind == "checkpoint" ? RunArtifactKind::checkpoint
+                                         : RunArtifactKind::artifact;
+      output.role = text(item.at("role"));
+      require(!output.role.empty() && output.role.size() <= 128,
+              "Local training outputs require a role of at most 128 bytes");
+      output.maximum =
+          positive(item.at("max_size_bytes"), kTrainingOutputBytes);
+      require(output.maximum <= kTrainingOutputBytes - total,
+              "Local training output limits exceed the combined 1 GiB bound");
+      total += output.maximum;
+      auto row = item;
+      row["sha256"] = std::string(64, 'f');
+      row["size_bytes"] = kTrainingOutputBytes;
+      row["confirmed"] = false;
+      row["failure_reason"] = "verification_unavailable";
+      rows.push_back(std::move(row));
+      result.outputs.push_back(std::move(output));
+    }
+    auto identity = value;
+    identity.erase("outputs");
+    identity.erase("retry_resume");
+    // Account for worst-case JSON escaping before admission. The remaining
+    // envelope has fixed fields and bounded IDs/digests, below 4 KiB.
+    require(
+        Json{{"training", std::move(identity)}, {"outputs", std::move(rows)}}
+                .dump()
+                .size() <= kSpecBytes - 4096,
+        "Local training output receipt would exceed 64 KiB");
+  }
+  return result;
+}
+
+struct ResourceRequest {
+  std::uint64_t cpu_slots = 0;
+  std::uint64_t memory_bytes = 0;
+  std::optional<std::string> gpu;
+  std::uint64_t gpu_memory_bytes = 0;
+};
+
+// nlohmann/json's noexcept null constructor has an exception-analysis false
+// positive; preserve the aggregate's inferred exception contract.
+// NOLINTNEXTLINE(bugprone-exception-escape)
+struct Resources {
+  Json capacity;
+  ResourceRequest request;
+};
+
+Resources resource_spec(const Json& value) {
+  fields(value, {"capacity", "request"});
+  Resources result;
+  result.capacity = value.at("capacity");
+  fields(result.capacity, {"cpu_slots", "memory_bytes", "gpus"});
+  const auto slots = positive(result.capacity.at("cpu_slots"), 65536);
+  const auto memory = positive(result.capacity.at("memory_bytes"),
+                               std::numeric_limits<std::int64_t>::max());
+  const auto& gpus = result.capacity.at("gpus");
+  require(gpus.is_object() && gpus.size() <= 16,
+          "Resource capacity allows at most 16 explicit GPU identities");
+  for (const auto& [id, bytes] : gpus.items()) {
+    identifier(id);
+    static_cast<void>(
+        positive(bytes, std::numeric_limits<std::int64_t>::max()));
+  }
+  const auto& request = value.at("request");
+  fields(request, {"cpu_slots", "memory_bytes", "gpu"});
+  result.request.cpu_slots = positive(request.at("cpu_slots"), slots);
+  result.request.memory_bytes = positive(request.at("memory_bytes"), memory);
+  if (!request.at("gpu").is_null()) {
+    const auto& gpu = request.at("gpu");
+    fields(gpu, {"id", "memory_bytes"});
+    result.request.gpu = text(gpu.at("id"));
+    identifier(*result.request.gpu);
+    require(gpus.contains(*result.request.gpu),
+            "Requested GPU identity is absent from the fixed capacity");
+    result.request.gpu_memory_bytes =
+        positive(gpu.at("memory_bytes"),
+                 positive(gpus.at(*result.request.gpu),
+                          std::numeric_limits<std::int64_t>::max()));
+  }
+  return result;
+}
+
+struct EnvironmentReference {
+  std::string source;
+  std::optional<ArtifactDigest> expected_digest;
+};
+
+struct RuntimeFile {
+  fs::path path;
+  ArtifactDigest digest;
+  std::uint64_t size = 0;
+};
+
+struct HostRequirements {
+  std::uint64_t cpu_threads = 0;
+  std::uint64_t total_memory_bytes = 0;
+  std::uint64_t available_memory_bytes = 0;
+  std::uint64_t disk_free_bytes = 0;
+};
+
+struct CudaRequirement {
+  std::string uuid;
+  std::uint32_t compute_major = 0;
+  std::uint32_t compute_minor = 0;
+  std::uint64_t free_memory_bytes = 0;
+};
+
+struct Spec {
+  Json json;
+  std::string canonical;
+  std::string sha256;
+  std::string executable_sha256;
+  std::string project;
+  std::string experiment;
+  LocalProcessOptions process;
+  std::map<std::string, EnvironmentReference> environment_references;
+  std::map<std::string, RuntimeFile> runtime_files;
+  std::optional<HostRequirements> host_requirements;
+  std::optional<CudaRequirement> cuda_device;
+  std::uint64_t maximum_attempts = 1;
+  std::uint64_t retry_delay_ms = 0;
+  std::optional<std::uint64_t> deadline_unix_ms;
+  std::set<std::uint32_t> retry_exit_codes;
+  std::optional<TrainingSpec> training;
+  std::optional<Resources> resources;
+};
+
+Spec read_spec(const Json& value) {
+  fields(
+      value,
+      {"format", "schema_version", "project_id", "experiment_id", "executable",
+       "executable_sha256", "arguments", "working_directory", "environment",
+       "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
+      {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
+       "deadline_unix_ms", "training", "resources", "environment_refs",
+       "environment_sha256", "os_memory_limit", "runtime_files",
+       "host_requirements", "cpu_affinity", "cuda_device"});
+  schema(value, "jyppx.liuding.local_run_spec");
+  Spec result;
+  result.json = value;
+  result.canonical = value.dump();
+  require(result.canonical.size() <= kSpecBytes,
+          "Local execution spec exceeds 64 KiB");
+  result.sha256 = digest(result.canonical).hex;
+  result.project = text(value.at("project_id"));
+  result.experiment = text(value.at("experiment_id"));
+  identifier(result.project);
+  identifier(result.experiment);
+  result.executable_sha256 = text(value.at("executable_sha256"));
+  validate_artifact_digest({.hex = result.executable_sha256});
+  auto& process = result.process;
+  process.executable = fs::u8path(text(value.at("executable")));
+  process.working_directory = fs::u8path(text(value.at("working_directory")));
+  require(process.executable.is_absolute() &&
+              process.working_directory.is_absolute(),
+          "Local executable and working directory must be absolute");
+  if (value.contains("cpu_affinity")) {
+    const auto& cpus = value.at("cpu_affinity");
+    require(cpus.is_array() && !cpus.empty() && cpus.size() <= 1024,
+            "CPU affinity requires 1-1024 sorted distinct CPU IDs");
+    for (const auto& item : cpus) {
+      const auto id = static_cast<std::uint32_t>(unsigned_number(item, 1023));
+      require(process.cpu_affinity.empty() || process.cpu_affinity.back() < id,
+              "CPU affinity IDs must be strictly increasing");
+      process.cpu_affinity.push_back(id);
+    }
+  }
+  if (value.contains("host_requirements")) {
+    const auto& host = value.at("host_requirements");
+    fields(host, {},
+           {"minimum_cpu_threads", "minimum_total_memory_bytes",
+            "minimum_available_memory_bytes", "minimum_disk_free_bytes"});
+    require(!host.empty(), "Declare at least one host resource minimum");
+    HostRequirements minimum;
+    const auto read = [&](const char* name) -> std::uint64_t {
+      return host.contains(name)
+                 ? positive(host.at(name),
+                            std::numeric_limits<std::int64_t>::max())
+                 : 0;
+    };
+    minimum.cpu_threads = read("minimum_cpu_threads");
+    minimum.total_memory_bytes = read("minimum_total_memory_bytes");
+    minimum.available_memory_bytes = read("minimum_available_memory_bytes");
+    minimum.disk_free_bytes = read("minimum_disk_free_bytes");
+    result.host_requirements = minimum;
+  }
+  if (value.contains("runtime_files")) {
+    const auto& files = value.at("runtime_files");
+    require(files.is_object() && !files.empty() && files.size() <= 64,
+            "Declare 1-64 named runtime files");
+    std::set<std::string> paths;
+    std::uint64_t total = 0;
+    constexpr std::uint64_t maximum_total = 4ULL << 30U;
+    for (const auto& [name, declaration] : files.items()) {
+      identifier(name);
+      fields(declaration, {"path", "sha256", "size_bytes"});
+      RuntimeFile file{
+          .path = fs::u8path(text(declaration.at("path"))),
+          .digest = {.hex = text(declaration.at("sha256"))},
+          .size = unsigned_number(declaration.at("size_bytes"), 2ULL << 30U)};
+      validate_artifact_digest(file.digest);
+      require(file.path.is_absolute(), "Runtime file paths must be absolute");
+      for (const auto& part : file.path)
+        require(part != "." && part != "..",
+                "Runtime file paths must not contain '.' or '..'");
+      auto key = path_text(file.path.lexically_normal());
+#if defined(_WIN32)
+      key = environment_key(key);
+#endif
+      require(paths.insert(std::move(key)).second,
+              "Runtime file paths must be unique after lexical normalization");
+      require(file.size <= maximum_total - total,
+              "Declared runtime files exceed 4 GiB in total");
+      total += file.size;
+      result.runtime_files.emplace(name, std::move(file));
+    }
+  }
+  require(
+      value.at("arguments").is_array() && value.at("arguments").size() <= 256,
+      "Local execution allows at most 256 arguments");
+  std::size_t launch_bytes = path_text(process.executable).size() + 1;
+  for (const auto& item : value.at("arguments")) {
+    process.arguments.push_back(text(item));
+    launch_bytes += process.arguments.back().size() + 1;
+  }
+  require(value.at("environment").is_object() &&
+              value.at("environment").size() <= 128,
+          "Local execution allows at most 128 environment overrides");
+  std::set<std::string> environment_names;
+  for (const auto& [name, item] : value.at("environment").items()) {
+    require(!name.empty() && name.find('=') == std::string::npos &&
+                name.find('\0') == std::string::npos &&
+                !reserved_environment_name(name),
+            "Invalid or reserved local environment name");
+    require(environment_names.insert(environment_key(name)).second,
+            "Environment destinations must be unique ignoring ASCII case");
+    process.environment[name] = text(item);
+    launch_bytes += name.size() + process.environment[name].size() + 2;
+  }
+  if (value.contains("environment_refs")) {
+    const auto& references = value.at("environment_refs");
+    require(references.is_object() &&
+                references.size() + process.environment.size() <= 128,
+            "Local execution allows at most 128 combined environment entries");
+    for (const auto& [name, reference] : references.items()) {
+      environment_reference_name(name);
+      require(environment_names.insert(environment_key(name)).second,
+              "Environment reference destinations must be unique ignoring "
+              "ASCII case");
+      fields(reference, {"source", "name"}, {"sha256"});
+      require(text(reference.at("source")) == "process_environment",
+              "Unknown environment reference source");
+      EnvironmentReference entry{.source = text(reference.at("name"))};
+      environment_reference_name(entry.source);
+      if (reference.contains("sha256")) {
+        require(reference.at("sha256").is_string(),
+                "Environment reference SHA-256 must be a string");
+        entry.expected_digest =
+            ArtifactDigest{.hex = text(reference.at("sha256"))};
+        validate_artifact_digest(*entry.expected_digest);
+      }
+      result.environment_references.emplace(name, std::move(entry));
+    }
+  }
+  require(launch_bytes <= kSpecBytes,
+          "Local explicit argv/environment exceeds 64 KiB");
+  process.inherit_environment = value.at("inherit_environment").get<bool>();
+  if (value.contains("environment_sha256")) {
+    require(value.at("environment_sha256").is_string(),
+            "Environment SHA-256 must be a string");
+    process.environment_sha256 = text(value.at("environment_sha256"));
+    validate_artifact_digest({.hex = *process.environment_sha256});
+  }
+  process.timeout = std::chrono::milliseconds(
+      positive(value.at("timeout_ms"), 24ULL * 60 * 60 * 1000));
+  process.max_stdout_bytes = static_cast<std::size_t>(positive(
+      value.value("max_stdout_bytes", Json(1U << 20U)), kCaptureBytes));
+  process.max_stderr_bytes = static_cast<std::size_t>(positive(
+      value.value("max_stderr_bytes", Json(1U << 20U)), kCaptureBytes));
+  result.maximum_attempts =
+      positive(value.at("max_attempts"), kMaximumAttempts);
+  result.retry_delay_ms =
+      unsigned_number(value.value("retry_delay_ms", Json(0)), 60000);
+  if (value.contains("deadline_unix_ms"))
+    result.deadline_unix_ms = positive(
+        value.at("deadline_unix_ms"), std::numeric_limits<std::int64_t>::max());
+  require(value.at("retry_exit_codes").is_array() &&
+              value.at("retry_exit_codes").size() <= 64,
+          "Declare at most 64 retryable native exit codes");
+  for (const auto& item : value.at("retry_exit_codes")) {
+    const auto code = static_cast<std::uint32_t>(
+        positive(item, std::numeric_limits<std::uint32_t>::max()));
+    require(result.retry_exit_codes.insert(code).second,
+            "Retry exit codes must be unique and nonzero");
+  }
+  if (value.contains("training"))
+    result.training = training_spec(value.at("training"));
+  if (result.training && result.training->retry_checkpoint) {
+    require(result.maximum_attempts > 1 && !result.retry_exit_codes.empty(),
+            "Checkpoint continuation requires a bounded retry policy");
+    for (const auto& [name, input] : result.training->artifacts) {
+      static_cast<void>(input);
+      for (std::uint64_t index = 1; index <= result.maximum_attempts; ++index)
+        require(!result.training->artifacts.contains(name + "." +
+                                                     std::to_string(index)),
+                "Training artifact names collide with retry input references");
+    }
+  }
+  if (value.contains("resources"))
+    result.resources = resource_spec(value.at("resources"));
+  if (result.resources && !process.cpu_affinity.empty())
+    require(result.resources->request.cpu_slots <= process.cpu_affinity.size(),
+            "CPU slot request exceeds the declared CPU affinity");
+  if (value.contains("cuda_device")) {
+    const auto& cuda = value.at("cuda_device");
+    fields(cuda, {"uuid"},
+           {"minimum_compute_capability", "minimum_free_memory_bytes"});
+    CudaRequirement required{.uuid = text(cuda.at("uuid"))};
+    require(local_cuda_uuid_is_valid(required.uuid),
+            "CUDA placement requires a full lowercase physical GPU UUID");
+    require(
+        result.resources && result.resources->request.gpu &&
+            *result.resources->request.gpu == required.uuid,
+        "CUDA placement and logical GPU reservation must use the same UUID");
+    for (const auto& [id, bytes] :
+         result.resources->capacity.at("gpus").items()) {
+      static_cast<void>(bytes);
+      require(local_cuda_uuid_is_valid(id),
+              "CUDA-bound capacity must use full physical GPU UUIDs only");
+    }
+    if (cuda.contains("minimum_compute_capability")) {
+      const auto& capability = cuda.at("minimum_compute_capability");
+      require(capability.is_array() && capability.size() == 2,
+              "CUDA compute capability requires [major, minor]");
+      required.compute_major =
+          static_cast<std::uint32_t>(positive(capability.at(0), 99));
+      required.compute_minor =
+          static_cast<std::uint32_t>(unsigned_number(capability.at(1), 99));
+    }
+    if (cuda.contains("minimum_free_memory_bytes"))
+      required.free_memory_bytes =
+          positive(cuda.at("minimum_free_memory_bytes"),
+                   std::numeric_limits<std::int64_t>::max());
+    for (const auto& name : environment_names)
+      require(name != "CUDA_VISIBLE_DEVICES",
+              "CUDA placement owns the CUDA_VISIBLE_DEVICES override");
+    require(environment_names.size() < 128 &&
+                launch_bytes + required.uuid.size() + 22 <= kSpecBytes,
+            "CUDA placement exceeds the local environment bound");
+    result.cuda_device = std::move(required);
+  }
+  if (value.contains("os_memory_limit")) {
+    const auto& memory = value.at("os_memory_limit");
+    fields(memory, {"bytes"}, {"cgroup_parent"});
+    LocalProcessMemoryLimit limit;
+    limit.bytes =
+        positive(memory.at("bytes"), std::numeric_limits<std::int64_t>::max());
+    require(limit.bytes % (1U << 20U) == 0,
+            "OS memory limit requires positive whole MiB");
+    if (memory.contains("cgroup_parent"))
+      limit.linux_cgroup_parent = fs::u8path(text(memory.at("cgroup_parent")));
+#if defined(_WIN32)
+    require(limit.linux_cgroup_parent.empty(),
+            "Windows OS memory limit uses its native Job Object");
+#elif defined(__linux__)
+    require(
+        limit.linux_cgroup_parent.is_absolute(),
+        "Linux OS memory limit requires an absolute delegated cgroup parent");
+#else
+    require(false, "OS memory limiting is unavailable on this platform");
+#endif
+    process.memory_limit = std::move(limit);
+  }
+  return result;
+}
+
+LocalProcessOptions resolved_process(const Spec& spec) {
+  auto result = spec.process;
+  if (spec.cuda_device)
+    result.environment["CUDA_VISIBLE_DEVICES"] = spec.cuda_device->uuid;
+  if (spec.environment_references.empty()) return result;
+  std::size_t launch_bytes = path_text(result.executable).size() + 1;
+  for (const auto& argument : result.arguments)
+    launch_bytes += argument.size() + 1;
+  for (const auto& [name, value] : result.environment)
+    launch_bytes += name.size() + value.size() + 2;
+  for (const auto& [name, reference] : spec.environment_references) {
+    auto value = process_environment_value(reference.source);
+    // JSON's strict encoder checks UTF-8 without exposing the value on error.
+    try {
+      static_cast<void>(Json(value).dump());
+    } catch (const Json::exception&) {
+      throw InvalidArgument("Referenced environment value must be valid UTF-8");
+    }
+    launch_bytes += name.size() + value.size() + 2;
+    require(launch_bytes <= kSpecBytes,
+            "Local resolved argv/environment exceeds 64 KiB");
+    require(!reference.expected_digest ||
+                digest(value) == *reference.expected_digest,
+            "Referenced environment value differs from its declared SHA-256");
+    result.environment.emplace(name, std::move(value));
+  }
+  return result;
+}
+
+// Bind to committed run/CAS identities, not mutable external paths. The
+// consumer owns model/data interpretation and the actual native restore.
+RunMetadata job_metadata(SQLiteRunStore& store, std::string_view job);
+Spec frozen_spec(SQLiteRunStore& store, const RunMetadata& job);
+Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
+             std::uint64_t index, bool check_outputs = true);
+RunStatus terminal_status(const Json& result);
+std::string attempt_id(std::string_view job, std::uint64_t index);
+
+void training_source(SQLiteRunStore& store, std::string_view project,
+                     const TrainingInput& input) {
+  const auto source = store.find(input.run);
+  require(source && source->project_id == project &&
+              is_terminal_run_status(source->status) &&
+              source->status != RunStatus::interrupted,
+          "Training inputs require a terminal source run in this project");
+  const auto kind_tag = source->tags.find("liuding.local.kind");
+  if (kind_tag != source->tags.end() && kind_tag->second == "attempt") {
+    require(source->lineage.parent_run_id &&
+                source->tags.contains("liuding.local.index"),
+            "Local training source has incomplete attempt ownership");
+    const auto parent = job_metadata(store, *source->lineage.parent_run_id);
+    const auto source_spec = frozen_spec(store, parent);
+    const auto index = positive(
+        parse_json(source->tags.at("liuding.local.index")), kMaximumAttempts);
+    require(source->run_id == attempt_id(parent.run_id, index) &&
+                source->lineage.config_digest == source_spec.sha256 &&
+                source->experiment_id == source_spec.experiment,
+            "Local training source differs from its frozen attempt identity");
+    const auto confirmed = outcome(store, parent.run_id, source_spec, index);
+    require(confirmed.value("process_tree_cleanup_confirmed", false),
+            "Local training source has unconfirmed native process cleanup");
+    require(terminal_status(confirmed) == source->status,
+            "Local training source requires its confirmed attempt result");
+  }
+}
+
+std::vector<RunArtifactReference> training_references(
+    SQLiteRunStore& store, const Spec& spec,
+    std::optional<std::string_view> pinned_job = std::nullopt,
+    std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt,
+    std::string_view role_suffix = {}) {
+  std::vector<RunArtifactReference> result;
+  if (!spec.training) return result;
+  FileArtifactStore cas(store.artifact_root());
+  const auto add = [&](const TrainingInput& input, std::string role,
+                       RunArtifactKind kind, bool verify_source = false) {
+    if (!pinned_job) training_source(store, spec.project, input);
+    const auto pinned_role = role + std::string(role_suffix);
+    const auto reference = store.find_reference(
+        pinned_job ? *pinned_job : std::string_view(input.run),
+        pinned_job ? std::string_view(pinned_role)
+                   : std::string_view(input.reference),
+        stop, deadline);
+    require(reference && reference->kind == kind &&
+                (!pinned_job || reference->role == pinned_role) &&
+                reference->artifact.digest == input.digest &&
+                reference->artifact.size_bytes == input.size,
+            "Training input differs from its committed run/CAS identity");
+    if (pinned_job || verify_source) {
+      const auto reader = cas.open(input.digest, stop, deadline);
+      require(reader->size_bytes() == input.size,
+              "Training input content size differs from the frozen spec");
+    }
+    auto bound = *reference;
+    bound.reference_id = role;
+    bound.role = std::move(role);
+    result.push_back(std::move(bound));
+  };
+  add(spec.training->configuration, "local.training.configuration",
+      RunArtifactKind::artifact);
+  add(spec.training->data_manifest, "local.training.data_manifest",
+      RunArtifactKind::artifact);
+  for (const auto& [name, input] : spec.training->artifacts)
+    add(input, "local.training.artifact." + name, RunArtifactKind::artifact,
+        true);
+  if (spec.training->resume)
+    add(*spec.training->resume, "local.training.resume",
+        RunArtifactKind::checkpoint);
+  return result;
+}
+
+void verify_runtime_files(const Spec& spec) {
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  const auto check_deadline = [&] {
+    if (std::chrono::steady_clock::now() >= deadline)
+      throw DeadlineExceeded("Runtime file verification exceeded 30 seconds");
+  };
+  std::array<char, 65536> buffer{};
+  for (const auto& [name, file] : spec.runtime_files) {
+    static_cast<void>(name);
+    check_deadline();
+    ordinary_path(file.path);
+    require(fs::is_regular_file(file.path),
+            "Declared runtime file must be a regular file");
+    require(fs::file_size(file.path) == file.size,
+            "Runtime file size differs from the frozen spec");
+    std::ifstream stream(file.path, std::ios::binary);
+    if (!stream) throw IoError("Cannot read declared runtime file");
+    Sha256 hash;
+    std::uint64_t count = 0;
+    while (stream) {
+      check_deadline();
+      stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+      const auto got = static_cast<std::size_t>(stream.gcount());
+      require(got <= file.size - count,
+              "Runtime file grew beyond its declared size");
+      count += got;
+      hash.update(std::as_bytes(std::span(buffer.data(), got)));
+    }
+    check_deadline();
+    if (!stream.eof() || count != file.size ||
+        fs::file_size(file.path) != file.size)
+      throw IoError("Runtime file changed while computing its identity");
+    require(sha256_digest_hex(hash.finish()) == file.digest.hex,
+            "Runtime file SHA-256 differs from the frozen spec");
+  }
+}
+
+void verify_host_requirements(const Spec& spec) {
+  if (!spec.host_requirements) return;
+  std::uint64_t cpu_threads = 0, total_memory = 0, available_memory = 0;
+#if defined(_WIN32)
+  cpu_threads = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+  MEMORYSTATUSEX memory{};
+  memory.dwLength = sizeof(memory);
+  if (!GlobalMemoryStatusEx(&memory) || cpu_threads == 0)
+    throw IoError("Cannot inspect native host CPU and physical memory");
+  total_memory = memory.ullTotalPhys;
+  available_memory = memory.ullAvailPhys;
+#elif defined(__linux__)
+  const auto online = sysconf(_SC_NPROCESSORS_ONLN);
+  if (online <= 0) throw IoError("Cannot inspect online host CPUs");
+  cpu_threads = static_cast<std::uint64_t>(online);
+  std::array<char, 65536> buffer{};
+  std::ifstream memory("/proc/meminfo", std::ios::binary);
+  memory.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+  if (!memory.eof() || memory.bad())
+    throw IoError("Cannot read bounded host physical memory information");
+  std::string_view remaining(buffer.data(),
+                             static_cast<std::size_t>(memory.gcount()));
+  const auto entry = [&](std::string_view line, std::string_view key,
+                         std::uint64_t& destination) {
+    if (!line.starts_with(key)) return;
+    line.remove_prefix(key.size());
+    const auto first = line.find_first_not_of(" \t");
+    if (first == line.npos)
+      throw IoError("Incomplete host physical memory information");
+    line.remove_prefix(first);
+    std::uint64_t value = 0;
+    const auto [end, error] =
+        std::from_chars(line.data(), line.data() + line.size(), value);
+    if (error != std::errc{} || end == line.data() ||
+        value > std::numeric_limits<std::uint64_t>::max() / 1024)
+      throw IoError("Invalid host physical memory information");
+    line.remove_prefix(static_cast<std::size_t>(end - line.data()));
+    const auto unit = line.find_first_not_of(" \t");
+    if (unit == line.npos || line.substr(unit) != "kB" || destination != 0)
+      throw IoError("Invalid host physical memory unit or duplicate entry");
+    destination = value * 1024;
+  };
+  while (!remaining.empty()) {
+    const auto newline = remaining.find('\n');
+    const auto line = remaining.substr(0, newline);
+    entry(line, "MemTotal:", total_memory);
+    entry(line, "MemAvailable:", available_memory);
+    if (newline == remaining.npos) break;
+    remaining.remove_prefix(newline + 1);
+  }
+  if (total_memory == 0)
+    throw IoError("Host physical memory information is unavailable");
+#else
+  throw CompatibilityError("Native host resource admission is unavailable");
+#endif
+  const auto& required = *spec.host_requirements;
+  if (cpu_threads < required.cpu_threads)
+    throw ResourceExhausted(
+        "Host online CPU count is below its declared minimum");
+  if (total_memory < required.total_memory_bytes)
+    throw ResourceExhausted(
+        "Host physical memory is below its declared minimum");
+  if (available_memory < required.available_memory_bytes)
+    throw ResourceExhausted(
+        "Host available memory is below its declared minimum");
+  if (required.disk_free_bytes != 0) {
+    std::error_code error;
+    const auto disk = fs::space(spec.process.working_directory, error);
+    if (error || disk.available == static_cast<std::uintmax_t>(-1))
+      throw IoError("Cannot inspect working-directory filesystem availability");
+    if (disk.available < required.disk_free_bytes)
+      throw ResourceExhausted(
+          "Working-directory disk availability is below its declared minimum");
+  }
+}
+
+std::optional<LocalCudaDevice> verify_cuda_device(const Spec& spec) {
+  if (!spec.cuda_device) return std::nullopt;
+  const auto devices = local_cuda_devices();
+  const auto& required = *spec.cuda_device;
+  const auto found = std::find_if(
+      devices.begin(), devices.end(),
+      [&](const auto& device) { return device.uuid == required.uuid; });
+  require(found != devices.end(), "Requested CUDA GPU UUID is unavailable");
+  const auto& resource = *spec.resources;
+  if (resource.capacity.at("gpus").at(required.uuid).get<std::uint64_t>() >
+          found->total_memory_bytes ||
+      found->free_memory_bytes < std::max(required.free_memory_bytes,
+                                          resource.request.gpu_memory_bytes))
+    throw ResourceExhausted("Requested CUDA GPU memory is unavailable");
+  if (std::pair{found->compute_major, found->compute_minor} <
+      std::pair{required.compute_major, required.compute_minor})
+    throw ResourceExhausted("Requested CUDA compute capability is unavailable");
+  return *found;
+}
+
+void preflight(const Spec& spec) {
+  if (!spec.process.cpu_affinity.empty()) {
+    const auto available = local_process_available_cpu_ids();
+    const auto& requested = spec.process.cpu_affinity;
+    require(std::includes(available.begin(), available.end(), requested.begin(),
+                          requested.end()),
+            "Requested CPU affinity is unavailable to the launcher");
+  }
+  ordinary_path(spec.process.working_directory);
+  require(fs::is_directory(spec.process.working_directory),
+          "Local working directory must already exist");
+  verify_host_requirements(spec);
+  static_cast<void>(verify_cuda_device(spec));
+  const auto actual = local_execution_detail::file_digest(
+      spec.process.executable, local_execution_detail::kExecutableLimit);
+  require(actual.hex == spec.executable_sha256,
+          "Local executable SHA-256 differs from the frozen spec");
+  if (!spec.runtime_files.empty()) verify_runtime_files(spec);
+  if (!spec.environment_references.empty() || spec.process.environment_sha256) {
+    const auto process = resolved_process(spec);
+    require(!process.environment_sha256 ||
+                local_process_environment_sha256(process) ==
+                    *process.environment_sha256,
+            "Effective native environment differs from its declared SHA-256");
+  }
+}
+
+RunArtifactReference put_json(SQLiteRunStore& store, std::string_view run,
+                              std::string id, std::string role,
+                              const Json& value, std::uint64_t timestamp) {
+  const auto content = value.dump();
+  return store.put_artifact(run, std::move(id), RunArtifactKind::artifact,
+                            std::move(role), bytes(content),
+                            {.logical_name = "local-execution.json",
+                             .media_type = "application/json",
+                             .producer = std::string(kProducer),
+                             .expected_size_bytes = content.size()},
+                            timestamp, digest(content));
+}
+
+Json reference_json(SQLiteRunStore& store, std::string_view run,
+                    std::string_view id, std::string_view role,
+                    std::uint64_t maximum = kSpecBytes) {
+  const auto ref = store.find_reference(run, id);
+  if (!ref || ref->kind != RunArtifactKind::artifact || ref->role != role ||
+      ref->artifact.size_bytes > maximum)
+    throw CompatibilityError(
+        "Missing or incompatible local execution reference");
+  FileArtifactStore cas(store.artifact_root(), {.max_artifact_bytes = maximum});
+  auto reader = cas.open(ref->artifact.digest);
+  if (reader->size_bytes() != ref->artifact.size_bytes)
+    throw SerializationError("Local execution reference size mismatch");
+  std::string result(static_cast<std::size_t>(reader->size_bytes()), '\0');
+  std::size_t offset = 0;
+  while (offset < result.size()) {
+    const auto got = reader->read(
+        std::as_writable_bytes(std::span(result.data(), result.size()))
+            .subspan(offset));
+    if (!got) throw SerializationError("Truncated local execution artifact");
+    offset += got;
+  }
+  if (digest(result) != ref->artifact.digest)
+    throw SerializationError("Local execution artifact changed while reading");
+  return parse_json(result);
+}
+
+RunMetadata job_metadata(SQLiteRunStore& store, std::string_view job) {
+  const auto metadata = store.find(job);
+  if (!metadata || !metadata->tags.contains("liuding.local.kind") ||
+      metadata->tags.at("liuding.local.kind") != "job")
+    throw InvalidArgument("Select an existing local execution job");
+  return *metadata;
+}
+
+Spec frozen_spec(SQLiteRunStore& store, const RunMetadata& job) {
+  auto spec =
+      read_spec(reference_json(store, job.run_id, "local.spec", "local.spec"));
+  require(job.lineage.config_digest == spec.sha256,
+          "Local execution spec differs from job lineage");
+  return spec;
+}
+
+std::string attempt_id(std::string_view job, std::uint64_t index) {
+  return "local-" + digest(job).hex + ".attempt-" + std::to_string(index);
+}
+
+std::uint64_t process_id() {
+#if defined(_WIN32)
+  return GetCurrentProcessId();
+#else
+  return static_cast<std::uint64_t>(::getpid());
+#endif
+}
+
+void verify_worker_launch(const LocalJobWorkerLaunch* launch) {
+  require(launch != nullptr && launch->executable.is_absolute(),
+          "A new attempt requires an absolute native worker executable");
+  validate_artifact_digest({.hex = launch->executable_sha256});
+  require(launch->arguments.size() <= 256,
+          "Native worker prefix exceeds 256 arguments");
+  std::uint64_t size = 0;
+  for (const auto& argument : launch->arguments) {
+    require(argument.find('\0') == std::string::npos &&
+                argument.size() <= kSpecBytes - size,
+            "Native worker arguments exceed the bounded launch contract");
+    size += argument.size();
+  }
+  require(local_execution_detail::file_digest(
+              launch->executable, local_execution_detail::kExecutableLimit)
+                  .hex == launch->executable_sha256,
+          "Native worker executable SHA-256 differs");
+}
+struct WorkerRequest {
+  std::uint64_t index;
+  std::string intent_sha256;
+};
+
+std::string_view native_status(LocalProcessStatus status) {
+  switch (status) {
+    case LocalProcessStatus::exited:
+      return "exited";
+    case LocalProcessStatus::signalled:
+      return "signalled";
+    case LocalProcessStatus::cancelled:
+      return "cancelled";
+    case LocalProcessStatus::timed_out:
+      return "timed_out";
+    case LocalProcessStatus::output_limit:
+      return "output_limit";
+  }
+  throw InvalidArgument("Unknown native local execution status");
+}
+
+bool native_succeeded(const Json& result) {
+  return result.at("status").get<std::string>() == "exited" &&
+         unsigned_number(result.at("exit_code"),
+                         std::numeric_limits<std::uint32_t>::max()) == 0;
+}
+
+bool succeeded(const Json& result) {
+  return native_succeeded(result) &&
+         result.value("training_outputs_confirmed", true);
+}
+
+RunStatus terminal_status(const Json& result) {
+  if (succeeded(result)) return RunStatus::completed;
+  return result.at("status").get<std::string>() == "cancelled"
+             ? RunStatus::cancelled
+             : RunStatus::failed;
+}
+
+bool checkpoint_retry(const Spec& spec) {
+  return spec.training && spec.training->retry_checkpoint.has_value();
+}
+
+std::string training_inputs_reference(std::uint64_t index) {
+  return "local.training.inputs." + std::to_string(index);
+}
+
+// Build only immutable identities here. Do not call outcome(): confirmed
+// result validation uses this helper without recursive result revalidation.
+Json expected_training_inputs(SQLiteRunStore& store, std::string_view job,
+                              const Spec& spec, std::uint64_t index) {
+  require(
+      checkpoint_retry(spec) && index != 0 && index <= spec.maximum_attempts,
+      "Attempt training inputs require the frozen continuation policy");
+  auto training = spec.json.at("training");
+  training.erase("retry_resume");
+  Json previous_result_sha256 = nullptr;
+  if (index > 1) {
+    const auto previous_id = attempt_id(job, index - 1);
+    const auto checkpoint =
+        store.find_reference(previous_id, *spec.training->retry_checkpoint);
+    require(checkpoint && checkpoint->kind == RunArtifactKind::checkpoint,
+            "Retry checkpoint reference is missing or has another kind");
+    const Json binding{{"run_id", previous_id},
+                       {"reference_id", checkpoint->reference_id},
+                       {"sha256", checkpoint->artifact.digest.hex},
+                       {"size_bytes", checkpoint->artifact.size_bytes}};
+    static_cast<void>(training_input(binding, 1ULL << 30U));
+    training["resume"] = {{"checkpoint", binding},
+                          {"restore_policy", "exact_only"}};
+    const auto previous_result =
+        store.find_reference(previous_id, "local.result");
+    require(previous_result &&
+                previous_result->kind == RunArtifactKind::artifact &&
+                previous_result->role == "local.result",
+            "Frozen training inputs require the preceding committed result");
+    previous_result_sha256 = previous_result->artifact.digest.hex;
+  }
+  const Json expected{{"format", "jyppx.liuding.local_training_inputs"},
+                      {"schema_version", 1},
+                      {"job_id", job},
+                      {"attempt_id", attempt_id(job, index)},
+                      {"index", index},
+                      {"spec_sha256", spec.sha256},
+                      {"previous_result_sha256", previous_result_sha256},
+                      {"training", std::move(training)}};
+  require(expected.dump().size() <= kSpecBytes,
+          "Frozen attempt training inputs exceed 64 KiB");
+  return expected;
+}
+
+bool declares_training_outputs(const Spec& spec) {
+  return spec.training && !spec.training->outputs.empty();
+}
+
+bool training_outputs_absent(SQLiteRunStore& store, const Spec& spec,
+                             std::string_view attempt) {
+  if (!declares_training_outputs(spec)) return true;
+  return std::all_of(spec.training->outputs.begin(),
+                     spec.training->outputs.end(), [&](const auto& output) {
+                       return !store.find_reference(attempt, output.reference);
+                     });
+}
+
+void verify_training_output(SQLiteRunStore& store, const TrainingOutput& output,
+                            const RunArtifactReference& reference,
+                            TelemetryDeadline deadline,
+                            std::stop_token stop = {}) {
+  // Bound the real open handle, not just the database's claimed byte count.
+  // open() hashes incrementally and retains that same verified handle.
+  FileArtifactStore cas(store.artifact_root(),
+                        {.max_artifact_bytes = output.maximum});
+  const auto reader = cas.open(reference.artifact.digest, stop, deadline);
+  require(reader->size_bytes() == reference.artifact.size_bytes,
+          "Local training output content size differs from its reference");
+}
+
+Json training_output_receipt_identity(SQLiteRunStore& store,
+                                      std::string_view job, const Spec& spec,
+                                      std::uint64_t index, const Json& result) {
+  const auto id = attempt_id(job, index);
+  const auto metadata = store.find(id);
+  require(metadata && metadata->project_id == spec.project &&
+              metadata->experiment_id == spec.experiment &&
+              metadata->lineage.parent_run_id == job &&
+              metadata->lineage.config_digest == spec.sha256 &&
+              metadata->tags.contains("liuding.local.kind") &&
+              metadata->tags.at("liuding.local.kind") == "attempt" &&
+              metadata->tags.contains("liuding.local.index") &&
+              metadata->tags.at("liuding.local.index") == std::to_string(index),
+          "Local training output attempt ownership mismatch");
+  const auto intent = reference_json(store, id, "local.intent", "local.intent");
+  Json expected_intent{{"format", "jyppx.liuding.local_attempt_intent"},
+                       {"schema_version", 1},
+                       {"job_id", job},
+                       {"attempt_id", id},
+                       {"index", index},
+                       {"spec_sha256", spec.sha256}};
+  if (checkpoint_retry(spec))
+    expected_intent["training_sha256"] = result.at("training_sha256");
+  require(intent == expected_intent,
+          "Local training output requires the original immutable intent");
+  const auto intent_reference = store.find_reference(id, "local.intent");
+  require(intent_reference &&
+              intent_reference->artifact.digest == digest(intent.dump()),
+          "Local training output intent is not its canonical CAS identity");
+  const auto owner = reference_json(store, id, "local.owner", "local.owner");
+  fields(owner, {"format", "schema_version", "job_id", "attempt_id", "index",
+                 "spec_sha256", "worker_process_id",
+                 "training_outputs_absent_at_start"});
+  schema(owner, "jyppx.liuding.local_attempt_owner");
+  require(text(owner.at("job_id")) == job &&
+              text(owner.at("attempt_id")) == id &&
+              text(owner.at("spec_sha256")) == spec.sha256 &&
+              positive(owner.at("index"), kMaximumAttempts) == index &&
+              positive(owner.at("worker_process_id"),
+                       std::numeric_limits<std::uint64_t>::max()) != 0 &&
+              owner.at("training_outputs_absent_at_start").get<bool>(),
+          "Local training outputs lack the owned, absent startup baseline");
+  const auto owner_reference = store.find_reference(id, "local.owner");
+  require(owner_reference &&
+              owner_reference->artifact.digest == digest(owner.dump()),
+          "Local training output owner is not its canonical CAS identity");
+  auto training =
+      checkpoint_retry(spec)
+          ? expected_training_inputs(store, job, spec, index).at("training")
+          : spec.json.at("training");
+  training.erase("outputs");
+  training.erase("retry_resume");
+  auto native = result;
+  native.erase("training_outputs_sha256");
+  native.erase("training_outputs_confirmed");
+  return {{"format", "jyppx.liuding.local_training_outputs"},
+          {"schema_version", 1},
+          {"job_id", job},
+          {"attempt_id", id},
+          {"index", index},
+          {"spec_sha256", spec.sha256},
+          {"intent_sha256", intent_reference->artifact.digest.hex},
+          {"owner_sha256", owner_reference->artifact.digest.hex},
+          {"native_result_sha256", digest(native.dump()).hex},
+          {"training", std::move(training)}};
+}
+
+Json collect_training_outputs(SQLiteRunStore& store, std::string_view job,
+                              const Spec& spec, std::uint64_t index,
+                              const Json& result) {
+  auto receipt =
+      training_output_receipt_identity(store, job, spec, index, result);
+  auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       kTrainingOutputVerification)
+                       .count();
+  if (spec.deadline_unix_ms) {
+    const auto wall = now_ms();
+    const auto left =
+        *spec.deadline_unix_ms > wall ? *spec.deadline_unix_ms - wall : 0;
+    remaining = static_cast<std::int64_t>(
+        std::min(static_cast<std::uint64_t>(remaining), left));
+  }
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(remaining);
+  std::stop_source cancellation;
+  std::atomic<bool> monitor_error{false};
+  std::jthread monitor([&](std::stop_token stop) {
+    while (!stop.stop_requested()) {
+      try {
+        if (store.find_reference(job, "local.cancel", stop, deadline)) {
+          cancellation.request_stop();
+          return;
+        }
+      } catch (const Error& error) {
+        if (stop.stop_requested()) return;
+        if (error.code() != ErrorCode::cancelled &&
+            error.code() != ErrorCode::deadline_exceeded)
+          monitor_error = true;
+        cancellation.request_stop();
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+  });
+  Json rows = Json::array();
+  bool confirmed = true;
+  for (std::size_t i = 0; i < spec.training->outputs.size(); ++i) {
+    const auto& output = spec.training->outputs[i];
+    auto row = spec.json.at("training").at("outputs").at(i);
+    row["sha256"] = nullptr;
+    row["size_bytes"] = nullptr;
+    row["confirmed"] = false;
+    std::string reason;
+    try {
+      const auto reference =
+          store.find_reference(attempt_id(job, index), output.reference,
+                               cancellation.get_token(), deadline);
+      if (!reference) {
+        reason = "missing_reference";
+      } else {
+        row["sha256"] = reference->artifact.digest.hex;
+        row["size_bytes"] = reference->artifact.size_bytes;
+        if (reference->kind != output.kind)
+          reason = "kind_mismatch";
+        else if (reference->role != output.role)
+          reason = "role_mismatch";
+        else if (reference->artifact.size_bytes > output.maximum)
+          reason = "size_limit";
+        else
+          verify_training_output(store, output, *reference, deadline,
+                                 cancellation.get_token());
+      }
+    } catch (const Error& error) {
+      // A fixed diagnostic keeps the receipt bounded even for long paths or
+      // platform errors. Failure never rewrites the native exit result.
+      if (monitor_error.load())
+        reason = "verification_unavailable";
+      else if (std::chrono::steady_clock::now() >= deadline ||
+               error.code() == ErrorCode::deadline_exceeded)
+        reason = "confirmation_deadline";
+      else if (error.code() == ErrorCode::cancelled)
+        reason = "cancelled";
+      else
+        reason = "verification_unavailable";
+    }
+    row["confirmed"] = reason.empty();
+    row["failure_reason"] = reason.empty() ? Json(nullptr) : Json(reason);
+    confirmed = confirmed && reason.empty();
+    rows.push_back(std::move(row));
+  }
+  monitor.request_stop();
+  monitor.join();
+  std::string failure;
+  if (monitor_error.load())
+    failure = "verification_unavailable";
+  else if (std::chrono::steady_clock::now() >= deadline)
+    failure = "confirmation_deadline";
+  else if (cancellation.stop_requested())
+    failure = "cancelled";
+  else {
+    try {
+      if (store.find_reference(job, "local.cancel", {}, deadline))
+        failure = "cancelled";
+    } catch (const Error& error) {
+      failure = error.code() == ErrorCode::deadline_exceeded
+                    ? "confirmation_deadline"
+                    : "verification_unavailable";
+    }
+  }
+  receipt["failure_reason"] = failure.empty() ? Json(nullptr) : Json(failure);
+  receipt["confirmed"] = confirmed && failure.empty();
+  receipt["outputs"] = std::move(rows);
+  require(receipt.dump().size() <= kSpecBytes,
+          "Local training output receipt exceeds 64 KiB");
+  return receipt;
+}
+
+void validate_training_outputs(SQLiteRunStore& store, std::string_view job,
+                               const Spec& spec, std::uint64_t index,
+                               const Json& result) {
+  // Cleanup uncertainty has priority over every output check. In particular,
+  // do not require a receipt, hash output CAS, or repair state on this path.
+  if (!result.value("process_tree_cleanup_confirmed", false)) return;
+  const bool required =
+      declares_training_outputs(spec) && native_succeeded(result);
+  require(result.contains("training_outputs_sha256") == required &&
+              result.contains("training_outputs_confirmed") == required,
+          "Local result has a different declared output policy");
+  if (!required) return;
+  const auto id = attempt_id(job, index);
+  const auto receipt = reference_json(store, id, "local.training.outputs",
+                                      "local.training.outputs", kSpecBytes);
+  require(
+      digest(receipt.dump()).hex == text(result.at("training_outputs_sha256")),
+      "Local result differs from its training output receipt");
+  auto identity = receipt;
+  identity.erase("confirmed");
+  identity.erase("outputs");
+  identity.erase("failure_reason");
+  require(identity ==
+              training_output_receipt_identity(store, job, spec, index, result),
+          "Local training output receipt identity mismatch");
+  const auto& rows = receipt.at("outputs");
+  require(rows.is_array() && rows.size() == spec.training->outputs.size(),
+          "Local training output receipt has different declarations");
+  const auto deadline =
+      std::chrono::steady_clock::now() + kTrainingOutputVerification;
+  bool confirmed = receipt.at("failure_reason").is_null();
+  if (!confirmed) {
+    const auto failure = text(receipt.at("failure_reason"));
+    require(failure == "cancelled" || failure == "confirmation_deadline" ||
+                failure == "verification_unavailable",
+            "Unknown local training output confirmation failure");
+  }
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    const auto& row = rows.at(i);
+    fields(row, {"reference_id", "kind", "role", "max_size_bytes", "sha256",
+                 "size_bytes", "confirmed", "failure_reason"});
+    auto declaration = row;
+    for (const auto key :
+         {"sha256", "size_bytes", "confirmed", "failure_reason"})
+      declaration.erase(key);
+    require(declaration == spec.json.at("training").at("outputs").at(i),
+            "Local training output receipt declaration mismatch");
+    const bool passed = row.at("confirmed").get<bool>();
+    confirmed = confirmed && passed;
+    const auto& output = spec.training->outputs[i];
+    if (!passed) {
+      const auto reason = text(row.at("failure_reason"));
+      require(reason == "missing_reference" || reason == "kind_mismatch" ||
+                  reason == "role_mismatch" || reason == "size_limit" ||
+                  reason == "cancelled" || reason == "confirmation_deadline" ||
+                  reason == "verification_unavailable",
+              "Unknown local training output rejection");
+      require(row.at("sha256").is_null() == row.at("size_bytes").is_null(),
+              "Incomplete rejected training output observation");
+      if (!row.at("sha256").is_null()) {
+        validate_artifact_digest({.hex = text(row.at("sha256"))});
+        static_cast<void>(unsigned_number(
+            row.at("size_bytes"), std::numeric_limits<std::uint64_t>::max()));
+      }
+      // A failed receipt is immutable evidence of that check. Publishing a
+      // formerly missing output later cannot turn it into a successful run.
+      continue;
+    }
+    require(row.at("failure_reason").is_null(),
+            "Confirmed local training output has a rejection");
+    const auto reference =
+        store.find_reference(id, output.reference, {}, deadline);
+    require(reference && reference->kind == output.kind &&
+                reference->role == output.role &&
+                reference->artifact.digest.hex == text(row.at("sha256")) &&
+                reference->artifact.size_bytes ==
+                    unsigned_number(row.at("size_bytes"), output.maximum),
+            "Local training output reference differs from its receipt");
+    verify_training_output(store, output, *reference, deadline);
+  }
+  require(receipt.at("confirmed").get<bool>() == confirmed &&
+              result.at("training_outputs_confirmed").get<bool>() == confirmed,
+          "Local training output verdict differs from its receipt");
+}
+
+Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
+             std::uint64_t index, bool check_outputs) {
+  const auto id = attempt_id(job, index);
+  auto value = reference_json(store, id, "local.result", "local.result");
+  fields(
+      value,
+      {"format", "schema_version", "job_id", "attempt_id", "index",
+       "spec_sha256", "status", "exit_code", "signal", "process_id",
+       "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
+       "stdout_sha256", "stderr_sha256", "failure_reason"},
+      {"process_tree_cleanup_confirmed", "training_sha256",
+       "training_outputs_sha256", "training_outputs_confirmed",
+       "resource_usage", "memory_boundary", "cpu_affinity", "cuda_placement"});
+  schema(value, "jyppx.liuding.local_attempt_result");
+  // Older immutable results have no accounting field. Do not fabricate one
+  // during replay; a present measurement must retain explicit OS semantics.
+  if (value.contains("resource_usage") &&
+      !value.at("resource_usage").is_null()) {
+    const auto& usage = value.at("resource_usage");
+    fields(usage,
+           {"source", "user_cpu_time_us", "system_cpu_time_us",
+            "peak_resident_memory_bytes"},
+           {});
+    const auto source = text(usage.at("source"));
+    require(source == "windows_process" || source == "linux_wait4",
+            "Unknown local resource accounting source");
+    bool measured = false;
+    for (const auto name : {"user_cpu_time_us", "system_cpu_time_us",
+                            "peak_resident_memory_bytes"}) {
+      if (!usage.at(name).is_null()) {
+        static_cast<void>(unsigned_number(
+            usage.at(name), std::numeric_limits<std::uint64_t>::max()));
+        measured = true;
+      }
+    }
+    const auto pid = unsigned_number(value.at("process_id"),
+                                     std::numeric_limits<std::uint64_t>::max());
+    require(measured && pid != 0,
+            "Local resource accounting requires a measured launched process");
+  }
+  if (!declares_training_outputs(spec))
+    require(!value.contains("training_outputs_sha256") &&
+                !value.contains("training_outputs_confirmed"),
+            "Local result has undeclared training output fields");
+  require(value.at("job_id").get<std::string>() == job &&
+              value.at("attempt_id").get<std::string>() == id &&
+              unsigned_number(value.at("index"), kMaximumAttempts) == index &&
+              value.at("spec_sha256").get<std::string>() == spec.sha256,
+          "Local attempt result identity mismatch");
+  const auto state = value.at("status").get<std::string>();
+  if (value.contains("cuda_placement") &&
+      !value.at("cuda_placement").is_null()) {
+    const auto& placement = value.at("cuda_placement");
+    fields(placement, {"source", "uuid", "logical_device", "total_memory_bytes",
+                       "free_memory_bytes", "compute_capability"});
+    require(spec.cuda_device && placement.at("source") == "nvml_prelaunch" &&
+                placement.at("uuid") == spec.cuda_device->uuid &&
+                unsigned_number(placement.at("logical_device"), 0) == 0 &&
+                unsigned_number(value.at("process_id"),
+                                std::numeric_limits<std::uint64_t>::max()) != 0,
+            "Local CUDA placement receipt differs from its frozen requirement");
+    const auto total = positive(placement.at("total_memory_bytes"),
+                                std::numeric_limits<std::int64_t>::max());
+    const auto free = unsigned_number(placement.at("free_memory_bytes"), total);
+    const auto& capability = placement.at("compute_capability");
+    require(capability.is_array() && capability.size() == 2,
+            "Local CUDA placement has invalid compute capability");
+    const auto major = positive(capability.at(0), 99);
+    const auto minor = unsigned_number(capability.at(1), 99);
+    require(total >= spec.resources->capacity.at("gpus")
+                         .at(spec.cuda_device->uuid)
+                         .get<std::uint64_t>() &&
+                free >= std::max(spec.resources->request.gpu_memory_bytes,
+                                 spec.cuda_device->free_memory_bytes) &&
+                std::pair{major, minor} >=
+                    std::pair<std::uint64_t, std::uint64_t>{
+                        spec.cuda_device->compute_major,
+                        spec.cuda_device->compute_minor},
+            "Local CUDA placement receipt does not satisfy admission");
+  } else {
+    require(!spec.cuda_device || value.at("process_id") == 0,
+            "A launched CUDA-bound attempt requires its placement receipt");
+  }
+  if (value.contains("cpu_affinity") && !value.at("cpu_affinity").is_null()) {
+    const auto& placement = value.at("cpu_affinity");
+    fields(placement, {"source", "cpu_ids"});
+    const auto source = text(placement.at("source"));
+    const auto& ids = placement.at("cpu_ids");
+    require(ids.is_array() && ids.size() == spec.process.cpu_affinity.size(),
+            "Local CPU affinity receipt has a different CPU count");
+    for (std::size_t offset = 0; offset < ids.size(); ++offset)
+      require(unsigned_number(ids.at(offset), 1023) ==
+                  spec.process.cpu_affinity[offset],
+              "Local CPU affinity receipt has a different CPU ID");
+    require((source == "windows_process_affinity" ||
+             source == "linux_sched_affinity") &&
+                !spec.process.cpu_affinity.empty() &&
+                placement.at("cpu_ids") == Json(spec.process.cpu_affinity) &&
+                unsigned_number(value.at("process_id"),
+                                std::numeric_limits<std::uint64_t>::max()) != 0,
+            "Local CPU affinity receipt differs from its declared placement");
+  } else {
+    require(spec.process.cpu_affinity.empty() || value.at("process_id") == 0,
+            "A launched CPU-affinity attempt requires its placement receipt");
+  }
+  if (value.contains("memory_boundary") &&
+      !value.at("memory_boundary").is_null()) {
+    const auto& memory = value.at("memory_boundary");
+    fields(memory, {"source", "limit_bytes", "peak_bytes", "oom_kills"}, {});
+    const auto source = text(memory.at("source"));
+    require(
+        spec.process.memory_limit &&
+            (source == "windows_job_commit" || source == "linux_cgroup_v2") &&
+            positive(memory.at("limit_bytes"),
+                     std::numeric_limits<std::int64_t>::max()) ==
+                spec.process.memory_limit->bytes &&
+            unsigned_number(value.at("process_id"),
+                            std::numeric_limits<std::uint64_t>::max()) != 0,
+        "Local memory boundary differs from its declared OS policy");
+    require((source == "linux_cgroup_v2") ==
+                !spec.process.memory_limit->linux_cgroup_parent.empty(),
+            "Local memory boundary has a different OS backend");
+    for (const auto field : {"peak_bytes", "oom_kills"})
+      if (!memory.at(field).is_null())
+        static_cast<void>(unsigned_number(
+            memory.at(field), std::numeric_limits<std::uint64_t>::max()));
+    require(source != "windows_job_commit" || memory.at("oom_kills").is_null(),
+            "Windows Job memory accounting has no Linux OOM counter");
+  } else {
+    require(
+        !spec.process.memory_limit || value.at("process_id") == 0,
+        "A launched memory-limited attempt requires its OS boundary receipt");
+  }
+  require(state == "exited" || state == "signalled" || state == "cancelled" ||
+              state == "timed_out" || state == "output_limit" ||
+              state == "launch_error" || state == "monitor_error",
+          "Unknown local attempt result state");
+  if (state == "exited")
+    static_cast<void>(unsigned_number(
+        value.at("exit_code"), std::numeric_limits<std::uint32_t>::max()));
+  else
+    require(value.at("exit_code").is_null(),
+            "Non-exit local result has exit code");
+  require(value.contains("training_sha256") == checkpoint_retry(spec),
+          "Local attempt result has a different training input policy");
+  if (checkpoint_retry(spec)) {
+    const auto frozen =
+        store.find_reference(job, training_inputs_reference(index));
+    const auto pinned = store.find_reference(id, "local.training.inputs");
+    require(
+        frozen && pinned && frozen->kind == RunArtifactKind::artifact &&
+            pinned->kind == RunArtifactKind::artifact &&
+            frozen->role == training_inputs_reference(index) &&
+            pinned->role == "local.training.inputs" &&
+            frozen->artifact.digest == pinned->artifact.digest &&
+            frozen->artifact.size_bytes == pinned->artifact.size_bytes &&
+            frozen->artifact.digest.hex == text(value.at("training_sha256")),
+        "Local attempt result differs from its frozen training inputs");
+    // The matching database references alone do not prove that their shared
+    // CAS object is still readable. Keep terminal replay and resource release
+    // subject to the same bounded content and effective-identity check.
+    const auto manifest =
+        reference_json(store, job, training_inputs_reference(index),
+                       training_inputs_reference(index), kSpecBytes);
+    require(manifest == expected_training_inputs(store, job, spec, index) &&
+                frozen->artifact.digest == digest(manifest.dump()),
+            "Confirmed attempt has different frozen training inputs");
+  }
+  for (const auto name : {"stdout", "stderr"}) {
+    const auto ref = store.find_reference(id, std::string("local.") + name);
+    require(
+        ref && ref->role == std::string("local.") + name &&
+            ref->kind == RunArtifactKind::artifact &&
+            ref->artifact.digest.hex ==
+                value.at(std::string(name) + "_sha256").get<std::string>() &&
+            ref->artifact.size_bytes <= kCaptureBytes,
+        "Local attempt output identity mismatch");
+    FileArtifactStore cas(store.artifact_root());
+    static_cast<void>(cas.open(ref->artifact.digest));
+  }
+  if (check_outputs) validate_training_outputs(store, job, spec, index, value);
+  return value;
+}
+
+bool retryable_result(const Json& result, const Spec& spec) {
+  return result.at("status").get<std::string>() == "exited" &&
+         spec.retry_exit_codes.contains(
+             result.at("exit_code").get<std::uint32_t>());
+}
+
+// Only the explicitly enabled policy creates these per-attempt manifests.
+// The job spec stays immutable; no mutable path or unconfirmed attempt can
+// become an automatic recovery source. The bounded chain is at most 16 deep.
+RunArtifactReference frozen_training_inputs(SQLiteRunStore& store,
+                                            const RunMetadata& job,
+                                            const Spec& spec,
+                                            std::uint64_t index,
+                                            bool allow_create) {
+  require(
+      checkpoint_retry(spec) && index != 0 && index <= spec.maximum_attempts,
+      "Attempt training inputs require the frozen continuation policy");
+  if (index > 1) {
+    const auto previous_id = attempt_id(job.run_id, index - 1);
+    const auto previous = store.find(previous_id);
+    require(previous && previous->status == RunStatus::failed &&
+                previous->project_id == spec.project &&
+                previous->experiment_id == spec.experiment &&
+                previous->lineage.parent_run_id == job.run_id &&
+                previous->lineage.config_digest == spec.sha256 &&
+                previous->lineage.source_digest == job.lineage.source_digest &&
+                previous->lineage.build_fingerprint ==
+                    job.lineage.build_fingerprint &&
+                previous->tags.contains("liuding.local.kind") &&
+                previous->tags.at("liuding.local.kind") == "attempt" &&
+                previous->tags.contains("liuding.local.index") &&
+                previous->tags.at("liuding.local.index") ==
+                    std::to_string(index - 1),
+            "Retry checkpoint source differs from its frozen attempt");
+    const auto confirmed = outcome(store, job.run_id, spec, index - 1);
+    require(retryable_result(confirmed, spec) &&
+                confirmed.value("process_tree_cleanup_confirmed", false),
+            "Retry checkpoint requires a retryable exit and confirmed cleanup");
+    const auto previous_inputs =
+        frozen_training_inputs(store, job, spec, index - 1, false);
+    const auto previous_intent =
+        reference_json(store, previous_id, "local.intent", "local.intent");
+    require(previous_intent ==
+                Json{{"format", "jyppx.liuding.local_attempt_intent"},
+                     {"schema_version", 1},
+                     {"job_id", job.run_id},
+                     {"attempt_id", previous_id},
+                     {"index", index - 1},
+                     {"spec_sha256", spec.sha256},
+                     {"training_sha256", previous_inputs.artifact.digest.hex}},
+            "Retry checkpoint source intent has different training inputs");
+    const auto owner =
+        reference_json(store, previous_id, "local.owner", "local.owner");
+    fields(owner,
+           {"format", "schema_version", "job_id", "attempt_id", "index",
+            "spec_sha256", "worker_process_id"},
+           {"training_outputs_absent_at_start"});
+    schema(owner, "jyppx.liuding.local_attempt_owner");
+    require(text(owner.at("job_id")) == job.run_id &&
+                text(owner.at("attempt_id")) == previous_id &&
+                text(owner.at("spec_sha256")) == spec.sha256 &&
+                positive(owner.at("index"), kMaximumAttempts) == index - 1 &&
+                positive(owner.at("worker_process_id"),
+                         std::numeric_limits<std::uint64_t>::max()) != 0,
+            "Retry checkpoint source has a different worker owner");
+    require(owner.contains("training_outputs_absent_at_start") ==
+                    declares_training_outputs(spec) &&
+                (!declares_training_outputs(spec) ||
+                 owner.at("training_outputs_absent_at_start").get<bool>()),
+            "Retry checkpoint source has a different output baseline");
+  }
+  const auto expected =
+      expected_training_inputs(store, job.run_id, spec, index);
+  const auto role = training_inputs_reference(index);
+  if (const auto existing = store.find_reference(job.run_id, role)) {
+    require(reference_json(store, job.run_id, role, role) == expected &&
+                existing->artifact.digest == digest(expected.dump()),
+            "Frozen attempt training inputs differ from their source");
+    return *existing;
+  }
+  require(allow_create,
+          "Retry checkpoint source has no frozen attempt training inputs");
+  return put_json(store, job.run_id, role, role, expected,
+                  job.created_at_unix_ms);
+}
+
+struct AttemptTraining {
+  RunArtifactReference manifest;
+  Spec effective;
+};
+
+AttemptTraining attempt_training(SQLiteRunStore& store, const RunMetadata& job,
+                                 const Spec& spec, std::uint64_t index,
+                                 bool allow_create) {
+  auto manifest = frozen_training_inputs(store, job, spec, index, allow_create);
+  const auto role = training_inputs_reference(index);
+  const auto value = reference_json(store, job.run_id, role, role);
+  auto effective = spec;
+  effective.training = training_spec(value.at("training"));
+  return {std::move(manifest), std::move(effective)};
+}
+
+void pin_attempt_training(SQLiteRunStore& store, const RunMetadata& job,
+                          const AttemptTraining& training,
+                          std::uint64_t index) {
+  auto references = training_references(store, training.effective);
+  const auto suffix = "." + std::to_string(index);
+  for (auto& reference : references) {
+    reference.reference_id += suffix;
+    reference.role += suffix;
+    reference.attached_at_unix_ms = job.created_at_unix_ms;
+  }
+  // The manifest may survive a crash before this atomic pin batch. No attempt
+  // or intent exists yet, so recovery can repair only these same identities.
+  store.attach(job.run_id, references);
+}
+
+constexpr std::string_view kResourcePool = "local-resource-pool-v1";
+// This name cannot collide with a valid public job ID (which excludes '/').
+constexpr std::string_view kResourceLock = "jyppx.liuding/local-resources/v1";
+
+std::string resource_reference(std::uint64_t index, bool released = false) {
+  return std::string(released ? "local.resource.release."
+                              : "local.resource.lease.") +
+         std::to_string(index);
+}
+
+Json resource_lease(const RunMetadata& job, const Spec& spec,
+                    std::uint64_t index) {
+  require(spec.resources.has_value(),
+          "Resource lease requires a frozen request");
+  return {{"format", "jyppx.liuding.local_resource_lease"},
+          {"schema_version", 1},
+          {"job_id", job.run_id},
+          {"attempt_id", attempt_id(job.run_id, index)},
+          {"index", index},
+          {"spec_sha256", spec.sha256},
+          {"capacity_sha256", digest(spec.resources->capacity.dump()).hex},
+          {"request", spec.json.at("resources").at("request")}};
+}
+
+// An operator may explicitly abandon an ambiguous attempt after independently
+// verifying its entire process tree is gone. Keep the native outcome unknown:
+// this record can release a reservation, but can never authorize retry, output
+// selection, or a successful training/checkpoint source.
+Json abandonment_identity(SQLiteRunStore& store, const RunMetadata& job,
+                          const Spec& spec, std::uint64_t index) {
+  const auto id = attempt_id(job.run_id, index);
+  const auto attempt = store.find(id);
+  require(index > 0 && index <= spec.maximum_attempts && attempt &&
+              attempt->lineage.parent_run_id == job.run_id &&
+              attempt->lineage.config_digest == spec.sha256 &&
+              !store.find_reference(id, "local.result") &&
+              !store.find_reference(id, "local.stdout") &&
+              !store.find_reference(id, "local.stderr"),
+          "Abandonment requires an unconfirmed attempt without native results");
+  const auto job_status = job_metadata(store, job.run_id).status;
+  require(
+      (job_status == RunStatus::running || job_status == RunStatus::failed) &&
+          (attempt->status == RunStatus::running ||
+           attempt->status == RunStatus::failed),
+      "Abandonment cannot replace another terminal lifecycle");
+  for (std::uint64_t earlier = 1; earlier < index; ++earlier) {
+    const auto result = outcome(store, job.run_id, spec, earlier);
+    require(result.value("process_tree_cleanup_confirmed", false),
+            "An earlier attempt has unconfirmed cleanup");
+  }
+  for (auto later = index + 1; later <= spec.maximum_attempts; ++later)
+    require(!store.find(attempt_id(job.run_id, later)),
+            "Only the last admitted attempt may be abandoned");
+  const auto reference_digest = [&](std::string_view name) -> Json {
+    const auto reference = store.find_reference(id, name);
+    if (!reference) return nullptr;
+    static_cast<void>(reference_json(store, id, name, name));
+    return reference->artifact.digest.hex;
+  };
+  const auto intent_digest = reference_digest("local.intent");
+  const auto owner_digest = reference_digest("local.owner");
+  require(owner_digest.is_null() || !intent_digest.is_null(),
+          "An attempt owner requires its original intent");
+  if (!intent_digest.is_null()) {
+    Json expected{{"format", "jyppx.liuding.local_attempt_intent"},
+                  {"schema_version", 1},
+                  {"job_id", job.run_id},
+                  {"attempt_id", id},
+                  {"index", index},
+                  {"spec_sha256", spec.sha256}};
+    if (checkpoint_retry(spec)) {
+      const auto input = frozen_training_inputs(store, job, spec, index, false);
+      expected["training_sha256"] = input.artifact.digest.hex;
+    }
+    require(
+        reference_json(store, id, "local.intent", "local.intent") == expected,
+        "Abandonment intent differs from its frozen identity");
+  }
+  if (!owner_digest.is_null()) {
+    const auto owner = reference_json(store, id, "local.owner", "local.owner");
+    fields(owner,
+           {"format", "schema_version", "job_id", "attempt_id", "index",
+            "spec_sha256", "worker_process_id"},
+           {"training_outputs_absent_at_start"});
+    schema(owner, "jyppx.liuding.local_attempt_owner");
+    require(owner.at("job_id") == job.run_id && owner.at("attempt_id") == id &&
+                owner.at("index") == index &&
+                owner.at("spec_sha256") == spec.sha256 &&
+                positive(owner.at("worker_process_id"),
+                         std::numeric_limits<std::uint64_t>::max()) != 0 &&
+                owner.contains("training_outputs_absent_at_start") ==
+                    declares_training_outputs(spec),
+            "Abandonment owner differs from its frozen identity");
+  }
+  Json lease_digest = nullptr;
+  if (spec.resources) {
+    const auto role = resource_reference(index);
+    const auto lease = store.find_reference(job.run_id, role);
+    require(lease && reference_json(store, job.run_id, role, role) ==
+                         resource_lease(job, spec, index),
+            "Abandonment requires the original resource reservation");
+    lease_digest = lease->artifact.digest.hex;
+  }
+  return {{"format", "jyppx.liuding.local_attempt_abandonment"},
+          {"schema_version", 1},
+          {"job_id", job.run_id},
+          {"attempt_id", id},
+          {"index", index},
+          {"spec_sha256", spec.sha256},
+          {"intent_sha256", intent_digest},
+          {"owner_sha256", owner_digest},
+          {"lease_sha256", lease_digest},
+          {"native_outcome", "unknown"},
+          {"applied_updates", "unknown"}};
+}
+
+Json abandonment_release(const Json& confirmation, std::string_view sha256) {
+  return {{"format", "jyppx.liuding.local_external_resource_release"},
+          {"schema_version", 1},
+          {"job_id", confirmation.at("job_id")},
+          {"attempt_id", confirmation.at("attempt_id")},
+          {"index", confirmation.at("index")},
+          {"spec_sha256", confirmation.at("spec_sha256")},
+          {"lease_sha256", confirmation.at("lease_sha256")},
+          {"abandonment_sha256", sha256},
+          {"external_process_tree_cleanup_confirmed", true},
+          {"native_outcome", "unknown"}};
+}
+
+void validate_abandonment(SQLiteRunStore& store, const RunMetadata& job,
+                          const Spec& spec, std::uint64_t index,
+                          const Json& value) {
+  fields(value, {"format", "schema_version", "job_id", "attempt_id", "index",
+                 "spec_sha256", "intent_sha256", "owner_sha256", "lease_sha256",
+                 "native_outcome", "applied_updates",
+                 "external_process_tree_cleanup_confirmed", "confirmed_by",
+                 "confirmed_at_unix_ms", "reason", "evidence"});
+  require(value.at("external_process_tree_cleanup_confirmed").is_boolean() &&
+              value.at("external_process_tree_cleanup_confirmed").get<bool>(),
+          "Abandonment requires explicit external process-tree cleanup "
+          "confirmation");
+  for (const auto& [name, maximum] :
+       std::vector<std::pair<std::string_view, std::size_t>>{
+           {"confirmed_by", 128}, {"reason", 1024}, {"evidence", 4096}}) {
+    const auto content = text(value.at(name));
+    require(!content.empty() && content.size() <= maximum &&
+                content.find_first_not_of(" \t\r\n") != std::string::npos,
+            "Abandonment requires bounded nonempty operator evidence");
+  }
+  static_cast<void>(positive(value.at("confirmed_at_unix_ms"),
+                             std::numeric_limits<std::int64_t>::max()));
+  auto identity = value;
+  for (const auto name :
+       {"external_process_tree_cleanup_confirmed", "confirmed_by",
+        "confirmed_at_unix_ms", "reason", "evidence"})
+    identity.erase(name);
+  require(
+      identity == abandonment_identity(store, job, spec, index),
+      "Abandonment confirmation differs from the original attempt evidence");
+  if (spec.resources) {
+    const auto release = resource_reference(index, true);
+    if (store.find_reference(job.run_id, release))
+      require(
+          reference_json(store, job.run_id, release, release) ==
+              abandonment_release(value, digest(value.dump()).hex),
+          "External resource release differs from its abandonment evidence");
+  }
+}
+
+Json abandonment_record(SQLiteRunStore& store, const RunMetadata& job,
+                        const Spec& spec, std::uint64_t index) {
+  const auto id = attempt_id(job.run_id, index);
+  const auto value =
+      reference_json(store, id, "local.abandonment", "local.abandonment");
+  validate_abandonment(store, job, spec, index, value);
+  return value;
+}
+
+// A release binds native cleanup/results or an explicit external abandonment.
+// Free locks, terminal metadata and PIDs alone never release a lease.
+// Concurrent identical receipts are idempotent.
+bool release_resources(SQLiteRunStore& store, const RunMetadata& job,
+                       const Spec& spec, std::uint64_t index,
+                       const Json* validated_result = nullptr) {
+  const auto id = attempt_id(job.run_id, index);
+  const auto attempt = store.find(id);
+  if (attempt && store.find_reference(id, "local.abandonment")) {
+    const auto confirmation = abandonment_record(store, job, spec, index);
+    if (spec.resources) {
+      const auto role = resource_reference(index, true);
+      put_json(
+          store, job.run_id, role, role,
+          abandonment_release(confirmation, digest(confirmation.dump()).hex),
+          job.created_at_unix_ms);
+    }
+    return true;
+  }
+  if (!spec.resources) return true;
+  const auto lease_id = resource_reference(index);
+  const auto lease = store.find_reference(job.run_id, lease_id);
+  require(lease && reference_json(store, job.run_id, lease_id, lease_id) ==
+                       resource_lease(job, spec, index),
+          "Resource reservation differs from its frozen attempt request");
+  if (!attempt) return false;
+  const auto result_ref = store.find_reference(id, "local.result");
+  if (!result_ref) return false;
+  const auto result = validated_result
+                          ? *validated_result
+                          : outcome(store, job.run_id, spec, index, false);
+  if (validated_result)
+    require(
+        result_ref->artifact.digest == digest(result.dump()) &&
+            reference_json(store, id, "local.result", "local.result") == result,
+        "Resource release result differs from its committed CAS identity");
+  if (!result.value("process_tree_cleanup_confirmed", false)) return false;
+  if (!validated_result)
+    validate_training_outputs(store, job.run_id, spec, index, result);
+  require(attempt && attempt->lineage.parent_run_id == job.run_id &&
+              attempt->lineage.config_digest == spec.sha256,
+          "Resource release attempt lineage mismatch");
+  const auto intent = reference_json(store, id, "local.intent", "local.intent");
+  Json expected_intent{{"format", "jyppx.liuding.local_attempt_intent"},
+                       {"schema_version", 1},
+                       {"job_id", job.run_id},
+                       {"attempt_id", id},
+                       {"index", index},
+                       {"spec_sha256", spec.sha256}};
+  if (checkpoint_retry(spec))
+    expected_intent["training_sha256"] = result.at("training_sha256");
+  require(intent == expected_intent,
+          "Resource release requires the original immutable intent");
+  const auto owner = reference_json(store, id, "local.owner", "local.owner");
+  fields(owner,
+         {"format", "schema_version", "job_id", "attempt_id", "index",
+          "spec_sha256", "worker_process_id"},
+         {"training_outputs_absent_at_start"});
+  schema(owner, "jyppx.liuding.local_attempt_owner");
+  require(text(owner.at("job_id")) == job.run_id &&
+              text(owner.at("attempt_id")) == id &&
+              text(owner.at("spec_sha256")) == spec.sha256 &&
+              positive(owner.at("index"), kMaximumAttempts) == index &&
+              positive(owner.at("worker_process_id"),
+                       std::numeric_limits<std::uint64_t>::max()) != 0,
+          "Resource release worker identity mismatch");
+  require(owner.contains("training_outputs_absent_at_start") ==
+              declares_training_outputs(spec),
+          "Resource release worker has a different declared output policy");
+  if (declares_training_outputs(spec))
+    static_cast<void>(owner.at("training_outputs_absent_at_start").get<bool>());
+  const auto reference_digest = [&](std::string_view name) {
+    const auto reference = store.find_reference(id, name);
+    require(reference.has_value(), "Resource release evidence disappeared");
+    return reference->artifact.digest.hex;
+  };
+  const auto release_id = resource_reference(index, true);
+  const Json receipt{{"format", "jyppx.liuding.local_resource_release"},
+                     {"schema_version", 1},
+                     {"job_id", job.run_id},
+                     {"attempt_id", id},
+                     {"index", index},
+                     {"spec_sha256", spec.sha256},
+                     {"lease_sha256", lease->artifact.digest.hex},
+                     {"intent_sha256", reference_digest("local.intent")},
+                     {"owner_sha256", reference_digest("local.owner")},
+                     {"result_sha256", result_ref->artifact.digest.hex},
+                     {"stdout_sha256", reference_digest("local.stdout")},
+                     {"stderr_sha256", reference_digest("local.stderr")},
+                     {"process_tree_cleanup_confirmed", true}};
+  put_json(store, job.run_id, release_id, release_id, receipt,
+           job.created_at_unix_ms);
+  return true;
+}
+
+// Caller holds the STORE-wide, non-inherited resource lock until the attempt
+// and intent have also committed. The reservation is durable BEFORE either:
+// a crash can retain capacity, but cannot start an unaccounted attempt.
+std::string reserve_resources(SQLiteRunStore& store, const RunMetadata& job,
+                              const Spec& spec, std::uint64_t index) {
+  const auto pool = store.find(kResourcePool);
+  if (!spec.resources) return pool ? "resource_request_required" : "";
+  const Json pool_value{{"format", "jyppx.liuding.local_resource_capacity"},
+                        {"schema_version", 1},
+                        {"capacity", spec.resources->capacity}};
+  const auto pool_digest = digest(pool_value.dump()).hex;
+  if (pool) {
+    require(pool->tags.contains("liuding.local.kind") &&
+                pool->tags.at("liuding.local.kind") == "resource_pool" &&
+                pool->lineage.config_digest == pool_digest,
+            "STORE resource capacity is immutable; use its exact capacity");
+    if (store.find_reference(kResourcePool, "local.resource.capacity"))
+      require(reference_json(store, kResourcePool, "local.resource.capacity",
+                             "local.resource.capacity") == pool_value,
+              "STORE resource capacity identity mismatch");
+  }
+  auto remaining_slots =
+      spec.resources->capacity.at("cpu_slots").get<std::uint64_t>();
+  auto remaining_memory =
+      spec.resources->capacity.at("memory_bytes").get<std::uint64_t>();
+  std::set<std::string> occupied_gpus;
+  bool own_reservation = false;
+  RunListRequest page;
+  page.limit = 256;
+  while (true) {
+    const auto rows = store.list(page);
+    if (rows.empty()) break;
+    page.after_run_id = rows.back().run_id;
+    for (const auto& other : rows) {
+      if (!other.tags.contains("liuding.local.kind") ||
+          other.tags.at("liuding.local.kind") != "job" ||
+          !store.find_reference(other.run_id, "local.spec"))
+        continue;
+      const auto frozen = frozen_spec(store, other);
+      for (std::uint64_t number = 1; number <= frozen.maximum_attempts;
+           ++number) {
+        const auto id = attempt_id(other.run_id, number);
+        const auto lease_id = resource_reference(number);
+        const auto lease = store.find_reference(other.run_id, lease_id);
+        const auto attempt = store.find(id);
+        if (!lease) {
+          if (!attempt) break;
+          if (frozen.resources)
+            throw CompatibilityError(
+                "Managed attempt has no prior reservation");
+          if (store.find_reference(id, "local.abandonment")) {
+            static_cast<void>(abandonment_record(store, other, frozen, number));
+            continue;
+          }
+          if (!store.find_reference(id, "local.result"))
+            return "resource_unmanaged_attempt";
+          // Older unmetered attempts cannot be ignored merely because their
+          // metadata is terminal. Confirm their committed output identities.
+          const auto result = outcome(store, other.run_id, frozen, number);
+          if (!result.value("process_tree_cleanup_confirmed", false))
+            return "resource_unmanaged_attempt";
+          continue;
+        }
+        require(frozen.resources &&
+                    frozen.resources->capacity == spec.resources->capacity,
+                "Existing resource reservation has a different STORE capacity");
+        if (release_resources(store, other, frozen, number)) continue;
+        const auto& request = frozen.resources->request;
+        require(request.cpu_slots <= remaining_slots &&
+                    request.memory_bytes <= remaining_memory,
+                "Committed resource reservations exceed their fixed capacity");
+        remaining_slots -= request.cpu_slots;
+        remaining_memory -= request.memory_bytes;
+        if (request.gpu)
+          require(occupied_gpus.insert(*request.gpu).second,
+                  "Committed resource reservations overlap one exclusive GPU");
+        if (other.run_id == job.run_id && number == index)
+          own_reservation = true;
+      }
+    }
+  }
+  if (!own_reservation) {
+    const auto& request = spec.resources->request;
+    if (request.cpu_slots > remaining_slots ||
+        request.memory_bytes > remaining_memory ||
+        (request.gpu && occupied_gpus.contains(*request.gpu)))
+      return "resource_unavailable";
+  }
+  const auto timestamp = pool ? pool->created_at_unix_ms : now_ms();
+  if (!pool)
+    store.start({.run_id = std::string(kResourcePool),
+                 .project_id = "liuding.local.resources",
+                 .experiment_id = "capacity",
+                 .display_name = "Local resource capacity",
+                 .status = RunStatus::running,
+                 .created_at_unix_ms = timestamp,
+                 .updated_at_unix_ms = timestamp,
+                 .lineage = {.parent_run_id = std::nullopt,
+                             .source_digest = std::nullopt,
+                             .build_fingerprint = std::nullopt,
+                             .config_digest = pool_digest,
+                             .data_manifest_digest = std::nullopt},
+                 .tags = {{"liuding.local.kind", "resource_pool"}}});
+  // Repair a crash between pool metadata creation and its first CAS attach.
+  put_json(store, kResourcePool, "local.resource.capacity",
+           "local.resource.capacity", pool_value, timestamp);
+  const auto lease_id = resource_reference(index);
+  put_json(store, job.run_id, lease_id, lease_id,
+           resource_lease(job, spec, index), job.created_at_unix_ms);
+  return "";
+}
+
+void finish_run(SQLiteRunStore& store, std::string_view id, RunStatus state) {
+  const auto current = store.find(id);
+  require(current.has_value(), "Local execution run disappeared");
+  store.transition(id, state, std::max(now_ms(), current->updated_at_unix_ms));
+}
+
+bool cancelled(SQLiteRunStore& store, std::string_view id) {
+  return store.find_reference(id, "local.cancel").has_value();
+}
+
+Json describe(SQLiteRunStore& store, const RunMetadata& job, const Spec& spec,
+              bool active = false, std::string_view state = {},
+              bool check_outputs = true) {
+  Json attempts = Json::array();
+  for (std::uint64_t index = 1; index <= spec.maximum_attempts; ++index) {
+    const auto id = attempt_id(job.run_id, index);
+    const auto metadata = store.find(id);
+    if (!metadata) break;
+    Json item{{"attempt_id", id},
+              {"index", index},
+              {"run_status", run_status_name(metadata->status)}};
+    if (store.find_reference(id, "local.result"))
+      item["result"] = outcome(store, job.run_id, spec, index, check_outputs);
+    else {
+      item["result"] = nullptr;
+      if (store.find_reference(id, "local.abandonment")) {
+        item["abandonment"] = abandonment_record(store, job, spec, index);
+      } else if (!active) {
+        auto request = abandonment_identity(store, job, spec, index);
+        request["external_process_tree_cleanup_confirmed"] = false;
+        request["confirmed_by"] = "";
+        request["confirmed_at_unix_ms"] = 0;
+        request["reason"] = "";
+        request["evidence"] = "";
+        item["abandonment_request"] = std::move(request);
+      }
+    }
+    if (checkpoint_retry(spec)) {
+      const auto frozen =
+          store.find_reference(job.run_id, training_inputs_reference(index));
+      require(frozen.has_value(),
+              "Continuation attempt has no frozen training inputs");
+      item["training_sha256"] = frozen->artifact.digest.hex;
+    }
+    if (spec.resources) {
+      item["resource_reserved"] =
+          store.find_reference(job.run_id, resource_reference(index))
+              .has_value();
+      item["resource_released"] =
+          store.find_reference(job.run_id, resource_reference(index, true))
+              .has_value();
+    }
+    attempts.push_back(std::move(item));
+  }
+  const auto current = job_metadata(store, job.run_id);
+  return {{"schema_version", 1},
+          {"job_id", job.run_id},
+          {"status", state.empty() ? run_status_name(current.status) : state},
+          {"run_status", run_status_name(current.status)},
+          {"owner_active", active},
+          {"spec_sha256", spec.sha256},
+          {"maximum_attempts", spec.maximum_attempts},
+          {"cancel_requested", cancelled(store, job.run_id)},
+          {"attempts", std::move(attempts)}};
+}
+
+// The worker owns the execution lock independently of its caller. A surviving
+// worker can commit after the caller dies. If a worker is itself killed before
+// committing a result, no later invocation assumes its descendants are gone.
+Result worker(SQLiteRunStore& store, const fs::path& root,
+              const RunMetadata& job, const Spec& spec,
+              const WorkerRequest& request) {
+  const auto index = request.index;
+  require(index != 0 && index <= spec.maximum_attempts,
+          "Worker requires an existing bounded positive attempt");
+  std::unique_ptr<OwnerLock> owner;
+  const auto ownership_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  do {
+    owner = std::make_unique<OwnerLock>(root, job.run_id, true);
+    if (owner->held()) break;
+    owner.reset();
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < ownership_deadline);
+  require(owner && owner->held(), "Another worker still owns this local job");
+  const auto id = attempt_id(job.run_id, index);
+  const auto metadata = store.find(id);
+  require(job_metadata(store, job.run_id).status == RunStatus::running &&
+              metadata && metadata->status == RunStatus::running &&
+              metadata->lineage.parent_run_id == job.run_id &&
+              metadata->lineage.config_digest == spec.sha256,
+          "Worker requires its running frozen attempt");
+  const auto intent = store.find_reference(id, "local.intent");
+  require(intent && intent->role == "local.intent" &&
+              intent->artifact.digest.hex == request.intent_sha256,
+          "Worker intent digest does not match the admitted attempt");
+  const auto intent_value =
+      reference_json(store, id, "local.intent", "local.intent");
+  fields(intent_value,
+         {"format", "schema_version", "job_id", "attempt_id", "index",
+          "spec_sha256"},
+         {"training_sha256"});
+  schema(intent_value, "jyppx.liuding.local_attempt_intent");
+  require(
+      intent_value.at("job_id").get<std::string>() == job.run_id &&
+          intent_value.at("attempt_id").get<std::string>() == id &&
+          intent_value.at("spec_sha256").get<std::string>() == spec.sha256 &&
+          unsigned_number(intent_value.at("index"), kMaximumAttempts) == index,
+      "Worker intent identity mismatch");
+  std::optional<AttemptTraining> frozen_training;
+  require(intent_value.contains("training_sha256") == checkpoint_retry(spec),
+          "Worker intent has a different training input policy");
+  if (checkpoint_retry(spec)) {
+    frozen_training = attempt_training(store, job, spec, index, false);
+    require(text(intent_value.at("training_sha256")) ==
+                frozen_training->manifest.artifact.digest.hex,
+            "Worker intent differs from its frozen training inputs");
+    auto manifest = frozen_training->manifest;
+    manifest.reference_id = "local.training.inputs";
+    manifest.role = "local.training.inputs";
+    manifest.attached_at_unix_ms = metadata->created_at_unix_ms;
+    store.attach(id, std::span(&manifest, 1));
+  }
+  if (spec.resources) {
+    const auto lease_id = resource_reference(index);
+    require(
+        reference_json(store, job.run_id, lease_id, lease_id) ==
+                resource_lease(job, spec, index) &&
+            !store.find_reference(job.run_id, resource_reference(index, true)),
+        "Worker requires its unreleased, frozen resource reservation");
+  }
+  require(!store.find_reference(id, "local.owner") &&
+              !store.find_reference(id, "local.result") &&
+              !store.find_reference(id, "local.abandonment"),
+          "This immutable local attempt has already been claimed");
+  const bool outputs_absent = training_outputs_absent(store, spec, id);
+  Json owner_value{{"format", "jyppx.liuding.local_attempt_owner"},
+                   {"schema_version", 1},
+                   {"job_id", job.run_id},
+                   {"attempt_id", id},
+                   {"index", index},
+                   {"spec_sha256", spec.sha256},
+                   {"worker_process_id", process_id()}};
+  if (declares_training_outputs(spec))
+    owner_value["training_outputs_absent_at_start"] = outputs_absent;
+  put_json(store, id, "local.owner", "local.owner", owner_value,
+           metadata->created_at_unix_ms);
+
+  LocalProcessResult native;
+  std::optional<LocalCudaDevice> cuda_observation;
+  std::string status;
+  std::string failure_reason;
+  std::atomic<bool> monitor_error{false};
+  bool runner_entered = false;
+  std::stop_source cancellation;
+  {
+    // Database failure during cancellation monitoring is fail-closed. The
+    // native runner still cleans its owned process tree before publication.
+    std::jthread monitor([&](std::stop_token stop) {
+      while (!stop.stop_requested()) {
+        try {
+          if (cancelled(store, job.run_id)) {
+            cancellation.request_stop();
+            return;
+          }
+        } catch (...) {
+          monitor_error = true;
+          cancellation.request_stop();
+          return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+      }
+    });
+    try {
+      require(outputs_absent,
+              "Declared training output already exists before native launch");
+      if (cancelled(store, job.run_id)) {
+        native.status = LocalProcessStatus::cancelled;
+        native.process_tree_cleanup_confirmed = true;
+      } else {
+        preflight(spec);
+        auto options = resolved_process(spec);
+        const auto started = std::chrono::steady_clock::now();
+        auto deadline = started + options.timeout;
+        if (spec.deadline_unix_ms) {
+          const auto wall = now_ms();
+          const auto left =
+              wall < *spec.deadline_unix_ms ? *spec.deadline_unix_ms - wall : 0;
+          deadline =
+              std::min(deadline, started + std::chrono::milliseconds(left));
+        }
+        if (spec.training) {
+          static_cast<void>(training_references(
+              store, frozen_training ? frozen_training->effective : spec,
+              job.run_id, cancellation.get_token(), deadline,
+              frozen_training ? "." + std::to_string(index) : ""));
+          options.environment["JYPPX_LIUDING_LOCAL_STORE_ROOT"] =
+              path_text(root);
+          options.environment["JYPPX_LIUDING_LOCAL_SPEC_SHA256"] = spec.sha256;
+          if (frozen_training) {
+            options.environment["JYPPX_LIUDING_LOCAL_TRAINING_SHA256"] =
+                frozen_training->manifest.artifact.digest.hex;
+          } else {
+            // An inherited opt-in marker must not change a default retry.
+            options.environment["JYPPX_LIUDING_LOCAL_TRAINING_SHA256"] = "";
+          }
+          const auto remaining = deadline - std::chrono::steady_clock::now();
+          if (remaining <= std::chrono::steady_clock::duration::zero())
+            throw DeadlineExceeded(
+                "Training input verification exhausted the attempt deadline");
+          options.timeout =
+              std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
+          if (options.timeout.count() <= 0)
+            throw DeadlineExceeded(
+                "Training input verification exhausted the attempt deadline");
+        }
+        options.environment["JYPPX_LIUDING_LOCAL_JOB_ID"] = job.run_id;
+        options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_ID"] = id;
+        options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX"] =
+            std::to_string(index);
+        if (cancelled(store, job.run_id)) cancellation.request_stop();
+        const auto wall = now_ms();
+        if (spec.deadline_unix_ms && wall >= *spec.deadline_unix_ms) {
+          native.status = LocalProcessStatus::timed_out;
+          native.process_tree_cleanup_confirmed = true;
+        } else {
+          if (spec.deadline_unix_ms)
+            options.timeout = std::min(
+                options.timeout,
+                std::chrono::milliseconds(*spec.deadline_unix_ms - wall));
+          if (spec.resources) {
+            const auto& request = spec.resources->request;
+            options.environment["JYPPX_LIUDING_LOCAL_CPU_SLOTS"] =
+                std::to_string(request.cpu_slots);
+            options.environment["JYPPX_LIUDING_LOCAL_MEMORY_BYTES"] =
+                std::to_string(request.memory_bytes);
+            options.environment["JYPPX_LIUDING_LOCAL_GPU_ID"] =
+                request.gpu.value_or("");
+            options.environment["JYPPX_LIUDING_LOCAL_GPU_MEMORY_BYTES"] =
+                std::to_string(request.gpu_memory_bytes);
+          }
+          require(
+              training_outputs_absent(store, spec, id),
+              "Declared training output already exists before native launch");
+          // The durable worker can outlive its dispatch caller; its native
+          // attempt must not outlive the worker (Linux direct-child fence).
+          options.kill_on_parent_death = true;
+          cuda_observation = verify_cuda_device(spec);
+          runner_entered = true;
+          native = LocalProcessRunner{}.run(options, cancellation.get_token());
+        }
+      }
+      status = std::string(native_status(native.status));
+    } catch (const Error& error) {
+      // The runner binds its final snapshot before any native process exists.
+      // A failure at this specific boundary proves that no cleanup is needed.
+      native.process_tree_cleanup_confirmed =
+          !runner_entered ||
+          (error.code() == ErrorCode::invalid_argument &&
+           error.details().component == "cli.local_process" &&
+           error.details().operation == "launch.environment.binding");
+      status = "launch_error";
+      if (spec.training && error.code() == ErrorCode::cancelled)
+        status = "cancelled";
+      if (spec.training && error.code() == ErrorCode::deadline_exceeded)
+        status = "timed_out";
+      failure_reason = error.what();
+      if (failure_reason.size() > 2048)
+        failure_reason =
+            "Local process launch failed; diagnostic exceeds 2048 bytes";
+      native.exit_code.reset();
+    }
+    monitor.request_stop();
+  }
+  if (monitor_error.load()) {
+    status = "monitor_error";
+    failure_reason =
+        "Cancellation monitoring failed; child execution was stopped";
+    native.exit_code.reset();
+    native.signal.reset();
+  }
+  const auto timestamp = std::max(now_ms(), metadata->created_at_unix_ms);
+  Json result{
+      {"format", "jyppx.liuding.local_attempt_result"},
+      {"schema_version", 1},
+      {"job_id", job.run_id},
+      {"attempt_id", id},
+      {"index", index},
+      {"spec_sha256", spec.sha256},
+      {"status", status},
+      {"exit_code", native.exit_code ? Json(*native.exit_code) : Json(nullptr)},
+      {"signal", native.signal ? Json(*native.signal) : Json(nullptr)},
+      {"process_id", native.process_id},
+      {"stdout_bytes", native.stdout_bytes},
+      {"stderr_bytes", native.stderr_bytes},
+      {"elapsed_ms", native.elapsed.count()},
+      {"finished_at_unix_ms", timestamp},
+      {"process_tree_cleanup_confirmed", native.process_tree_cleanup_confirmed},
+      {"failure_reason",
+       failure_reason.empty() ? Json(nullptr) : Json(failure_reason)},
+      {"stdout_sha256", digest(native.stdout_capture).hex},
+      {"stderr_sha256", digest(native.stderr_capture).hex}};
+  result["resource_usage"] = nullptr;
+  if (native.resource_usage) {
+    const auto& usage = *native.resource_usage;
+    const auto number = [](const std::optional<std::uint64_t>& value) {
+      return value ? Json(*value) : Json(nullptr);
+    };
+    result["resource_usage"] = {
+        {"source", usage.source == LocalProcessResourceSource::windows_process
+                       ? "windows_process"
+                       : "linux_wait4"},
+        {"user_cpu_time_us", number(usage.user_cpu_time_us)},
+        {"system_cpu_time_us", number(usage.system_cpu_time_us)},
+        {"peak_resident_memory_bytes",
+         number(usage.peak_resident_memory_bytes)}};
+  }
+  result["cuda_placement"] = nullptr;
+  if (cuda_observation && native.process_id != 0) {
+    const auto& device = *cuda_observation;
+    result["cuda_placement"] = {
+        {"source", "nvml_prelaunch"},
+        {"uuid", device.uuid},
+        {"logical_device", 0},
+        {"total_memory_bytes", device.total_memory_bytes},
+        {"free_memory_bytes", device.free_memory_bytes},
+        {"compute_capability", {device.compute_major, device.compute_minor}}};
+  }
+  result["cpu_affinity"] = nullptr;
+  if (!native.cpu_affinity.empty()) {
+    result["cpu_affinity"] = {
+#if defined(_WIN32)
+        {"source", "windows_process_affinity"},
+#else
+        {"source", "linux_sched_affinity"},
+#endif
+        {"cpu_ids", native.cpu_affinity}};
+  }
+  result["memory_boundary"] = nullptr;
+  if (native.memory_boundary) {
+    const auto& boundary = *native.memory_boundary;
+    result["memory_boundary"] = {
+        {"source", boundary.source},
+        {"limit_bytes", boundary.limit_bytes},
+        {"peak_bytes",
+         boundary.peak_bytes ? Json(*boundary.peak_bytes) : Json(nullptr)},
+        {"oom_kills",
+         boundary.oom_kills ? Json(*boundary.oom_kills) : Json(nullptr)}};
+  }
+  if (frozen_training)
+    result["training_sha256"] = frozen_training->manifest.artifact.digest.hex;
+  std::string training_outputs_text;
+  if (declares_training_outputs(spec) && native_succeeded(result) &&
+      native.process_tree_cleanup_confirmed) {
+    const auto receipt =
+        collect_training_outputs(store, job.run_id, spec, index, result);
+    training_outputs_text = receipt.dump();
+    result["training_outputs_sha256"] = digest(training_outputs_text).hex;
+    result["training_outputs_confirmed"] = receipt.at("confirmed");
+  }
+  const auto result_text = result.dump();
+  const auto upload = [&](std::string name, std::string_view content,
+                          std::string media) {
+    return RunArtifactUpload{
+        .reference_id = "local." + name,
+        .kind = RunArtifactKind::artifact,
+        .role = "local." + name,
+        .bytes = bytes(content),
+        .descriptor = {.logical_name = name,
+                       .media_type = std::move(media),
+                       .producer = std::string(kProducer),
+                       .expected_size_bytes = content.size()},
+        .expected_digest = digest(content),
+        .attached_at_unix_ms = timestamp};
+  };
+  std::vector<RunArtifactUpload> uploads{
+      upload("stdout", native.stdout_capture, "application/octet-stream"),
+      upload("stderr", native.stderr_capture, "application/octet-stream"),
+      upload("result", result_text, "application/json")};
+  if (!training_outputs_text.empty())
+    uploads.push_back(
+        upload("training.outputs", training_outputs_text, "application/json"));
+  // The native result, captures and optional output receipt commit atomically.
+  // The receipt confirms STORE bindings/CAS, not which process created bytes.
+  store.put_artifacts(id, uploads);
+  static_cast<void>(release_resources(store, job, spec, index, &result));
+  finish_run(store, id, terminal_status(result));
+  return {{{"attempt_id", id}, {"result_committed", true}}, 0};
+}
+
+Result drive(SQLiteRunStore& store, const fs::path& root,
+             const RunMetadata& job, const Spec& spec,
+             const LocalJobWorkerLaunch* launcher) {
+  OwnerLock dispatch(root, job.run_id, false);
+  if (!dispatch.held()) return {describe(store, job, spec, true, "active"), 7};
+  {
+    OwnerLock execution(root, job.run_id, true);
+    if (!execution.held())
+      return {describe(store, job, spec, true, "active"), 7};
+  }
+  for (std::uint64_t index = 1; index <= spec.maximum_attempts; ++index) {
+    const auto id = attempt_id(job.run_id, index);
+    if (!store.find(id)) break;
+    if (!store.find_reference(id, "local.abandonment")) continue;
+    static_cast<void>(abandonment_record(store, job, spec, index));
+    require(release_resources(store, job, spec, index),
+            "Abandoned attempt resource release failed");
+    finish_run(store, id, RunStatus::failed);
+    finish_run(store, job.run_id, RunStatus::failed);
+    return {describe(store, job, spec), 1};
+  }
+  const auto current_status = job_metadata(store, job.run_id).status;
+  if (is_terminal_run_status(current_status)) {
+    // Preserve historical non-opt-in terminal behavior. New contracts require
+    // cleanup before reading any output receipt, even on read-only replay.
+    if (declares_training_outputs(spec)) {
+      for (std::uint64_t index = 1; index <= spec.maximum_attempts; ++index) {
+        if (!store.find(attempt_id(job.run_id, index))) break;
+        const auto result = outcome(store, job.run_id, spec, index, false);
+        if (!result.value("process_tree_cleanup_confirmed", false))
+          return {describe(store, job, spec, false,
+                           "resource_cleanup_unconfirmed", false),
+                  7};
+      }
+    }
+    return {describe(store, job, spec),
+            current_status == RunStatus::completed   ? 0
+            : current_status == RunStatus::cancelled ? 130
+                                                     : 1};
+  }
+
+  for (std::uint64_t index = 1; index <= spec.maximum_attempts; ++index) {
+    const auto id = attempt_id(job.run_id, index);
+    auto attempt = store.find(id);
+    if (attempt && store.find_reference(id, "local.result")) {
+      const auto result = outcome(store, job.run_id, spec, index, false);
+      // A committed leader result is not proof that its process tree stopped.
+      // Fence every lifecycle/retry path, including jobs without resources.
+      if (!result.value("process_tree_cleanup_confirmed", false))
+        return {describe(store, job, spec, false,
+                         "resource_cleanup_unconfirmed", false),
+                7};
+      validate_training_outputs(store, job.run_id, spec, index, result);
+      if (!release_resources(store, job, spec, index, &result))
+        return {
+            describe(store, job, spec, false, "resource_cleanup_unconfirmed"),
+            7};
+      finish_run(store, id, terminal_status(result));
+      if (declares_training_outputs(spec) && cancelled(store, job.run_id)) {
+        finish_run(store, job.run_id, RunStatus::cancelled);
+        return {describe(store, job, spec), 130};
+      }
+      if (succeeded(result)) {
+        finish_run(store, job.run_id, RunStatus::completed);
+        return {describe(store, job, spec), 0};
+      }
+      const bool retryable = retryable_result(result, spec);
+      if (cancelled(store, job.run_id) ||
+          result.at("status").get<std::string>() == "cancelled") {
+        finish_run(store, job.run_id, RunStatus::cancelled);
+        return {describe(store, job, spec), 130};
+      }
+      if (!retryable || index == spec.maximum_attempts) {
+        finish_run(store, job.run_id, RunStatus::failed);
+        return {describe(store, job, spec), 1};
+      }
+      continue;
+    }
+    // Never infer a dead process tree from a free lock, PID or elapsed time.
+    // A persisted launch intent without a complete result is ambiguous even
+    // when no worker currently holds the lock. Keep it fenced indefinitely.
+    if (attempt)
+      return {describe(store, job, spec, false, "recovery_required"), 7};
+    const bool reserved =
+        spec.resources &&
+        store.find_reference(job.run_id, resource_reference(index));
+    if (cancelled(store, job.run_id) && !reserved) {
+      finish_run(store, job.run_id, RunStatus::cancelled);
+      return {describe(store, job, spec), 130};
+    }
+    if (!reserved && index > 1 && spec.retry_delay_ms != 0) {
+      const auto until = std::chrono::steady_clock::now() +
+                         std::chrono::milliseconds(spec.retry_delay_ms);
+      while (std::chrono::steady_clock::now() < until) {
+        if (cancelled(store, job.run_id)) {
+          finish_run(store, job.run_id, RunStatus::cancelled);
+          return {describe(store, job, spec), 130};
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+      }
+    }
+    verify_worker_launch(launcher);
+    if (!reserved) preflight(spec);
+    if (spec.training && !reserved) {
+      // Repair a crash before attachment using the same frozen identities.
+      // No attempt/intent exists yet; an ambiguous existing attempt is fenced
+      // above before any repair or relaunch is considered.
+      auto references = training_references(store, spec);
+      for (auto& reference : references)
+        reference.attached_at_unix_ms = job.created_at_unix_ms;
+      // attach() verifies committed CAS content and records the complete
+      // relationship batch atomically. Avoid a second pre-attachment hash.
+      store.attach(job.run_id, references);
+    }
+    std::optional<AttemptTraining> frozen_training;
+    if (checkpoint_retry(spec)) {
+      frozen_training = attempt_training(store, job, spec, index, true);
+      pin_attempt_training(store, job, *frozen_training, index);
+    }
+    RunArtifactReference intent;
+    {
+      OwnerLock resources(root, kResourceLock, false);
+      if (!resources.held())
+        return {describe(store, job, spec, false, "resource_busy"), 7};
+      const auto admission = reserve_resources(store, job, spec, index);
+      if (!admission.empty())
+        return {describe(store, job, spec, false, admission), 7};
+      const auto timestamp = now_ms();
+      RunMetadata metadata{
+          .run_id = id,
+          .project_id = spec.project,
+          .experiment_id = spec.experiment,
+          .display_name = "Local attempt " + std::to_string(index),
+          .status = RunStatus::running,
+          .created_at_unix_ms = timestamp,
+          .updated_at_unix_ms = timestamp,
+          .lineage = job.lineage,
+          .tags = {{"liuding.local.kind", "attempt"},
+                   {"liuding.local.index", std::to_string(index)}}};
+      metadata.lineage.parent_run_id = job.run_id;
+      store.start(metadata);
+      Json intent_value{{"format", "jyppx.liuding.local_attempt_intent"},
+                        {"schema_version", 1},
+                        {"job_id", job.run_id},
+                        {"attempt_id", id},
+                        {"index", index},
+                        {"spec_sha256", spec.sha256}};
+      if (frozen_training)
+        intent_value["training_sha256"] =
+            frozen_training->manifest.artifact.digest.hex;
+      intent = put_json(store, id, "local.intent", "local.intent", intent_value,
+                        timestamp);
+    }
+    LocalProcessOptions bootstrap;
+    bootstrap.executable = launcher->executable;
+    bootstrap.arguments = launcher->arguments;
+    const std::vector<std::string> worker_arguments = {
+        "--root",
+        path_text(root),
+        "--id",
+        job.run_id,
+        "--attempt",
+        std::to_string(index),
+        "--intent-sha256",
+        intent.artifact.digest.hex};
+    bootstrap.arguments.insert(bootstrap.arguments.end(),
+                               worker_arguments.begin(),
+                               worker_arguments.end());
+    bootstrap.working_directory = root;
+    bootstrap.inherit_environment = true;
+    bootstrap.max_stdout_bytes = 16384;
+    bootstrap.max_stderr_bytes = 16384;
+    bootstrap.timeout = spec.process.timeout + std::chrono::seconds(40);
+    try {
+      static_cast<void>(LocalProcessRunner{}.run(bootstrap));
+    } catch (const Error&) {
+      // Launch/transport failures cannot prove whether a worker crossed its
+      // launch boundary. Only its committed CAS result permits progress.
+    }
+    {
+      OwnerLock execution(root, job.run_id, true);
+      if (!execution.held())
+        return {describe(store, job, spec, true, "active"), 7};
+    }
+    if (!store.find_reference(id, "local.result"))
+      return {describe(store, job, spec, false, "recovery_required"), 7};
+    // Revisit this confirmed result through exactly the recovery path above.
+    --index;
+  }
+  throw InvalidArgument("Local execution exhausted its bounded attempt state");
+}
+Result operate(std::string_view action, const fs::path& selected_root,
+               std::string id, std::optional<Spec> requested,
+               std::optional<std::string> parent_run_id,
+               const LocalJobWorkerLaunch* launcher = nullptr,
+               const WorkerRequest* request = nullptr,
+               const Json* abandonment = nullptr) {
+  identifier(id);
+  require(id != kResourcePool, "Local resource capacity ID is reserved");
+  const auto root = fs::absolute(selected_root).lexically_normal();
+  if (action != "execute")
+    require(fs::is_regular_file(root / "runs.sqlite3"),
+            "Local execution storage does not exist");
+  bool files_preflighted = false;
+  // Preserve no STORE creation for invalid first requests. Existing IDs must
+  // resolve their frozen identity and ownership before new launch checks.
+  if (requested && !fs::is_regular_file(root / "runs.sqlite3")) {
+    preflight(*requested);
+    verify_worker_launch(launcher);
+    files_preflighted = true;
+  }
+  SQLiteRunStore store(root);
+  ordinary_path(root);
+  if (action == "execute") {
+    require(requested.has_value(), "Local execution requires a frozen spec");
+    if (parent_run_id) {
+      identifier(*parent_run_id);
+      require(store.find(*parent_run_id).has_value(),
+              "Local execution parent run does not exist");
+    }
+    OwnerLock dispatch(root, id, false);
+    if (!dispatch.held())
+      throw IoError("Another caller owns this local job dispatch");
+    const auto existing = store.find(id);
+    if (!existing) {
+      if (!files_preflighted) {
+        preflight(*requested);
+        verify_worker_launch(launcher);
+      }
+      const auto timestamp = now_ms();
+      store.start({.run_id = id,
+                   .project_id = requested->project,
+                   .experiment_id = requested->experiment,
+                   .display_name = "Local execution " + id,
+                   .status = RunStatus::running,
+                   .created_at_unix_ms = timestamp,
+                   .updated_at_unix_ms = timestamp,
+                   .lineage = {.parent_run_id = parent_run_id,
+                               .source_digest = requested->executable_sha256,
+                               .build_fingerprint =
+                                   digest(build_fingerprint_json()).hex,
+                               .config_digest = requested->sha256,
+                               .data_manifest_digest = std::nullopt},
+                   .tags = {{"liuding.local.kind", "job"}}});
+      put_json(store, id, "local.spec", "local.spec", requested->json,
+               timestamp);
+    } else {
+      const auto job = job_metadata(store, id);
+      require(job.lineage.config_digest == requested->sha256,
+              "Existing local job has a different frozen spec");
+      require(job.lineage.parent_run_id == parent_run_id,
+              "Existing local job has a different parent run");
+      // Repair the crash between identical job creation and first spec attach;
+      // no attempt can be admitted before this immutable reference exists.
+      if (!store.find_reference(id, "local.spec"))
+        put_json(store, id, "local.spec", "local.spec", requested->json,
+                 job.created_at_unix_ms);
+    }
+  }
+  const auto job = job_metadata(store, id);
+  const auto spec = frozen_spec(store, job);
+  if (action == "worker") {
+    require(request != nullptr,
+            "Local worker requires an explicit admitted request");
+    return worker(store, root, job, spec, *request);
+  }
+  if (action == "show") {
+    OwnerLock owner(root, id, true);
+    return {describe(store, job, spec, !owner.held()), 0};
+  }
+  if (action == "abandon") {
+    require(abandonment != nullptr,
+            "Abandonment requires an explicit confirmation");
+    const auto& confirmation = *abandonment;
+    OwnerLock dispatch(root, id, false);
+    if (!dispatch.held())
+      return {describe(store, job, spec, true, "active"), 7};
+    OwnerLock execution(root, id, true);
+    if (!execution.held())
+      return {describe(store, job, spec, true, "active"), 7};
+    const auto index =
+        positive(confirmation.at("index"), spec.maximum_attempts);
+    validate_abandonment(store, job, spec, index, confirmation);
+    const auto attempt = attempt_id(id, index);
+    put_json(store, attempt, "local.abandonment", "local.abandonment",
+             confirmation, store.find(attempt)->created_at_unix_ms);
+    require(release_resources(store, job, spec, index),
+            "Abandoned attempt resource release failed");
+    finish_run(store, attempt, RunStatus::failed);
+    finish_run(store, id, RunStatus::failed);
+    return {describe(store, job, spec), 1};
+  }
+  if (action == "cancel") {
+    if (!is_terminal_run_status(job.status) && !cancelled(store, id))
+      put_json(store, id, "local.cancel", "local.cancel",
+               {{"format", "jyppx.liuding.local_cancel"},
+                {"schema_version", 1},
+                {"job_id", id},
+                {"spec_sha256", spec.sha256}},
+               job.created_at_unix_ms);
+    OwnerLock owner(root, id, true);
+    return {describe(store, job, spec, !owner.held()), 0};
+  }
+  return drive(store, root, job, spec, launcher);
+}
+}  // namespace
+
+namespace {
+
+void validate_training_source(SQLiteRunStore& store,
+                              std::string_view project_id, const Json& binding,
+                              RunArtifactKind kind,
+                              std::uint64_t maximum_bytes) {
+  require(
+      kind == RunArtifactKind::artifact || kind == RunArtifactKind::checkpoint,
+      "Typed training inputs require an artifact or checkpoint kind");
+  require(maximum_bytes > 0 && maximum_bytes <= 1ULL << 30U,
+          "Training artifact verification requires a bounded input size");
+  const auto input = training_input(binding, kind == RunArtifactKind::checkpoint
+                                                 ? 1ULL << 30U
+                                                 : maximum_bytes);
+  training_source(store, project_id, input);
+  const auto reference = store.find_reference(input.run, input.reference);
+  require(reference && reference->kind == kind &&
+              reference->artifact.digest == input.digest &&
+              reference->artifact.size_bytes == input.size,
+          "Training input differs from its committed run/CAS identity");
+  FileArtifactStore cas(store.artifact_root());
+  const auto reader = cas.open(input.digest);
+  require(reader->size_bytes() == input.size,
+          "Training input content size differs from the frozen spec");
+}
+
+LocalJobResult detached(Result value) {
+  return {value.data.dump(), value.exit_code};
+}
+}  // namespace
+
+std::string local_execution_spec_sha256(std::string_view input,
+                                        bool inspect_files) {
+  require(input.size() <= kSpecBytes, "Local execution spec exceeds 64 KiB");
+  const auto spec = read_spec(parse_json(input));
+  if (inspect_files) preflight(spec);
+  return spec.sha256;
+}
+std::string local_execution_environment_sha256(std::string_view input) {
+  require(input.size() <= kSpecBytes, "Local execution spec exceeds 64 KiB");
+  return local_process_environment_sha256(
+      resolved_process(read_spec(parse_json(input))));
+}
+LocalJobResult execute_local_job(const fs::path& root, std::string_view job_id,
+                                 std::string_view input,
+                                 const LocalJobWorkerLaunch& launcher,
+                                 std::optional<std::string> parent_run_id) {
+  require(input.size() <= kSpecBytes, "Local execution spec exceeds 64 KiB");
+  return detached(operate("execute", root, std::string(job_id),
+                          read_spec(parse_json(input)),
+                          std::move(parent_run_id), &launcher));
+}
+LocalJobResult control_local_job(LocalJobControl action, const fs::path& root,
+                                 std::string_view job_id,
+                                 const LocalJobWorkerLaunch& launcher) {
+  std::string_view name;
+  switch (action) {
+    case LocalJobControl::show:
+      name = "show";
+      break;
+    case LocalJobControl::recover:
+      name = "recover";
+      break;
+    case LocalJobControl::cancel:
+      name = "cancel";
+      break;
+    default:
+      throw InvalidArgument("Unknown local job control action");
+  }
+  return detached(operate(name, root, std::string(job_id), std::nullopt,
+                          std::nullopt, &launcher));
+}
+LocalJobResult abandon_local_job(const fs::path& root, std::string_view job_id,
+                                 std::string_view input) {
+  require(input.size() <= kSpecBytes,
+          "Local abandonment confirmation exceeds 64 KiB");
+  const auto confirmation = parse_json(input);
+  return detached(operate("abandon", root, std::string(job_id), std::nullopt,
+                          std::nullopt, nullptr, nullptr, &confirmation));
+}
+LocalJobResult run_local_job_worker(const fs::path& root,
+                                    std::string_view job_id,
+                                    std::uint64_t index,
+                                    std::string_view intent_sha256) {
+  require(index > 0 && index <= kMaximumAttempts,
+          "Worker attempt is outside the bounded range");
+  validate_artifact_digest({.hex = std::string(intent_sha256)});
+  const WorkerRequest request{index, std::string(intent_sha256)};
+  return detached(operate("worker", root, std::string(job_id), std::nullopt,
+                          std::nullopt, nullptr, &request));
+}
+void validate_local_training_source_json(SQLiteRunStore& store,
+                                         std::string_view project,
+                                         std::string_view input,
+                                         RunArtifactKind kind,
+                                         std::uint64_t maximum_bytes) {
+  require(input.size() <= kSpecBytes, "Local training binding exceeds 64 KiB");
+  validate_training_source(store, project, parse_json(input), kind,
+                           maximum_bytes);
+}
+}  // namespace jyppx::liuding::experiment

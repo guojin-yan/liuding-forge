@@ -4,8 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include "local_cuda_device.hpp"
-
+#include <jyppx/liuding/experiment/local_execution/devices.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <algorithm>
@@ -20,7 +19,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace jyppx::liuding::cli {
+namespace jyppx::liuding::experiment {
 namespace {
 
 // Stable NVML C ABI. No CUDA/NVML headers, link-time SDK or CUDA context is
@@ -175,4 +174,4 @@ bool local_cuda_uuid_is_valid(std::string_view uuid) noexcept {
 
 std::vector<LocalCudaDevice> local_cuda_devices() { return Nvml{}.devices(); }
 
-}  // namespace jyppx::liuding::cli
+}  // namespace jyppx::liuding::experiment

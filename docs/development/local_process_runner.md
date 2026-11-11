@@ -1,6 +1,6 @@
 # 本地进程运行器
 
-`tools/cli/local_process.hpp` 提供工具层私有的 `LocalProcessRunner`，复用 CLI sidecar 的跨平台进程监督实现。它不属于安装 SDK；调用方负责提供受信任的可执行文件和参数。
+安装头 `<jyppx/liuding/experiment/local_execution/process.hpp>` 提供 `experiment::LocalProcessRunner`，CLI复用同一原生实现。持久任务的C++接口见 `<jyppx/liuding/experiment/local_execution/runner.hpp>` 和[原生示例](../../examples/experiment/local_execution/README.md)；调用方负责提供受信任的程序、固定参数和工作目录。
 
 ## 调用契约
 

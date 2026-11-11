@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 持久本地任务状态机加入安装C++ SDK，支持调用者原生worker、冻结计划、typed输入输出、有限重试、查询/取消/恢复及显式放弃未知attempt；CLI共用实现，新增独立原生教学例。
+
 - 原生进程执行与有界JSON行传输加入可安装的 `experiment` C++ SDK；CLI复用同一实现，并提供无需Python或CLI的独立原生示例。
 
 - 新增原生 C++ 行人分割训练/评估示例，模型头文件和实现按模块集中；支持完整检查点、定期提交、新进程恢复及独立预测计分验证，旧分割测试复用同一模型。

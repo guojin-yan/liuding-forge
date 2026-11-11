@@ -17,4 +17,19 @@ Windows 使用相应配置子目录及 `.exe`。成功时输出 `passed: true` �
 
 需要持久JSON行交互时，使用独立头 `<jyppx/liuding/experiment/local_execution/json_lines.hpp>` 和 `JsonLineProcessTransport`。工作进程按每请求一行返回一行；传输检查UTF-8、帧长度、截止和额外输出，首次协议或I/O失败后对象不可复用。对象在同一串行所有者下使用，销毁或 `terminate()` 回收原生进程。
 
-这个SDK接口负责单次进程执行和有界通道；持久attempt、run/CAS、有限重试及完整训练RunSpec仍须通过相应编排层组合，不能仅根据程序退出码认定训练成功。现有[本地执行和搜索CLI](../../../docs/user-guide/cli.md)保留原有持久协议。
+上述单次进程接口负责执行和有界通道；持久attempt、run/CAS和有限重试使用下一节的编排接口，不能仅根据程序退出码认定训练成功。现有[本地执行和搜索CLI](../../../docs/user-guide/cli.md)与SDK复用持久协议。
+
+## 持久任务与原生 worker
+
+[durable.cpp](durable.cpp) 直接使用安装头 `<jyppx/liuding/experiment/local_execution/runner.hpp>`，调用 `execute_local_job()` 创建或重放冻结任务，`control_local_job()` 查询、取消或恢复。返回的 `LocalJobResult::status_code` 是编排状态：0成功或查询、1失败、7归属未确认、130取消；原生程序退出码保留在版本化JSON结果中。JSON采用与CLI相同的 `local_run_spec` v1，边界见[持久执行合同](../../../docs/development/local_process_runner.md#持久执行-cli)。它仍是完整训练RunSpec的有界子集。
+
+调用者以 `LocalJobWorkerLaunch` 指定绝对worker程序、SHA-256和固定argv前缀；每个新attempt在写启动意图前核对程序身份。SDK追加 `--root STORE --id JOB --attempt N --intent-sha256 SHA`，程序在指定模式下转交 `run_local_job_worker()`。worker独立持有执行锁和提交结果，可与调度调用者分开存活；未知启动意图不因空闲锁、PID或时间而自动重试。确认终态的查询/重放不再依赖原程序或worker仍存在；`abandon_local_job()` 只接受原合同要求的显式外部清理确认，不猜测遗留进程。
+
+示例第一次原生任务返回75，第二次提交具名结果；SDK核对同attempt的typed输出后成功，并在另一个原生进程中重放相同终态。它演示持久协议，不执行模型训练或授予任务质量资格；无需Python、CLI或第三方JSON头。
+
+```sh
+cmake --build out/build/YOUR_PROFILE --target jyppx_liuding_durable_local_execution_example --parallel 1
+out/build/YOUR_PROFILE/examples/liuding-forge-example-durable-local-execution /absolute/unused-output
+```
+
+保留示例输出目录可检查原始run/CAS和 `example-spec.json`；每次新的演示使用未占用目录。安装消费者只需 `find_package(jyppx CONFIG REQUIRED COMPONENTS experiment)` 并链接 `jyppx::liuding::experiment`。

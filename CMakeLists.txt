@@ -692,6 +692,8 @@ if(JYPPX_LIUDING_BUILD_EXPERIMENT)
         src/jyppx/liuding/experiment/run_telemetry_sink.cpp
         src/jyppx/liuding/experiment/telemetry_exporters.cpp
         src/jyppx/liuding/experiment/local_execution/process.cpp
+        src/jyppx/liuding/experiment/local_execution/runner.cpp
+        src/jyppx/liuding/experiment/local_execution/devices.cpp
         src/jyppx/liuding/experiment/evaluation.cpp
         $<TARGET_OBJECTS:sqlite3_amalgamation>
     )
@@ -725,6 +727,7 @@ if(JYPPX_LIUDING_BUILD_EXPERIMENT)
         PRIVATE
             Threads::Threads
     )
+    target_link_libraries(jyppx_liuding_experiment PRIVATE ${CMAKE_DL_LIBS})
     if(WIN32)
         target_link_libraries(jyppx_liuding_experiment PRIVATE psapi)
     endif()
