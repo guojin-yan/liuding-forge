@@ -10,8 +10,8 @@ target_link_libraries(jyppx_cli_transport PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(jyppx_cli_objects OBJECT
     cli_main.cpp
-    api_migration.cpp
-    config_migration.cpp
+    migration/api_migration.cpp
+    migration/config_migration.cpp
     doctor_config.cpp
     evaluation_data.cpp
     data_preparation.cpp
