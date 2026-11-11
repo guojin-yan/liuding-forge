@@ -111,7 +111,7 @@ class ImageTrainingReportTest(unittest.TestCase):
                     self.run_report(payload, "cuda-fp16-storage", "cuda:0")
 
     def test_rejects_mismatched_model_identity(self):
-        for expected in ("vit_giant_patch14_dinov2", "dinov3_vitl16", "dinov3_vitl16plus",
+        for expected in ("vit_giant_patch14_dinov2", "dinov3_vitl16", "dinov3_vitl16plus", "dinov3_vith16plus",
                          "dinov3_convnext_base", "dinov3_convnext_large"):
             for actual in ("flatten-linear64-relu-linear", "dinov3_vits16-random-init"):
                 with self.subTest(expected=expected, actual=actual):

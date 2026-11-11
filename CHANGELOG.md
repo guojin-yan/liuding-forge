@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 图像训练基准接入完整 DINOv3 H+ 并报告参数元素数；Ubuntu CPU FP32/CUDA FP16 参数存储各完成 224×224 输入的两次无动量 SGD 更新。
+
 - 增加完整 DINOv3 H+ 的 224×224 CUDA FP16 参数存储恢复显式门禁；当前 6 GiB 显卡在首次 SGD 动量分配时不足，保留多步训练与恢复未验边界。
 
 - 模型检查点恢复将完整候选值和独立回滚副本暂存于 CPU，降低 CUDA 恢复的额外显存占用；保留原张量拓扑、完整校验和失败拷贝的逆序回滚。

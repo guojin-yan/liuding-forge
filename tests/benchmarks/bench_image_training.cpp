@@ -78,7 +78,7 @@ struct ModelSpec {
   std::uint32_t image_size_multiple;
 };
 
-constexpr std::array<ModelSpec, 15> kSupportedModels = {{
+constexpr std::array<ModelSpec, 16> kSupportedModels = {{
     {"linear64", "flatten-linear64-relu-linear", 1, 1},
     {"resnet18", "resnet18-random-init", 64, 1},
     {"vit_small_patch14_dinov2", "vit_small_patch14_dinov2-random-init", 14,
@@ -93,6 +93,7 @@ constexpr std::array<ModelSpec, 15> kSupportedModels = {{
     {"dinov3_vitb16", "dinov3_vitb16-random-init", 16, 16},
     {"dinov3_vitl16", "dinov3_vitl16-random-init", 16, 16},
     {"dinov3_vitl16plus", "dinov3_vitl16plus-random-init", 16, 16},
+    {"dinov3_vith16plus", "dinov3_vith16plus-random-init", 16, 16},
     {"dinov3_convnext_tiny", "dinov3_convnext_tiny-random-init", 32, 1},
     {"dinov3_convnext_small", "dinov3_convnext_small-random-init", 32, 1},
     {"dinov3_convnext_base", "dinov3_convnext_base-random-init", 32, 1},
@@ -469,11 +470,16 @@ bench::Json measure(const Options& options) {
   const auto parameter_dtype = half_storage ? torch::kHalf : torch::kFloat32;
   if (half_storage) model->state().module().to(parameter_dtype);
   std::vector<optim::OptimizerParameterBinding> bindings;
+  std::uint64_t parameter_elements = 0;
   for (const auto& item : model->state().named_parameters()) {
     bench::require(item.value().scalar_type() == parameter_dtype,
                    "model parameter dtype does not match precision");
     bindings.push_back({.parameter_id = item.key(), .parameter = item.value()});
+    parameter_elements += static_cast<std::uint64_t>(item.value().numel());
   }
+  if (options.model == "dinov3_vith16plus")
+    bench::require(parameter_elements == 840633600ULL + 1281ULL * classes,
+                   "H+ benchmark requires the complete default backbone");
   auto optimizer = std::make_shared<optim::SgdOptimizerAdapter>(
       "optimizer.benchmark.image-training",
       std::vector<optim::SgdParameterGroup>{
@@ -633,6 +639,7 @@ bench::Json measure(const Options& options) {
       {"precision", options.precision},
       {"diagnostics", options.diagnostics},
       {"parameter_dtype", half_storage ? "float16" : "float32"},
+      {"parameter_elements", parameter_elements},
       {"model_input_dtype", half_storage ? "float16" : "float32"},
       {"grad_scaler_init_scale", amp ? 128.0 : 1.0},
       {"batch_transfer", cuda ? "pin-and-nonblocking-transfer" : "none"},
