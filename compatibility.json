@@ -13,6 +13,23 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu-gcc114-cpu-7f1d5b9-paired-multi-trial-search",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch 2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "7f1d5b91eab9352d07ef8fb3b877390d7cee0330",
+          "tests": "Two three-trial native paired-affine searches (grid and random), 7680 updates and 12 attempts. Each trial resumes exactly after 259 of 1280 updates. All six pass the original 95% accuracy and 0.005 MSE thresholds.",
+          "instrumentation": "Fixed rebuilt-cpu-release CLI, one build job, one native trial. 3 GiB cgroup with no swap and 197672960 B execution peak; no memory-limit or OOM events.",
+          "quality_evidence": {
+            "lineage": "Distinct trial and attempt identities, verified durable objective and typed outputs; same-rate final model and checkpoint are byte-identical across strategies.",
+            "portable_history": "Both complete histories export and restore with all referenced CAS objects and the same selected trial while the original training workspace and data are absent. Recovery performs no training.",
+            "scope": "Ubuntu CPU paired-affine native CLI; no full RunSpec, broader recipe, installation or release qualification. Installed SDK build identities are unchanged."
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cu126-dirty-90a1e2f-image-copy-stream",
           "os": "windows-11",
           "architecture": "x86_64",

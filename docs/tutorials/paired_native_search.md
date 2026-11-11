@@ -70,6 +70,8 @@ liuding-forge search export --root /path/search-store --id paired-search --outpu
 
 `seed_policy=configuration` 明确区分两个种子：配方实际训练消耗冻结配置中的`configuration.seed`；搜索 `seed` 控制 random 排序，并按原 SplitMix64 规则产生调度身份 `trial_seed`。桥接同时保存、核对 `training_seed` 和 `trial_seed`，不会把未消费的调度身份当作训练种子。多个 trial 可保持相同配置种子以比较超参数，也可以显式把 `/seed` 声明为搜索轴；每个实际训练种子仍须满足配方范围。
 
+在 Ubuntu CPU 上，可以把上例的 `max_trials` 设为 `3`、`values` 改成 `[0.05, 0.1, 0.2]`，分别用 `grid` 和 `random` 运行两个独立搜索。两种策略均逐个执行 trial，random 不重复抽取组合。多个 trial 的最后一条已提交 accuracy 相同时，按当前搜索的试验顺序选择最早的一条；两种策略的最佳学习率因此可能不同。每个搜索都可导出全部 trial 历史。
+
 训练完成后，搜索检查原生 completed run、完整结果、配置/数据/模型/构建 lineage、真实提交的 accuracy 与三类 typed 输出。它先冻结桥接回执，再发布外层 trainingrun 的原子引用批和唯一原生指标，最后标记 completed。发布中断只能按同一回执重放；额外指标、额外或部分引用、身份漂移、未确认 owner/cleanup 都会保留证据并拒绝选优。
 
 运行中的精确续训仍要求保留原训练目录。完成后的 search show/recover/export 读取已冻结的 SQLite/CAS 证据，导出后可通过 `run restore` 恢复并查看历史，无须原生训练工作目录。导出是包含 trial 历史的 run-store 备份，`deployable_model_bundle=false`。其他目标和更宽的搜索矩阵仍需独立验证。
