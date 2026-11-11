@@ -17,6 +17,10 @@ jyppx_add_bench(jyppx_bench_nadam_native_throughput bench_nadam_native_throughpu
 jyppx_add_bench(jyppx_bench_rmsprop_adapter_overhead bench_rmsprop_adapter_overhead.cpp)
 jyppx_add_bench(jyppx_bench_memory_usage bench_memory_usage.cpp)
 if(TARGET jyppx::liuding::data_image)
+    jyppx_add_bench(jyppx_bench_image_decode
+        LINK_TARGET jyppx::liuding::data_image
+        bench_image_decode.cpp)
+    target_link_libraries(jyppx_bench_image_decode PRIVATE nlohmann_json::nlohmann_json)
     jyppx_add_bench(jyppx_bench_image_training
         LINK_TARGET jyppx::liuding::data_image
         bench_image_training.cpp)
@@ -36,6 +40,9 @@ endif()
 if(WIN32)
     target_link_libraries(jyppx_bench_data_pipeline PRIVATE Psapi)
     target_link_libraries(jyppx_bench_memory_usage PRIVATE Psapi)
+    if(TARGET jyppx_bench_image_decode)
+        target_link_libraries(jyppx_bench_image_decode PRIVATE Psapi)
+    endif()
     if(TARGET jyppx_bench_image_training)
         target_link_libraries(jyppx_bench_image_training PRIVATE Psapi)
     endif()

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 图像解码将布局、scalar 转换和归一化直接写入最终连续 Tensor，可直接分配 pinned 输出，减少中间像素存储；提供固定输入的耗时、RSS 和 codec 工作峰值基准。
+
 - 图像解码新增独立的单次工作内存上限，在底层分配前限制格式探测、私有解码缓冲、扩容重叠及已知转换暂存；无需共享预算即可生效，超限后释放资源。
 
 - 本地运行和搜索可用完整 NVIDIA GPU UUID 核验真实显存/计算能力，并将子进程 CUDA 可见设备绑定到该 UUID；保存启动前收据，保持有限重试、资源释放与终态重放合同。

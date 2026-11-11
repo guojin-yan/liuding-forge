@@ -86,8 +86,9 @@ struct ImageDecodeOptions {
   ///< Excludes allocator bookkeeping, codec stack and private LibTorch buffers;
   ///< this is not a process RSS limit. Reallocation charges both live buffers.
   std::size_t max_working_bytes = 1U << 30U;
-  ///< Per-call cap on live stb heap payloads plus known tensor conversion
-  ///< staging, including metadata and overlapping reallocation buffers.
+  ///< Per-call cap on live stb heap payloads, including metadata, codec
+  ///< output and overlapping reallocation buffers. Layout/scalar conversion
+  ///< writes directly into the final contiguous, optionally pinned tensor.
   ///< Applies without a shared budget; excludes input, final tensor storage,
   ///< allocator bookkeeping, codec stack and private LibTorch buffers.
 };

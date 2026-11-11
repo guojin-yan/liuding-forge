@@ -144,27 +144,28 @@ Tensor MakeTensor(const void* data, std::int64_t width, std::int64_t height,
                   std::int64_t channels, bool source_is_16bit,
                   const ImageDecodeOptions& options) {
   const auto dtype = source_is_16bit ? torch::kUInt16 : torch::kUInt8;
-  const auto source =
+  auto source =
       torch::from_blob(const_cast<void*>(data), {height, width, channels},
                        torch::TensorOptions().dtype(dtype).device(torch::kCPU));
-  Tensor tensor;
-  if (options.dtype == ImageDtype::float32_normalized) {
-    tensor = source.to(torch::kFloat32);
+  if (options.layout == ImageLayout::chw) source = source.permute({2, 0, 1});
+  if (options.pin_memory && !torch::cuda::is_available())
+    throw DeviceError(
+        "Pinned image memory requires a CUDA-capable LibTorch runtime",
+        ErrorDetails{.component = std::string(kComponent),
+                     .operation = "decode.pin_memory",
+                     .hint = "Use pin_memory=false on CPU-only runtimes"});
+  const auto output_dtype =
+      options.dtype == ImageDtype::float32_normalized ? torch::kFloat32 : dtype;
+  // copy_ performs layout and scalar conversion directly into the final
+  // contiguous allocation, including when its storage must be pinned.
+  auto tensor =
+      torch::empty(source.sizes(), torch::TensorOptions()
+                                       .dtype(output_dtype)
+                                       .device(torch::kCPU)
+                                       .pinned_memory(options.pin_memory));
+  tensor.copy_(source);
+  if (options.dtype == ImageDtype::float32_normalized)
     tensor.div_(source_is_16bit ? 65535.0 : 255.0);
-  } else {
-    tensor = source.clone();
-  }
-  if (options.layout == ImageLayout::chw)
-    tensor = tensor.permute({2, 0, 1}).contiguous();
-  if (options.pin_memory) {
-    if (!torch::cuda::is_available())
-      throw DeviceError(
-          "Pinned image memory requires a CUDA-capable LibTorch runtime",
-          ErrorDetails{.component = std::string(kComponent),
-                       .operation = "decode.pin_memory",
-                       .hint = "Use pin_memory=false on CPU-only runtimes"});
-    tensor = tensor.pin_memory();
-  }
   return tensor;
 }
 
@@ -325,18 +326,9 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
   const auto output_bytes = CheckedProduct(
       static_cast<std::uint64_t>(width), static_cast<std::uint64_t>(height),
       output_channels, element_size, options.limits);
-  const auto source_bytes = CheckedProduct(
-      static_cast<std::uint64_t>(width), static_cast<std::uint64_t>(height),
-      output_channels,
-      source_is_16bit ? sizeof(std::uint16_t) : sizeof(std::uint8_t),
-      options.limits);
-
   CheckStop(stop);
   const auto desired = DesiredChannels(options.channels);
   DecodedImage result;
-  ImageResourceLease scratch_lease;
-  const auto extra_bytes = std::max(source_bytes, output_bytes);
-  codec_resources.reserve_staging(extra_bytes);
   try {
     if (options.resource_budget) {
       const auto pixels = static_cast<std::uint64_t>(width) * height;
@@ -349,10 +341,6 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
       if (options.pin_memory)
         leases.push_back(options.resource_budget->reserve(
             ImageResourceKind::pinned_bytes, output_bytes));
-      // stb allocations, including its output, are charged by its allocator.
-      // Reserve the overlapping LibTorch layout/conversion copy separately.
-      scratch_lease = options.resource_budget->reserve(
-          ImageResourceKind::codec_scratch_bytes, extra_bytes);
     }
   } catch (const std::bad_alloc&) {
     Resource("decode.allocation", "available memory");

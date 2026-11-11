@@ -26,7 +26,6 @@ class StbResourceScope final {
   StbResourceScope(const StbResourceScope&) = delete;
   StbResourceScope& operator=(const StbResourceScope&) = delete;
   void rethrow_if_failed() const;
-  void reserve_staging(std::size_t bytes);
 
   std::shared_ptr<ImageResourceBudget> budget;
   std::exception_ptr failure;

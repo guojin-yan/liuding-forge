@@ -60,11 +60,6 @@ void StbResourceScope::check_capacity(std::size_t bytes) const {
             .actual = std::to_string(current_) + "+" + std::to_string(bytes)});
 }
 
-void StbResourceScope::reserve_staging(std::size_t bytes) {
-  check_capacity(bytes);
-  current_ += bytes;
-}
-
 void StbResourceScope::rethrow_if_failed() const {
   if (!failure) return;
   try {

@@ -336,7 +336,7 @@ TEST(ImageDecoderTest, PerCallWorkingLimitAppliesWithoutSharedBudget) {
   }
 }
 
-TEST(ImageDecoderTest, WorkingLimitCoversMetadataAndConversionStaging) {
+TEST(ImageDecoderTest, WorkingLimitCoversMetadataAndExcludesFinalStorage) {
   ImageDecodeOptions options;
   options.max_working_bytes = 0;
   EXPECT_THROW(decode_image(ReadFixture("rgb.jpg"), options),
@@ -356,19 +356,85 @@ TEST(ImageDecoderTest, WorkingLimitCoversMetadataAndConversionStaging) {
   options.resource_budget.reset();
   options.dtype = ImageDtype::float32_normalized;
   options.layout = ImageLayout::hwc;
-  // Metadata probes also allocate for non-JPEG inputs. Use a raster whose
-  // conversion staging exceeds those probes, independently of codec output.
+  // Metadata and codec output fit below the final float32 storage size.
   constexpr std::string_view header = "P5\n128 128\n255\n";
   std::vector<std::byte> pgm(header.size() + 128U * 128U, std::byte{127});
   std::memcpy(pgm.data(), header.data(), header.size());
-  options.max_working_bytes = 32U << 10U;
-  EXPECT_THROW(decode_image(pgm, options), jyppx::liuding::ResourceExhausted);
-  options.max_working_bytes = 128U << 10U;
-  const auto result = decode_image(pgm, options);
-  EXPECT_EQ(result.tensor.nbytes(), 65536U);
-  EXPECT_TRUE(torch::equal(
-      result.tensor,
-      torch::full({128, 128, 1}, 127.0F / 255.0F, torch::kFloat32)));
+  for (const auto layout : {ImageLayout::hwc, ImageLayout::chw}) {
+    options.layout = layout;
+    options.max_working_bytes = 48U << 10U;
+    options.resource_budget = std::make_shared<ImageResourceBudget>();
+    const auto result = decode_image(pgm, options);
+    EXPECT_EQ(result.tensor.nbytes(), 65536U);
+    EXPECT_TRUE(result.tensor.is_contiguous());
+    EXPECT_TRUE(torch::equal(
+        result.tensor,
+        torch::full(result.tensor.sizes(), 127.0F / 255.0F, torch::kFloat32)));
+    EXPECT_LE(
+        options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+            .peak,
+        options.max_working_bytes);
+    options.limits.max_output_bytes = 65535U;
+    EXPECT_THROW(decode_image(pgm, options), jyppx::liuding::ResourceExhausted);
+    options.limits.max_output_bytes = 65536U;
+  }
+}
+
+TEST(ImageDecoderTest, PinnedPublicationHonorsRuntimeAndEveryPixelPolicy) {
+  if (!torch::cuda::is_available()) {
+    ImageDecodeOptions options;
+    options.pin_memory = true;
+    options.resource_budget = std::make_shared<ImageResourceBudget>();
+    EXPECT_THROW(decode_image(ReadFixture("rgb.png"), options),
+                 jyppx::liuding::DeviceError);
+    for (const auto kind :
+         {ImageResourceKind::decoded_bytes, ImageResourceKind::pinned_bytes,
+          ImageResourceKind::codec_scratch_bytes, ImageResourceKind::pixels})
+      EXPECT_EQ(options.resource_budget->usage(kind).current, 0U);
+    options.pin_memory = false;
+    EXPECT_NO_THROW(decode_image(ReadFixture("rgb.png"), options));
+    return;
+  }
+  for (const auto* name : {"rgb.png", "gray16.png"}) {
+    const auto bytes = ReadFixture(name);
+    for (const auto channels :
+         {ImageChannels::source, ImageChannels::gray, ImageChannels::gray_alpha,
+          ImageChannels::rgb, ImageChannels::rgba})
+      for (const auto layout : {ImageLayout::hwc, ImageLayout::chw})
+        for (const auto dtype :
+             {ImageDtype::preserve, ImageDtype::float32_normalized}) {
+          ImageDecodeOptions options;
+          options.channels = channels;
+          options.layout = layout;
+          options.dtype = dtype;
+          const auto pageable = decode_image(bytes, options);
+          options.pin_memory = true;
+          options.resource_budget = std::make_shared<ImageResourceBudget>();
+          {
+            const auto pinned = decode_image(bytes, options);
+            EXPECT_TRUE(pinned.tensor.is_pinned());
+            EXPECT_TRUE(pinned.tensor.is_contiguous());
+            EXPECT_EQ(pinned.tensor.scalar_type(),
+                      pageable.tensor.scalar_type());
+            ASSERT_EQ(pinned.tensor.sizes(), pageable.tensor.sizes());
+            EXPECT_NE(pinned.tensor.const_data_ptr(),
+                      pageable.tensor.const_data_ptr());
+            EXPECT_EQ(std::memcmp(pinned.tensor.const_data_ptr(),
+                                  pageable.tensor.const_data_ptr(),
+                                  pinned.tensor.nbytes()),
+                      0);
+            EXPECT_EQ(
+                options.resource_budget->usage(ImageResourceKind::pinned_bytes)
+                    .current,
+                pinned.tensor.nbytes());
+          }
+          for (const auto kind : {ImageResourceKind::decoded_bytes,
+                                  ImageResourceKind::pinned_bytes,
+                                  ImageResourceKind::codec_scratch_bytes,
+                                  ImageResourceKind::pixels})
+            EXPECT_EQ(options.resource_budget->usage(kind).current, 0U);
+        }
+  }
 }
 
 std::vector<std::byte> PngWithGrowingIdat() {

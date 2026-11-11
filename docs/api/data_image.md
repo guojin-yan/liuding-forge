@@ -22,7 +22,7 @@ image::validate_pixels(decoded.tensor, decoded.pixels);
 
 `validate_pixels` 检查形状、dtype、通道和 alpha/range 契约，支持有步幅的 CPU/CUDA 单图 Tensor。该函数不扫描像素数值、不传输设备数据、不执行颜色转换；范围表示编码语义，并非观测到的最小值和最大值。标准化后的浮点图像应显式改用 `PixelValueRange::unbounded`。单图 API 不接受 NCHW batch。
 
-`ImageDecodeOptions::max_working_bytes` 默认 1 GiB，限制每次调用同时存活的 stb 堆载荷和已知 Tensor 布局/转换暂存，覆盖格式探测、私有解码缓冲、codec 输出与扩容时同时存活的新旧缓冲，即使未设置共享预算也生效。设置 `resource_budget` 后，这些分配还须满足共享 `codec_scratch_bytes` 预算。分配前超限报告 `ResourceExhausted`，失败后释放本次存储与预约，其他线程保留各自限制。工作量按请求的有效字节计算，不包含输入、最终 Tensor 存储、分配器元数据、codec 栈或 LibTorch 私有缓冲，不能作为进程 RSS 上限；最终 Tensor 另受 `limits.max_output_bytes` 限制。
+`ImageDecodeOptions::max_working_bytes` 默认 1 GiB，限制每次调用同时存活的 stb 堆载荷，覆盖格式探测、私有解码缓冲、codec 输出与扩容时同时存活的新旧缓冲，即使未设置共享预算也生效。CHW/HWC 布局和 scalar 转换直接写入最终连续 Tensor；`pin_memory=true` 直接分配 pinned 输出，归一化在该输出中完成，不保留中间 HWC Tensor 或额外 pageable 输出。设置 `resource_budget` 后，codec 分配还须满足共享 `codec_scratch_bytes` 预算，最终输出分别预约 `decoded_bytes` 和可选 `pinned_bytes`。分配前超限报告 `ResourceExhausted`，失败后释放本次存储与预约，其他线程保留各自限制。工作量按请求的有效字节计算，不包含输入、最终 Tensor 存储、分配器元数据、codec 栈或 LibTorch 私有缓冲，不能作为进程 RSS 上限；最终 Tensor 另受 `limits.max_output_bytes` 限制。
 
 `ImageDataset::get` 返回的 `VisionSample` 携带 `pixels` 和初始恒等 `geometry`；配对图像另有 `paired_target_pixels`，不会继承输入图像的颜色或归一化策略。语义、实例或全景标签应选择下面的离散 mask 入口。
 
