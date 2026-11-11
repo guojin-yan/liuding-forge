@@ -20,8 +20,8 @@ add_library(jyppx_cli_objects OBJECT
     onnx_delivery.cpp
     onnx_verification.cpp
     onnx_reconstruction.cpp
-    local_attempt.cpp
-    local_search.cpp
+    local_execution/local_attempt.cpp
+    local_execution/local_search.cpp
     offline_workflow.cpp
     recipes/image/image_recipe.cpp
     recipes/image/recipe_initial_state.cpp

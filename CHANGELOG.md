@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- CLI 本地执行、资源接口、持久任务及有界搜索的实现和私有头集中到 local_execution，贡献指南明确同模块先归大目录、再按职责细分。
+
 - 双输入、多输出配方复用原生失败诊断持久化，保留原异常与安全检查点；报告实现保持八Core依赖，配方实现和私有搜索头集中到 recipes/paired。
 
 - CLI 图像分类、迁移学习、初始状态和 BatchNorm 校准的实现与私有头集中到 recipes/image，搜索桥接头同目录存放，保持公开命令与安装接口。

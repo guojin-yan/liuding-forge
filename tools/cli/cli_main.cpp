@@ -6,7 +6,7 @@
 
 #include "bundle_signing.hpp"
 #include "cli.hpp"
-#include "local_attempt.hpp"
+#include "local_execution/local_attempt.hpp"
 #include "native_otlp_worker.hpp"
 #include "native_tensorboard_worker.hpp"
 
