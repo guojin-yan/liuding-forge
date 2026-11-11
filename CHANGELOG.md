@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 本地运行和搜索可用完整 NVIDIA GPU UUID 核验真实显存/计算能力，并将子进程 CUDA 可见设备绑定到该 UUID；保存启动前收据，保持有限重试、资源释放与终态重放合同。
+
 - 图像训练基准接入完整 DINOv3 H+ 并报告参数元素数；Ubuntu CPU FP32/CUDA FP16 参数存储各完成 224×224 输入的两次无动量 SGD 更新。
 
 - 增加完整 DINOv3 H+ 的 224×224 CUDA FP16 参数存储恢复显式门禁；当前 6 GiB 显卡在首次 SGD 动量分配时不足，保留多步训练与恢复未验边界。

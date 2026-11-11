@@ -22,6 +22,7 @@ add_library(jyppx_cli_objects OBJECT
     onnx_verification.cpp
     onnx_reconstruction.cpp
     local_attempt.cpp
+    local_cuda_device.cpp
     local_search.cpp
     offline_workflow.cpp
     image_recipe.cpp
@@ -37,7 +38,7 @@ add_executable(jyppx_cli)
 set_target_properties(jyppx_cli PROPERTIES OUTPUT_NAME liuding-forge)
 target_link_libraries(jyppx_cli_objects PUBLIC
     jyppx::liuding::sdk jyppx_cli_transport jyppx_dataset_preparation
-    nlohmann_json::nlohmann_json Threads::Threads)
+    nlohmann_json::nlohmann_json Threads::Threads ${CMAKE_DL_LIBS})
 target_link_libraries(jyppx_cli PRIVATE jyppx_cli_objects)
 jyppx_add_torch_runtime_dependency(jyppx_cli)
 if(TARGET jyppx::liuding::telemetry_native)

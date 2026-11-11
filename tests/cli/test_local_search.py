@@ -108,6 +108,8 @@ def fixture(arguments: argparse.Namespace) -> None:
         "literal": arguments.literal, "environment": os.environ.get("SEARCH_PARAMETER"), "cwd": str(Path.cwd())}
     if mode == "cpu_affinity":
         launch["cpu_ids"] = ATTEMPTS.cpu_ids()
+    if mode == "cuda_visibility":
+        launch["cuda_visible_devices"] = os.environ.get("CUDA_VISIBLE_DEVICES")
     training = None
     if "JYPPX_LIUDING_LOCAL_SPEC_SHA256" in os.environ:
         job = os.environ["JYPPX_LIUDING_LOCAL_JOB_ID"]

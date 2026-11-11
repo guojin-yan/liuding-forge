@@ -85,6 +85,20 @@ foreach(group IN ITEMS core resources environment runtime_files host)
     set_tests_properties(${local_attempt_test} PROPERTIES
         LABELS "cli;experiment;integration" TIMEOUT ${local_attempt_timeout})
 endforeach()
+add_test(NAME Cli_local_cuda_schema
+    COMMAND ${Python3_EXECUTABLE} -I -B "${CMAKE_CURRENT_SOURCE_DIR}/test_local_cuda.py"
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate> -v)
+set_tests_properties(Cli_local_cuda_schema PROPERTIES LABELS "cli;experiment;integration" TIMEOUT 120)
+if(JYPPX_LIUDING_TEST_CLI_CUDA AND JYPPX_ACCELERATOR_BUILD STREQUAL "cuda")
+    add_executable(jyppx_local_cuda_fixture local_cuda_fixture.cpp)
+    target_include_directories(jyppx_local_cuda_fixture PRIVATE ${CUDA_INCLUDE_DIRS} ${CUDAToolkit_INCLUDE_DIRS})
+    target_link_libraries(jyppx_local_cuda_fixture PRIVATE torch nlohmann_json::nlohmann_json "${CUDA_CUDART_LIBRARY}")
+    jyppx_add_torch_runtime_dependency(jyppx_local_cuda_fixture)
+    add_test(NAME Cli_local_cuda_placement
+        COMMAND ${Python3_EXECUTABLE} -I -B "${CMAKE_CURRENT_SOURCE_DIR}/test_local_cuda.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --fixture $<TARGET_FILE:jyppx_local_cuda_fixture> --hardware -v)
+    set_tests_properties(Cli_local_cuda_placement PROPERTIES LABELS "cli;experiment;cuda;integration" TIMEOUT 180)
+endif()
 add_test(NAME CliLocalAttemptRegistration
     COMMAND ${Python3_EXECUTABLE} -I -B
         "${PROJECT_SOURCE_DIR}/tests/scripts/test_local_attempt_registration.py")

@@ -156,7 +156,7 @@ Linux 调用者须位于同一委派子树，拥有目标 `cgroup.procs` 及当�
 
 这些检查是启动前的时点观察，不预留内存或磁盘，不限制实际分配，也不证明CPU affinity、cgroup配额或GPU拓扑符合要求。CPU为OS在线逻辑处理器数，内存为整机物理内存口径；容器、其他进程或后续资源变化仍可造成启动后的不足。它与下述逻辑预约、`os_memory_limit`及进程资源计数分别使用，不将其中一种计量当作另一种保证。
 
-`local_run_spec` 与搜索的 `execution` 可增加下面的 `resources`。首次准入会将同一机器、同一 STORE 的容量固定到 run/CAS；后续请求必须原样使用该容量。`gpu0` 是调用者约定的设备身份，运行器不探测硬件、不设置 CUDA 可见设备；训练程序负责将该身份映射到实际设备。
+`local_run_spec` 与搜索的 `execution` 可增加下面的 `resources`。首次准入会将同一机器、同一 STORE 的容量固定到 run/CAS；后续请求必须原样使用该容量。单独使用时，`gpu0` 是调用者约定的逻辑设备身份；需要真实 NVIDIA GPU 准入及 CUDA 放置时，另外声明下述 `cuda_device`。
 
 ```json
 {
@@ -172,6 +172,26 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 跨 job 的检查与准入用同一非继承文件锁串行化；占用先于 attempt/intent 持久化。预算不足返回 `resource_unavailable`（退出码 7），尚未创建 attempt 或启动程序；锁繁忙返回 `resource_busy`，可稍后用 `local recover` 继续。即使没有声明 `resources`、容量池尚未启用，同一 STORE 的新增 attempt 也参与该短临界区，避免首次启用容量时遗漏同时启动的任务；竞争失败不会创建 attempt 或启动程序，也不会静默等待或自动重试。恢复复用原占用身份，父调用者崩溃或未知 attempt 不释放容量。启用容量后，未声明资源的新增 attempt 返回 `resource_request_required`；启用前仍未确认的旧 attempt 返回 `resource_unmanaged_attempt`。旧结果没有原生清理确认时，请使用独立 STORE，不能据终态或空锁推断资源可释放。
 
 释放记录同时绑定 lease、intent、worker、result 与双流摘要，并要求原生清理确认。Windows 要求 leader 已退出且 Job 活跃进程为零；Ubuntu 要求直接子进程已回收且原进程组不存在。组内尚未回收的僵尸也会保守保留占用；清理未确认返回 `resource_cleanup_unconfirmed`（退出码 7），不会强制解锁、重启或扩大容量。跨机器共享 STORE、其他 STORE、外部程序及逃离 POSIX 原进程组的进程不在该准入范围。系统级 RSS/显存硬限额与真实 GPU 资源资格仍待完成。
+
+### NVIDIA GPU 实际准入与 CUDA 放置
+
+`liuding-forge local cuda-devices --format json` 通过本机 NVIDIA 驱动 NVML 只读查询物理 GPU 的完整 UUID、总/空闲显存字节数及计算能力，不创建 CUDA 上下文或 STORE。NVML 在运行时加载，CPU-only 构建不依赖 CUDA Toolkit；驱动或所需接口不可用时明确失败。当前支持 Windows/Linux 的完整物理 GPU UUID，MIG、其他 GPU 厂商和多卡拓扑未支持。
+
+可在 `local_run_spec` 或搜索 `execution` 中声明下面的字段，并将 `resources.request.gpu.id` 和对应 `capacity.gpus` 键设为同一完整 UUID。该容量池的全部 GPU 键均须使用完整物理 UUID，不接受缩写或逻辑别名；旧 STORE 的容量含别名时须使用新 STORE，以免同一物理设备被不同名称重复预约。
+
+```json
+"cuda_device": {
+  "uuid": "GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "minimum_compute_capability": [7, 5],
+  "minimum_free_memory_bytes": 1073741824
+}
+```
+
+`uuid` 必填且使用小写十六进制，其余两项可选。每次首次/重试准入和 worker 启动前检查该 UUID 存在、声明容量不高于物理总显存、空闲显存不低于逻辑请求及额外最低要求，并按 major/minor 顺序检查计算能力。首次失败不创建 STORE；重试失败保持已确认前缀；已预约 worker 拒绝后提交未启动的失败并释放原预约；终态继续只读重放。省略该字段的旧逻辑资源计划保持原合同。
+
+运行器将子进程的 `CUDA_VISIBLE_DEVICES` 设置为完整 UUID，使遵守 CUDA 可见性约定的程序将该设备作为 `cuda:0` 使用；父进程环境不变。该覆盖参与完整有效环境摘要，不得同时由显式 `environment` 或 `environment_refs` 设置。每个已启动 attempt 的 `cuda_placement` 收据保留 `nvml_prelaunch` 来源、UUID、逻辑设备 0、总/空闲显存和计算能力；缺失、与计划不符或不满足准入的收据拒绝重放，旧逻辑计划不补造收据。
+
+显存数据是启动前的时点观察；NVML 物理总量与 CUDA runtime 可用总量可能不同。该检查不预留或限制实际 VRAM，CUDA 可见性约定也不是设备访问沙箱，程序自行改写环境或使用其他驱动接口可绕过它。当前 Ubuntu 验收包含原生 CUDA 子进程实际 UUID/分配、CPU 亲和性/环境摘要/OS 内存限制组合，以及有界 grid/random 的逐 trial 绑定；Windows、私有工作缓冲、GPU 硬限额与完整拓扑资格仍分别验收。
 
 ## 训练输入与显式恢复
 

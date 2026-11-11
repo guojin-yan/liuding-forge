@@ -6,6 +6,7 @@
 
 #include "local_attempt.hpp"
 
+#include "local_cuda_device.hpp"
 #include "local_process.hpp"
 #include "recipe_support.hpp"
 
@@ -429,6 +430,13 @@ struct HostRequirements {
   std::uint64_t disk_free_bytes = 0;
 };
 
+struct CudaRequirement {
+  std::string uuid;
+  std::uint32_t compute_major = 0;
+  std::uint32_t compute_minor = 0;
+  std::uint64_t free_memory_bytes = 0;
+};
+
 struct Spec {
   Json json;
   std::string canonical;
@@ -440,6 +448,7 @@ struct Spec {
   std::map<std::string, EnvironmentReference> environment_references;
   std::map<std::string, RuntimeFile> runtime_files;
   std::optional<HostRequirements> host_requirements;
+  std::optional<CudaRequirement> cuda_device;
   std::uint64_t maximum_attempts = 1;
   std::uint64_t retry_delay_ms = 0;
   std::optional<std::uint64_t> deadline_unix_ms;
@@ -457,7 +466,7 @@ Spec read_spec(const Json& value) {
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
        "deadline_unix_ms", "training", "resources", "environment_refs",
        "environment_sha256", "os_memory_limit", "runtime_files",
-       "host_requirements", "cpu_affinity"});
+       "host_requirements", "cpu_affinity", "cuda_device"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -634,6 +643,44 @@ Spec read_spec(const Json& value) {
   if (result.resources && !process.cpu_affinity.empty())
     require(result.resources->request.cpu_slots <= process.cpu_affinity.size(),
             "CPU slot request exceeds the declared CPU affinity");
+  if (value.contains("cuda_device")) {
+    const auto& cuda = value.at("cuda_device");
+    fields(cuda, {"uuid"},
+           {"minimum_compute_capability", "minimum_free_memory_bytes"});
+    CudaRequirement required{.uuid = text(cuda.at("uuid"))};
+    require(local_cuda_uuid_is_valid(required.uuid),
+            "CUDA placement requires a full lowercase physical GPU UUID");
+    require(
+        result.resources && result.resources->request.gpu &&
+            *result.resources->request.gpu == required.uuid,
+        "CUDA placement and logical GPU reservation must use the same UUID");
+    for (const auto& [id, bytes] :
+         result.resources->capacity.at("gpus").items()) {
+      static_cast<void>(bytes);
+      require(local_cuda_uuid_is_valid(id),
+              "CUDA-bound capacity must use full physical GPU UUIDs only");
+    }
+    if (cuda.contains("minimum_compute_capability")) {
+      const auto& capability = cuda.at("minimum_compute_capability");
+      require(capability.is_array() && capability.size() == 2,
+              "CUDA compute capability requires [major, minor]");
+      required.compute_major =
+          static_cast<std::uint32_t>(positive(capability.at(0), 99));
+      required.compute_minor =
+          static_cast<std::uint32_t>(unsigned_number(capability.at(1), 99));
+    }
+    if (cuda.contains("minimum_free_memory_bytes"))
+      required.free_memory_bytes =
+          positive(cuda.at("minimum_free_memory_bytes"),
+                   std::numeric_limits<std::int64_t>::max());
+    for (const auto& name : environment_names)
+      require(name != "CUDA_VISIBLE_DEVICES",
+              "CUDA placement owns the CUDA_VISIBLE_DEVICES override");
+    require(environment_names.size() < 128 &&
+                launch_bytes + required.uuid.size() + 22 <= kSpecBytes,
+            "CUDA placement exceeds the local environment bound");
+    result.cuda_device = std::move(required);
+  }
   if (value.contains("os_memory_limit")) {
     const auto& memory = value.at("os_memory_limit");
     fields(memory, {"bytes"}, {"cgroup_parent"});
@@ -661,6 +708,8 @@ Spec read_spec(const Json& value) {
 
 LocalProcessOptions resolved_process(const Spec& spec) {
   auto result = spec.process;
+  if (spec.cuda_device)
+    result.environment["CUDA_VISIBLE_DEVICES"] = spec.cuda_device->uuid;
   if (spec.environment_references.empty()) return result;
   std::size_t launch_bytes = path_text(result.executable).size() + 1;
   for (const auto& argument : result.arguments)
@@ -882,6 +931,26 @@ void verify_host_requirements(const Spec& spec) {
   }
 }
 
+std::optional<LocalCudaDevice> verify_cuda_device(const Spec& spec) {
+  if (!spec.cuda_device) return std::nullopt;
+  const auto devices = local_cuda_devices();
+  const auto& required = *spec.cuda_device;
+  const auto found = std::find_if(
+      devices.begin(), devices.end(),
+      [&](const auto& device) { return device.uuid == required.uuid; });
+  require(found != devices.end(), "Requested CUDA GPU UUID is unavailable");
+  const auto& resource = *spec.resources;
+  if (resource.capacity.at("gpus").at(required.uuid).get<std::uint64_t>() >
+          found->total_memory_bytes ||
+      found->free_memory_bytes < std::max(required.free_memory_bytes,
+                                          resource.request.gpu_memory_bytes))
+    throw ResourceExhausted("Requested CUDA GPU memory is unavailable");
+  if (std::pair{found->compute_major, found->compute_minor} <
+      std::pair{required.compute_major, required.compute_minor})
+    throw ResourceExhausted("Requested CUDA compute capability is unavailable");
+  return *found;
+}
+
 void preflight(const Spec& spec) {
   if (!spec.process.cpu_affinity.empty()) {
     const auto available = local_process_available_cpu_ids();
@@ -894,6 +963,7 @@ void preflight(const Spec& spec) {
   require(fs::is_directory(spec.process.working_directory),
           "Local working directory must already exist");
   verify_host_requirements(spec);
+  static_cast<void>(verify_cuda_device(spec));
   const auto actual = recipe_support::file_digest(
       spec.process.executable, recipe_support::kExecutableLimit);
   require(actual.hex == spec.executable_sha256,
@@ -1369,14 +1439,15 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
              std::uint64_t index, bool check_outputs) {
   const auto id = attempt_id(job, index);
   auto value = reference_json(store, id, "local.result", "local.result");
-  fields(value,
-         {"format", "schema_version", "job_id", "attempt_id", "index",
-          "spec_sha256", "status", "exit_code", "signal", "process_id",
-          "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
-          "stdout_sha256", "stderr_sha256", "failure_reason"},
-         {"process_tree_cleanup_confirmed", "training_sha256",
-          "training_outputs_sha256", "training_outputs_confirmed",
-          "resource_usage", "memory_boundary", "cpu_affinity"});
+  fields(
+      value,
+      {"format", "schema_version", "job_id", "attempt_id", "index",
+       "spec_sha256", "status", "exit_code", "signal", "process_id",
+       "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
+       "stdout_sha256", "stderr_sha256", "failure_reason"},
+      {"process_tree_cleanup_confirmed", "training_sha256",
+       "training_outputs_sha256", "training_outputs_confirmed",
+       "resource_usage", "memory_boundary", "cpu_affinity", "cuda_placement"});
   schema(value, "jyppx.liuding.local_attempt_result");
   // Older immutable results have no accounting field. Do not fabricate one
   // during replay; a present measurement must retain explicit OS semantics.
@@ -1414,6 +1485,39 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
               value.at("spec_sha256").get<std::string>() == spec.sha256,
           "Local attempt result identity mismatch");
   const auto state = value.at("status").get<std::string>();
+  if (value.contains("cuda_placement") &&
+      !value.at("cuda_placement").is_null()) {
+    const auto& placement = value.at("cuda_placement");
+    fields(placement, {"source", "uuid", "logical_device", "total_memory_bytes",
+                       "free_memory_bytes", "compute_capability"});
+    require(spec.cuda_device && placement.at("source") == "nvml_prelaunch" &&
+                placement.at("uuid") == spec.cuda_device->uuid &&
+                unsigned_number(placement.at("logical_device"), 0) == 0 &&
+                unsigned_number(value.at("process_id"),
+                                std::numeric_limits<std::uint64_t>::max()) != 0,
+            "Local CUDA placement receipt differs from its frozen requirement");
+    const auto total = positive(placement.at("total_memory_bytes"),
+                                std::numeric_limits<std::int64_t>::max());
+    const auto free = unsigned_number(placement.at("free_memory_bytes"), total);
+    const auto& capability = placement.at("compute_capability");
+    require(capability.is_array() && capability.size() == 2,
+            "Local CUDA placement has invalid compute capability");
+    const auto major = positive(capability.at(0), 99);
+    const auto minor = unsigned_number(capability.at(1), 99);
+    require(total >= spec.resources->capacity.at("gpus")
+                         .at(spec.cuda_device->uuid)
+                         .get<std::uint64_t>() &&
+                free >= std::max(spec.resources->request.gpu_memory_bytes,
+                                 spec.cuda_device->free_memory_bytes) &&
+                std::pair{major, minor} >=
+                    std::pair<std::uint64_t, std::uint64_t>{
+                        spec.cuda_device->compute_major,
+                        spec.cuda_device->compute_minor},
+            "Local CUDA placement receipt does not satisfy admission");
+  } else {
+    require(!spec.cuda_device || value.at("process_id") == 0,
+            "A launched CUDA-bound attempt requires its placement receipt");
+  }
   if (value.contains("cpu_affinity") && !value.at("cpu_affinity").is_null()) {
     const auto& placement = value.at("cpu_affinity");
     fields(placement, {"source", "cpu_ids"});
@@ -2165,6 +2269,7 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
            metadata->created_at_unix_ms);
 
   LocalProcessResult native;
+  std::optional<LocalCudaDevice> cuda_observation;
   std::string status;
   std::string failure_reason;
   std::atomic<bool> monitor_error{false};
@@ -2262,6 +2367,7 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
           // The durable worker can outlive its dispatch caller; its native
           // attempt must not outlive the worker (Linux direct-child fence).
           options.kill_on_parent_death = true;
+          cuda_observation = verify_cuda_device(spec);
           runner_entered = true;
           native = LocalProcessRunner{}.run(options, cancellation.get_token());
         }
@@ -2330,6 +2436,17 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
         {"system_cpu_time_us", number(usage.system_cpu_time_us)},
         {"peak_resident_memory_bytes",
          number(usage.peak_resident_memory_bytes)}};
+  }
+  result["cuda_placement"] = nullptr;
+  if (cuda_observation && native.process_id != 0) {
+    const auto& device = *cuda_observation;
+    result["cuda_placement"] = {
+        {"source", "nvml_prelaunch"},
+        {"uuid", device.uuid},
+        {"logical_device", 0},
+        {"total_memory_bytes", device.total_memory_bytes},
+        {"free_memory_bytes", device.free_memory_bytes},
+        {"compute_capability", {device.compute_major, device.compute_minor}}};
   }
   result["cpu_affinity"] = nullptr;
   if (!native.cpu_affinity.empty()) {
@@ -2736,6 +2853,21 @@ Result control_local_job(std::string_view action, const fs::path& root,
 
 Result local_attempt_command(const Arguments& arguments) {
   const auto action = arguments.words()[1];
+  if (action == "cuda-devices") {
+    arguments.allow({});
+    auto devices = Json::array();
+    for (const auto& device : local_cuda_devices())
+      devices.push_back({{"uuid", device.uuid},
+                         {"total_memory_bytes", device.total_memory_bytes},
+                         {"free_memory_bytes", device.free_memory_bytes},
+                         {"compute_capability",
+                          {device.compute_major, device.compute_minor}}});
+    return {{{"format", "jyppx.liuding.local_cuda_devices"},
+             {"schema_version", 1},
+             {"source", "nvml"},
+             {"devices", std::move(devices)}},
+            0};
+  }
   if (action == "cpu-affinity") {
     arguments.allow({});
     return {{{"format", "jyppx.liuding.local_cpu_affinity"},
@@ -2762,7 +2894,9 @@ Result local_attempt_command(const Arguments& arguments) {
   if (action != "execute" && action != "show" && action != "recover" &&
       action != "cancel" && action != "abandon" && action != "worker")
     usage("local",
-          "Use cpu-affinity/environment/execute/show/recover/cancel/abandon.");
+          "Use "
+          "cuda-devices/cpu-affinity/environment/execute/show/recover/cancel/"
+          "abandon.");
   if (action == "execute")
     arguments.allow({"root", "id", "spec"});
   else if (action == "abandon")
