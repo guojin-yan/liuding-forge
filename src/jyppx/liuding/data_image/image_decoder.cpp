@@ -281,7 +281,7 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
     Resource("decode.input", std::to_string(options.limits.max_input_bytes),
              std::to_string(bytes.size()));
   if (options.limits.max_dimension == 0 || options.limits.max_pixels == 0 ||
-      options.limits.max_output_bytes == 0)
+      options.limits.max_output_bytes == 0 || options.max_working_bytes == 0)
     Invalid("decode.limits", "positive resource limits");
 
   const auto detected = detect_image_format(bytes);
@@ -304,7 +304,8 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
   int width = 0;
   int height = 0;
   int source_channels = 0;
-  codec_detail::StbResourceScope codec_resources(options.resource_budget);
+  codec_detail::StbResourceScope codec_resources(options.resource_budget,
+                                                 options.max_working_bytes);
   const auto metadata_ok =
       stbi_info_from_memory(encoded, static_cast<int>(bytes.size()), &width,
                             &height, &source_channels);
@@ -334,6 +335,8 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
   const auto desired = DesiredChannels(options.channels);
   DecodedImage result;
   ImageResourceLease scratch_lease;
+  const auto extra_bytes = std::max(source_bytes, output_bytes);
+  codec_resources.reserve_staging(extra_bytes);
   try {
     if (options.resource_budget) {
       const auto pixels = static_cast<std::uint64_t>(width) * height;
@@ -346,7 +349,6 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
       if (options.pin_memory)
         leases.push_back(options.resource_budget->reserve(
             ImageResourceKind::pinned_bytes, output_bytes));
-      const auto extra_bytes = std::max(source_bytes, output_bytes);
       // stb allocations, including its output, are charged by its allocator.
       // Reserve the overlapping LibTorch layout/conversion copy separately.
       scratch_lease = options.resource_budget->reserve(

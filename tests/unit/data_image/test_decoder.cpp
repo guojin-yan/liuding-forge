@@ -300,6 +300,163 @@ TEST(ImageDecoderTest, CodecScopesKeepConcurrentThreadBudgetsIndependent) {
   EXPECT_EQ(large->usage(ImageResourceKind::decoded_bytes).current, 6U);
 }
 
+TEST(ImageDecoderTest, PerCallWorkingLimitAppliesWithoutSharedBudget) {
+  for (const auto* name :
+       {"rgb.png", "rgb.jpg", "gray16.png", "gray.bmp", "gray.pgm"}) {
+    for (const auto dtype :
+         {ImageDtype::preserve, ImageDtype::float32_normalized}) {
+      SCOPED_TRACE(name);
+      SCOPED_TRACE(static_cast<int>(dtype));
+      const auto bytes = ReadFixture(name);
+      ImageDecodeOptions options;
+      options.dtype = dtype;
+      options.resource_budget = std::make_shared<ImageResourceBudget>();
+      const auto reference = decode_image(bytes, options);
+      const auto peak =
+          options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+              .peak;
+      ASSERT_GT(peak, 1U);
+      options.resource_budget.reset();
+      options.max_working_bytes = peak;
+      EXPECT_TRUE(
+          torch::equal(reference.tensor, decode_image(bytes, options).tensor));
+      options.max_working_bytes = peak - 1;
+      try {
+        static_cast<void>(decode_image(bytes, options));
+        FAIL() << "A shared budget must not be required to enforce the cap";
+      } catch (const jyppx::liuding::ResourceExhausted& error) {
+        EXPECT_EQ(error.details().operation, "decode.working");
+      }
+      options.max_working_bytes = peak;
+      const auto path =
+          fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / name;
+      EXPECT_TRUE(torch::equal(reference.tensor,
+                               read_image_file(path, options).tensor));
+    }
+  }
+}
+
+TEST(ImageDecoderTest, WorkingLimitCoversMetadataAndConversionStaging) {
+  ImageDecodeOptions options;
+  options.max_working_bytes = 0;
+  EXPECT_THROW(decode_image(ReadFixture("rgb.jpg"), options),
+               jyppx::liuding::InvalidArgument);
+  options.max_working_bytes = 1;
+  options.resource_budget = std::make_shared<ImageResourceBudget>();
+  EXPECT_THROW(decode_image(ReadFixture("rgb.jpg"), options),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(
+      options.resource_budget->usage(ImageResourceKind::decoded_bytes).peak,
+      0U);
+  EXPECT_EQ(
+      options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+          .current,
+      0U);
+
+  options.resource_budget.reset();
+  options.dtype = ImageDtype::float32_normalized;
+  options.layout = ImageLayout::hwc;
+  // Metadata probes also allocate for non-JPEG inputs. Use a raster whose
+  // conversion staging exceeds those probes, independently of codec output.
+  constexpr std::string_view header = "P5\n128 128\n255\n";
+  std::vector<std::byte> pgm(header.size() + 128U * 128U, std::byte{127});
+  std::memcpy(pgm.data(), header.data(), header.size());
+  options.max_working_bytes = 32U << 10U;
+  EXPECT_THROW(decode_image(pgm, options), jyppx::liuding::ResourceExhausted);
+  options.max_working_bytes = 128U << 10U;
+  const auto result = decode_image(pgm, options);
+  EXPECT_EQ(result.tensor.nbytes(), 65536U);
+  EXPECT_TRUE(torch::equal(
+      result.tensor,
+      torch::full({128, 128, 1}, 127.0F / 255.0F, torch::kFloat32)));
+}
+
+std::vector<std::byte> PngWithGrowingIdat() {
+  // Valid zlib stream: many empty stored blocks followed by the two RGB
+  // pixels. Split IDAT forces actual realloc with both buffers live; its
+  // peak dominates the much smaller inflated raster and Tensor copies.
+  std::vector<std::byte> stream{std::byte{0x78}, std::byte{0x01}};
+  for (int i = 0; i < 1200; ++i)
+    stream.insert(stream.end(), {std::byte{0}, std::byte{0}, std::byte{0},
+                                 std::byte{0xff}, std::byte{0xff}});
+  stream.insert(stream.end(), {std::byte{1}, std::byte{7}, std::byte{0},
+                               std::byte{0xf8}, std::byte{0xff}});
+  const std::array row{0U, 255U, 0U, 0U, 0U, 255U, 0U};
+  std::uint32_t a = 1, b = 0;
+  for (const auto value : row) {
+    stream.push_back(static_cast<std::byte>(value));
+    a = (a + value) % 65521U;
+    b = (b + a) % 65521U;
+  }
+  const auto append_integer = [](auto& bytes, std::uint32_t value) {
+    for (const auto shift : {24U, 16U, 8U, 0U})
+      bytes.push_back(static_cast<std::byte>((value >> shift) & 255U));
+  };
+  append_integer(stream, (b << 16U) | a);
+  auto png = ReadFixture("rgb.png");
+  png.resize(33);  // Preserve the standard signature and 2x1 RGB IHDR.
+  const auto chunk = [&](std::string_view type,
+                         std::span<const std::byte> payload) {
+    append_integer(png, static_cast<std::uint32_t>(payload.size()));
+    const auto begin = png.size();
+    for (const auto c : type) png.push_back(static_cast<std::byte>(c));
+    png.insert(png.end(), payload.begin(), payload.end());
+    std::uint32_t crc = 0xffffffffU;
+    for (std::size_t i = begin; i < png.size(); ++i) {
+      crc ^= std::to_integer<std::uint32_t>(png[i]);
+      for (int bit = 0; bit < 8; ++bit)
+        crc = (crc >> 1U) ^ ((crc & 1U) ? 0xedb88320U : 0U);
+    }
+    append_integer(png, ~crc);
+  };
+  chunk("IDAT", std::span(stream).first(2048));
+  chunk("IDAT", std::span(stream).subspan(2048));
+  chunk("IEND", {});
+  return png;
+}
+
+TEST(ImageDecoderTest, WorkingLimitCountsLiveReallocationAndReleasesOnFailure) {
+  const auto bytes = PngWithGrowingIdat();
+  ImageDecodeOptions options;
+  options.resource_budget = std::make_shared<ImageResourceBudget>();
+  const auto reference = decode_image(ReadFixture("rgb.png"));
+  EXPECT_TRUE(
+      torch::equal(reference.tensor, decode_image(bytes, options).tensor));
+  const auto peak =
+      options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+          .peak;
+  ASSERT_GT(peak, bytes.size());
+  options.max_working_bytes = peak - 1;
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    EXPECT_THROW(decode_image(bytes, options),
+                 jyppx::liuding::ResourceExhausted);
+    for (const auto kind :
+         {ImageResourceKind::codec_scratch_bytes,
+          ImageResourceKind::decoded_bytes, ImageResourceKind::pixels})
+      EXPECT_EQ(options.resource_budget->usage(kind).current, 0U);
+  }
+  options.max_working_bytes = peak;
+  EXPECT_TRUE(
+      torch::equal(reference.tensor, decode_image(bytes, options).tensor));
+  options.resource_budget.reset();
+  --options.max_working_bytes;
+  EXPECT_THROW(decode_image(bytes, options), jyppx::liuding::ResourceExhausted);
+}
+
+TEST(ImageDecoderTest, ConcurrentCallsKeepIndependentWorkingLimits) {
+  const auto bytes = ReadFixture("rgb.png");
+  auto rejected = std::async(std::launch::async, [&] {
+    ImageDecodeOptions options;
+    options.max_working_bytes = 12;
+    EXPECT_THROW(decode_image(bytes, options),
+                 jyppx::liuding::ResourceExhausted);
+    return decode_image(bytes);
+  });
+  auto accepted =
+      std::async(std::launch::async, [&] { return decode_image(bytes); });
+  EXPECT_TRUE(torch::equal(rejected.get().tensor, accepted.get().tensor));
+}
+
 TEST(ImageDecoderTest, RejectsCorruptInputLimitsAndCancellation) {
   const std::vector<std::byte> corrupt{std::byte{0x01}, std::byte{0x02}};
   EXPECT_THROW(decode_image(corrupt), jyppx::liuding::SerializationError);

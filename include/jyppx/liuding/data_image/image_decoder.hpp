@@ -85,6 +85,11 @@ struct ImageDecodeOptions {
   ///< Optional aggregate budget including stb's requested heap payloads.
   ///< Excludes allocator bookkeeping, codec stack and private LibTorch buffers;
   ///< this is not a process RSS limit. Reallocation charges both live buffers.
+  std::size_t max_working_bytes = 1U << 30U;
+  ///< Per-call cap on live stb heap payloads plus known tensor conversion
+  ///< staging, including metadata and overlapping reallocation buffers.
+  ///< Applies without a shared budget; excludes input, final tensor storage,
+  ///< allocator bookkeeping, codec stack and private LibTorch buffers.
 };
 
 /** @brief Owning decoded image and stable source metadata. */
@@ -162,7 +167,8 @@ std::string_view image_format_name(ImageFormat format) noexcept;
  * @throws InvalidArgument Invalid limits or an impossible channel/layout
  * policy.
  * @throws SerializationError Unsupported, malformed or inconsistent image data.
- * @throws ResourceExhausted Input, pixel or output limits are exceeded.
+ * @throws ResourceExhausted Input, pixel, output or working limits are
+ * exceeded.
  * @throws DeviceError Pinned allocation or a LibTorch operation failed.
  * @throws Cancelled Cancellation was requested before publication.
  */

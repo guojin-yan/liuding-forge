@@ -215,8 +215,18 @@ int main() {
       manifest_options);
   constexpr std::array<unsigned char, 12> pgm{'P',  '5', '\n', '1', ' ',  '1',
                                               '\n', '2', '5',  '5', '\n', 127};
-  const auto image =
-      jyppx::liuding::data::image::decode_image(std::as_bytes(std::span(pgm)));
+  jyppx::liuding::data::image::ImageDecodeOptions decode_options;
+  decode_options.max_working_bytes = 1;
+  try {
+    static_cast<void>(jyppx::liuding::data::image::decode_image(
+        std::as_bytes(std::span(pgm)), decode_options));
+    return 1;
+  } catch (const jyppx::liuding::ResourceExhausted& error) {
+    if (error.details().operation != "decode.working") return 1;
+  }
+  decode_options.max_working_bytes = 1U << 30U;
+  const auto image = jyppx::liuding::data::image::decode_image(
+      std::as_bytes(std::span(pgm)), decode_options);
   jyppx::liuding::data::image::validate_pixels(image.tensor, image.pixels);
   auto tensor_record = jyppx::liuding::data::image::TensorImageRecord{
       image.tensor, image.pixels, "installed-tensor", {}};
