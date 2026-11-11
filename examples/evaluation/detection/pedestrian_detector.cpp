@@ -2,6 +2,8 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "model/detector.hpp"
+
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
@@ -23,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -54,6 +57,7 @@ using namespace jyppx::liuding;
 using namespace jyppx::liuding::training;
 namespace img = jyppx::liuding::data::image;
 using Json = nlohmann::json;
+using jyppx::liuding::examples::detection::Detector;
 namespace fs = std::filesystem;
 fs::path data_root;
 
@@ -70,6 +74,16 @@ constexpr std::array<std::array<double, 2>, 3> kAnchors{
     {{16., 48.}, {32., 80.}, {64., 112.}}};
 void require(bool condition, const std::string& message) {
   if (!condition) throw std::runtime_error(message);
+}
+
+std::uint64_t step_argument(const std::string& text, const char* name) {
+  std::uint64_t value = 0;
+  const auto [end, error] =
+      std::from_chars(text.data(), text.data() + text.size(), value);
+  require(error == std::errc{} && end == text.data() + text.size() &&
+              value > 0 && value < 1200,
+          std::string(name) + " must be a step between 1 and 1199");
+  return value;
 }
 
 std::string config_sha() {
@@ -166,35 +180,6 @@ Data load(const std::string& split) {
   result.instances = torch::stack(masks);
   return result;
 }
-
-// Six small convolutions predict boxes directly. There is no mask head and
-// inference never receives targets or instance masks.
-class Detector final : public torch::nn::Module {
- public:
-  Detector() {
-    body = register_module("body", torch::nn::Sequential());
-    std::int64_t input = 3;
-    const std::array<std::int64_t, 6> channels{16, 32, 64, 64, 64, 64};
-    for (std::size_t i = 0; i < channels.size(); ++i) {
-      body->push_back(
-          torch::nn::Conv2d(torch::nn::Conv2dOptions(input, channels[i], 3)
-                                .stride(i < 4 ? 2 : 1)
-                                .padding(1)));
-      body->push_back(torch::nn::ReLU());
-      input = channels[i];
-    }
-    head = register_module("head", torch::nn::Conv2d(64, 15, 1));
-    torch::NoGradGuard guard;
-    for (std::int64_t a = 0; a < 3; ++a) head->bias[a * 5 + 4].fill_(-2.);
-  }
-  Tensor forward(const Tensor& images) {
-    return head->forward(body->forward(images));
-  }
-
- private:
-  torch::nn::Sequential body{nullptr};
-  torch::nn::Conv2d head{nullptr};
-};
 
 std::vector<metrics::DetectionTarget> targets(const Tensor& mask) {
   std::vector<metrics::DetectionTarget> result;
@@ -422,7 +407,8 @@ void resources(Json& result, std::chrono::steady_clock::time_point start,
 #endif
 }
 void train(const fs::path& out, const torch::Device& device,
-           const fs::path& resume, std::uint64_t until) {
+           const fs::path& resume, std::uint64_t until,
+           std::uint64_t checkpoint_every) {
   const auto started = std::chrono::steady_clock::now();
   auto data = load("train");
   const auto labels = training_targets(data);
@@ -496,21 +482,48 @@ void train(const fs::path& out, const torch::Device& device,
     trainer.restore_checkpoint(source, RestorePolicy::exact_only);
   }
   const auto before = trainer.global_step();
-  const auto result = trainer.fit_until(until);
+  require(until == 0 || until > before,
+          "Pause must be after the restored step");
+  const auto target = until == 0 ? 1200 : until;
+  FileCheckpointStore sink(out / "checkpoint.jyck");
+  FitResult result;
+  std::size_t participant_count = 0;
+  std::uint64_t checkpoints_written = 0;
+  do {
+    const auto boundary =
+        checkpoint_every == 0
+            ? target
+            : std::min(target, (trainer.global_step() / checkpoint_every + 1) *
+                                   checkpoint_every);
+    result = trainer.fit_until(boundary == 1200 ? 0 : boundary);
+    require(result.global_step == boundary,
+            "Training did not reach its checkpoint boundary");
+    const auto descriptor = trainer.save_checkpoint(sink);
+    participant_count = descriptor.participants.size();
+    ++checkpoints_written;
+    if (checkpoint_every != 0) {
+      std::cout << Json{{"event", "checkpoint"},
+                        {"global_step", result.global_step},
+                        {"checkpoint_sha256",
+                         sha256_hex(read(out / "checkpoint.jyck", 16U << 20U))}}
+                       .dump()
+                << std::endl;
+    }
+  } while (result.global_step < target);
   require(result.global_step == (until == 0 ? 1200 : until),
           "Training did not reach its frozen boundary");
   require(
       result.status == (until == 0 ? FitStatus::completed : FitStatus::paused),
       "Unexpected training outcome");
-  FileCheckpointStore sink(out / "checkpoint.jyck");
-  const auto descriptor = trainer.save_checkpoint(sink);
   save_weights(*holder, out / "model.safetensors");
   trainer.close();
   Json summary{{"global_step", result.global_step},
                {"initial_global_step", before},
                {"applied_updates", result.global_step - before},
                {"completed_epochs", result.completed_epochs},
-               {"participant_count", descriptor.participants.size()},
+               {"participant_count", participant_count},
+               {"checkpoint_every", checkpoint_every},
+               {"checkpoints_written", checkpoints_written},
                {"paused", result.status == FitStatus::paused},
                {"weights_sha256", sha256_hex(read(out / "model.safetensors"))},
                {"checkpoint_sha256",
@@ -718,12 +731,30 @@ int main(int argc, char** argv) {
   try {
     require(argc >= 5,
             "Usage: pedestrian-detector train DATA NEW_OUTPUT cpu|cuda "
-            "[CHECKPOINT|-] [PAUSE_STEP]; or evaluate DATA NEW_OUTPUT cpu|cuda "
+            "[CHECKPOINT|-] [PAUSE_STEP] [--checkpoint-every STEP]; "
+            "or evaluate DATA NEW_OUTPUT cpu|cuda "
             "WEIGHTS SHA256");
     const std::string action = argv[1];
-    require((action == "train" && argc >= 5 && argc <= 7) ||
+    int positional_end = argc;
+    std::uint64_t checkpoint_every = 0;
+    if (action == "train" && argc >= 7 &&
+        std::string(argv[argc - 2]) == "--checkpoint-every") {
+      checkpoint_every = step_argument(argv[argc - 1], "Checkpoint interval");
+      positional_end -= 2;
+    }
+    require((action == "train" && positional_end >= 5 && positional_end <= 7) ||
                 (action == "evaluate" && argc == 7),
             "Invalid detector arguments");
+    fs::path resume;
+    std::uint64_t until = 0;
+    if (action == "train") {
+      if (positional_end >= 6) {
+        const std::string text = argv[5];
+        require(!text.starts_with("--"), "Unexpected detector option");
+        if (text != "-") resume = fs::path(text);
+      }
+      if (positional_end == 7) until = step_argument(argv[6], "Pause");
+    }
     data_root = fs::absolute(argv[2]);
     const fs::path out = fs::absolute(argv[3]);
     const std::string device_name = argv[4];
@@ -741,19 +772,7 @@ int main(int argc, char** argv) {
     at::globalContext().setDeterministicAlgorithms(true, false);
     require(fs::create_directories(out), "Output must be a fresh directory");
     if (action == "train") {
-      const fs::path resume = argc >= 6 && std::string(argv[5]) != "-"
-                                  ? fs::path(argv[5])
-                                  : fs::path{};
-      std::uint64_t until = 0;
-      if (argc == 7) {
-        std::size_t consumed = 0;
-        const std::string text = argv[6];
-        until = std::stoull(text, &consumed);
-        require(consumed == text.size() && until > 0 && until < 1200 &&
-                    text.front() != '-',
-                "Pause must be a step between 1 and 1199");
-      }
-      train(out, device, resume, until);
+      train(out, device, resume, until, checkpoint_every);
     } else
       evaluate(out, device, fs::path(argv[5]), argv[6]);
     return 0;

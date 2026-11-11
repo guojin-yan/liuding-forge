@@ -1,6 +1,6 @@
 # 用 C++ 训练与评估行人检测模型
 
-[pedestrian_detector.cpp](pedestrian_detector.cpp) 从随机初始化训练直接预测行人框的小型卷积模型，使用 `Trainer`、完整检查点和实际 detection evaluator 生成质量报告。预测只读取 RGB；实例掩码用于训练目标和评估真值，不参与预测或解码。这是小规模接线示例，不能据此推导生产检测精度或完整平台支持。
+[pedestrian_detector.cpp](detection/pedestrian_detector.cpp) 从随机初始化训练直接预测行人框的小型卷积模型，使用 `Trainer`、完整检查点和实际 detection evaluator 生成质量报告。模型声明和实现在同模块的 [model/](detection/model/) 子目录，训练与评估入口在 `detection/` 内。预测只读取 RGB；实例掩码用于训练目标和评估真值，不参与预测或解码。这是小规模接线示例，不能据此推导生产检测精度或完整平台支持。
 
 本例已验收的完整训练与新进程恢复组合为 Ubuntu 的 CPU/CUDA 和 Windows 的 CUDA；Windows CPU 尚未验收。各组合使用[兼容矩阵](../../compatibility.json)列出的工具链与 LibTorch，不保证跨设备权重或数值相同。
 
@@ -32,6 +32,16 @@ DETECTOR=out/build/YOUR_PROFILE/examples/liuding-forge-example-pedestrian-detect
 
 每条训练路线生成 `model.safetensors`、`checkpoint.jyck` 和 `training.json`。JSON 保存初始／最终更新数、实际应用更新数、权重与检查点摘要、资源计数和构建身份；暂停输出中的模型只完成了137次更新，不作为最终质量候选。
 
+长任务可用可选尾参数 `--checkpoint-every STEP` 定期保存同一 `checkpoint.jyck`，STEP 为1至1199。检查点按绝对更新数的倍数写入，最终或主动暂停边界也会保存；恢复后继续下一个绝对倍数。保存完成后输出并刷新一行包含 `event=checkpoint`、`global_step` 和 `checkpoint_sha256` 的 JSON；它表示已提交的检查点，不表示整条训练完成。没有该选项时只在原先的最终/暂停边界保存。
+
+```sh
+"$DETECTOR" train /data/PennFudanPed /runs/detector-periodic cpu --checkpoint-every 137
+"$DETECTOR" train /data/PennFudanPed /runs/detector-restart cpu \
+  /runs/detector-periodic/checkpoint.jyck --checkpoint-every 137
+```
+
+进程意外结束后，从最后完整提交的检查点恢复到全新输出目录；检查点之后尚未提交的更新会重新执行，不能算作已保存进度。中断目录可能没有最终模型或 `training.json`。写入采用 `FileCheckpointStore` 的原子替换语义；本例不保证断电或任意文件系统的持久性。
+
 ## 从预测生成 AP 与报告
 
 从 `training.json` 读取最终 `weights_sha256`，显式传入期望摘要：
@@ -57,3 +67,5 @@ python tests/scripts/test_detector_example.py --binary "$DETECTOR" \
 ```
 
 测试只训练连续与恢复两条路线，合计2400次逻辑更新，核对完整检查点字节，独立重算解码／NMS，并用 COCO 官方工具核对整体和来源 AP。CUDA路线另对同一冻结权重执行CPU评估。CTest入口为 `RealDetectorExample`；须显式设置 `JYPPX_LIUDING_DETECTOR_DATA_DIR`、全新 `JYPPX_LIUDING_DETECTOR_OUTPUT_DIR` 和可选 `JYPPX_LIUDING_DETECTOR_DEVICE`，未选外部数据时报告跳过且不下载。
+
+`RealDetectorCrashRecovery` 另需 `JYPPX_LIUDING_DETECTOR_BASELINE_DIR`，指向已完成同任务的 `model.safetensors` 和 `checkpoint.jyck`；用 `JYPPX_LIUDING_DETECTOR_BASELINE_MODEL_SHA256` 与 `JYPPX_LIUDING_DETECTOR_BASELINE_CHECKPOINT_SHA256` 显式固定两者摘要。它在第137步提交后强制结束原生进程，再由新进程定期保存并续训1063步；模型和全部检查点状态字节须与基线相同，并核对质量及独立参考，不重训连续基线。构建来源不同时，可预先用 `JYPPX_LIUDING_DETECTOR_EXPECTED_BUILD_COMMIT` 与 `JYPPX_LIUDING_DETECTOR_EXPECTED_DEPENDENCY_LOCK_DIGEST` 分别指定当前源码提交和依赖清单SHA；检查器仅替换容器内对应的两个构建来源值，从原基线独立重编码预期容器，要求其余全部元数据和状态字节相同，再核对整文件字节。未指定的字段要求原字节相同。被强杀进程在最后提交后实际应用了多少更新无法精确确定，结果分别保留计数下界和上界；不将这些更新隐记为零。缺少外部数据或基线时跳过，不下载。

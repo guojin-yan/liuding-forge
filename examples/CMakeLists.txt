@@ -183,7 +183,9 @@ endif()
 if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
    AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::optim
    AND TARGET jyppx::liuding::experiment)
-    add_executable(jyppx_liuding_pedestrian_detector evaluation/pedestrian_detector.cpp)
+    add_executable(jyppx_liuding_pedestrian_detector
+        evaluation/detection/pedestrian_detector.cpp
+        evaluation/detection/model/detector.cpp)
     set_target_properties(jyppx_liuding_pedestrian_detector PROPERTIES
         OUTPUT_NAME liuding-forge-example-pedestrian-detector)
     target_link_libraries(jyppx_liuding_pedestrian_detector PRIVATE
@@ -207,6 +209,20 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
         set_tests_properties(RealDetectorExample PROPERTIES
             LABELS "examples;training;evaluation;external-data"
             TIMEOUT 1800 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+        add_test(NAME DetectorExampleArguments
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_detector_crash_recovery.py"
+                --binary $<TARGET_FILE:jyppx_liuding_pedestrian_detector>
+                --arguments-only)
+        set_tests_properties(DetectorExampleArguments PROPERTIES
+            LABELS "examples;training;evaluation" TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME RealDetectorCrashRecovery
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_detector_crash_recovery.py"
+                --binary $<TARGET_FILE:jyppx_liuding_pedestrian_detector>)
+        set_tests_properties(RealDetectorCrashRecovery PROPERTIES
+            LABELS "examples;training;evaluation;external-data"
+            TIMEOUT 600 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
     endif()
 endif()
 

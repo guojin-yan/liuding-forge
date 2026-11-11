@@ -49,6 +49,7 @@ ctest --test-dir out/build/config-windows -C Release --output-on-failure -R "^(C
 - 使用仓库 `.clang-format`。公共声明的 Doxygen 注释应说明必要的所有权、生命周期、线程、错误、状态、单位和资源契约；严格质量配置还需通过 clang-tidy 和 Doxygen 检查。
 - C++ 文件保留产品名和项目别名文件头。修改已有接口时同步安装面、示例和用户文档，不保留已退役入口的隐式转发。
 - worker 异常应回传到消费者；提前退出、取消和析构须回收线程、队列与持有的资源。错误路径应保持声明的状态保证。
+- 按模块组织头文件和源码：同一模块先集中在一个目录下，再按模型、数据、执行等职责分子目录，相关 `.hpp` 与 `.cpp` 就近存放。现有公开 include 路径和安装接口保持稳定；新增内部实现、工具和示例优先采用此布局，避免把无关模块继续堆在同一平铺目录。
 - 数据准备与训练路径应控制复制、暂存、预取和设备传输，关注端到端耗时、峰值内存和显存。性能声明须绑定相同工作负载、环境和源码身份，并说明资源取舍。
 
 性能采样方法见 [benchmark 指南](docs/benchmarks/README.md)，CUDA 训练测量使用 `scripts/benchmarks/run_cuda_baseline.py`，coverage 使用 `scripts/validation/run-coverage.sh`。保留规定的预热和独立采样；编译时间比较需要对应的干净构建。不同 GPU、驱动、LibTorch、编译器或工作负载的结果不能直接套用同一回归阈值。
