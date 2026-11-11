@@ -13,6 +13,22 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu-gcc114-cu126-c46560b-paired-multi-trial-search",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CUDA;LibTorch 2.14.1+cu126;CUDA Toolkit 12.6.3;RTX 2060;driver 580.178.04",
+          "build_type": "Release",
+          "commit": "c46560ba7923e36f3a7963fbaf7a08b64135cfea",
+          "tests": "Two three-trial native CUDA paired-affine searches, 7680 updates and 12 unique attempts. Every 259+1021 exact continuation passes the original quality thresholds; same-rate final model and complete checkpoint are byte-identical across strategies.",
+          "instrumentation": "Fixed rebuilt-cuda-release CLI, one build job and one native trial. 3 GiB cgroup with no swap, 851812352 B execution peak and no memory-limit/OOM events; sampled owned GPU-process peak 239075328 B.",
+          "quality_evidence": {
+            "portable_history": "Each search has 80 verified referenced CAS objects; both full histories restore with unchanged trial selection while original native workspaces and data are absent. No training on recovery.",
+            "scope": "Ubuntu CUDA paired-affine native CLI only; complete RunSpec, other recipes/devices and final release remain unqualified. Installed SDKs retain their original build identities."
+          }
+        },
+        {
           "id": "local-ubuntu-gcc114-cpu-7f1d5b9-paired-multi-trial-search",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",

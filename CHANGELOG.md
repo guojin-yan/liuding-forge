@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-- 验收 Ubuntu CPU 上 `paired-affine` 的多 trial 串行 grid/random、精确续训和完整历史备份恢复。
+- 验收 Ubuntu CPU/CUDA 上 `paired-affine` 的多 trial 串行 grid/random、精确续训和完整历史备份恢复；相同设备与学习率的最终模型和检查点逐字节一致。
 
 - 验收 Ubuntu CPU 安装 SDK 上两份不同训练权重的已签名 ONNX 版本切换与回退；并发请求及保留的租约分别核对各自版本的原生参考。
 
