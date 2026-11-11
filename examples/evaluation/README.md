@@ -2,6 +2,8 @@
 
 [pedestrian_detector.cpp](pedestrian_detector.cpp) 从随机初始化训练直接预测行人框的小型卷积模型，使用 `Trainer`、完整检查点和实际 detection evaluator 生成质量报告。预测只读取 RGB；实例掩码用于训练目标和评估真值，不参与预测或解码。这是小规模接线示例，不能据此推导生产检测精度或完整平台支持。
 
+本例已验收的完整训练与新进程恢复组合为 Ubuntu 的 CPU/CUDA 和 Windows 的 CUDA；Windows CPU 尚未验收。各组合使用[兼容矩阵](../../compatibility.json)列出的工具链与 LibTorch，不保证跨设备权重或数值相同。
+
 ## 准备数据与构建
 
 自行取得 [Penn-Fudan 官方数据](https://www.cis.upenn.edu/~jshi/ped_html/)，核对 `PennFudanPed.zip` 的 SHA-256 为 `9095a9613c95586f1c7f2a327d454833d16e0f5e17e5f83d35027ffd315b48e2`，解压到仓库外，并保留官方版权说明。将 [manifest.json](../../tests/fixtures/metrics/penn_fudan/manifest.json) 复制到解压后的 `PennFudanPed` 目录。示例逐一核对所用原图和掩码的摘要；图像、掩码与训练权重不随代码分发，不适用本仓库的代码许可证。

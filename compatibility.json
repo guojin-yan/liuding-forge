@@ -13,6 +13,24 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu-gcc114-cpu-fbe023d-direct-detector-task",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch 2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "fbe023da5c9e2881b4355f2de96621ab87b8a682",
+          "tests": "Native direct-box Penn-Fudan detector: 1200 continuous updates and 137+1063 fresh-process exact continuation, 2400 updates total. Four selected CTest contracts pass with no skips; full checkpoint and model files are byte-identical between routes.",
+          "instrumentation": "Fixed rebuilt-cpu-release tree, one compile job and one native workload. Native cgroup memory.max=3 GiB, swap.max=0; peak 244899840 B and no memory-limit/OOM events. Continuous native process RSS peak 247840768 B.",
+          "quality_evidence": {
+            "task": "Unchanged seed20261108, FP32, batch8, Adam0.001, 80 epochs and frozen 120/25/25 split. Held-out AP50=0.32498549706002466 exceeds the original 0.10 threshold; independent scalar decode/NMS and pycocotools2.0.11 verify 24000 raw outputs plus overall/source AP.",
+            "recovery": "Seven checkpoint participants, model and complete checkpoint bytes match. Evaluation batch aggregation1/4 and rebuilt-session continuation produce identical reports; complete-state reopening does not reread inputs or invoke the model.",
+            "source_identity": "Clean fbe023d source and exact executable SHA are frozen. The reused foundation object retains its 6e088ed+dirty build fingerprint; no SDK reinstall or relabeling. This entry and the example support note are metadata added after validation.",
+            "scope": "Ubuntu CPU-only small detector task with cooperative training checkpoint recovery. Training force-kill, Windows CPU, complete detection recipe, full support matrix and release remain unqualified; prior CUDA routes were not rerun."
+          }
+        },
+        {
           "id": "local-ubuntu-gcc114-cu126-c46560b-paired-multi-trial-search",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
