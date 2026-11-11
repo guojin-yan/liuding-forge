@@ -16,6 +16,7 @@
 #include <ATen/autocast_mode.h>
 
 #ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+#include <ATen/cuda/CUDAContextLight.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #endif
 
@@ -1115,6 +1116,134 @@ void CheckDinoV2GiantCudaResourceGate(
             << " cuda_reserved_after_destroy_bytes=" << reserved_after_destroy
             << " cuda_reserved_after_empty_cache_bytes="
             << reserved_after_empty_cache << '\n';
+#endif
+}
+
+TEST(ModelsCuda, DinoV3HugePlusCudaHalfStorageTrainingResourceGate) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_HUGE_CUDA_TRAINING_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_HUGE_CUDA_TRAINING_GATE=1 for "
+                    "the serial H+ 224x224 FP16-storage CUDA training gate";
+  }
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0)
+    GTEST_SKIP() << "CUDA device is unavailable";
+#ifndef JYPPX_LIUDING_MODELS_CUDA_METRICS
+  GTEST_SKIP() << "CUDA allocator metrics are required for the capacity gate";
+#else
+  struct IntraopGuard {
+    int previous = torch::get_num_threads();
+    IntraopGuard() { torch::set_num_threads(1); }
+    ~IntraopGuard() { torch::set_num_threads(previous); }
+  } intraop;
+  ASSERT_EQ(torch::get_num_threads(), 1);
+  ASSERT_EQ(torch::get_num_interop_threads(), 1);
+  torch::manual_seed(20261111);
+  torch::cuda::synchronize(0);
+  c10::cuda::CUDACachingAllocator::emptyCache();
+  c10::cuda::CUDACachingAllocator::resetPeakStats(0);
+  const auto start = std::chrono::steady_clock::now();
+  {
+    const torch::Device device(torch::kCUDA, 0);
+    auto model = dinov3_vith16plus(DinoV3Options{.num_classes = 3});
+    ASSERT_EQ(parameter_count(*model), 840633600ULL + 3U * 1280U + 3U);
+    ASSERT_EQ(model->named_parameters(true).size(), 521U);
+    ASSERT_EQ(model->named_buffers(true).size(), 33U);
+    model->to(device, torch::kHalf);
+    const auto options =
+        torch::TensorOptions().device(device).dtype(torch::kHalf);
+    model->eval();
+    {
+      torch::NoGradGuard no_grad;
+      const auto tokens =
+          model->forward_features(torch::randn({1, 3, 224, 224}, options));
+      EXPECT_EQ(tokens.sizes(), torch::IntArrayRef({1, 201, 1280}));
+      EXPECT_EQ(tokens.scalar_type(), torch::kHalf);
+      EXPECT_TRUE(tokens.device().is_cuda());
+      EXPECT_TRUE(torch::isfinite(tokens).all().item<bool>());
+      EXPECT_EQ(model->forward_features(torch::randn({1, 3, 35, 50}, options))
+                    .sizes(),
+                torch::IntArrayRef({1, 11, 1280}));
+      EXPECT_THROW(model->forward(torch::zeros({1, 3, 15, 16}, options)),
+                   InvalidArgument);
+    }
+    model->train();
+    const auto parameters = model->named_parameters(true);
+    const auto head_before = parameters["head.weight"].detach().clone();
+    const auto patch_before =
+        parameters["patch_embed.proj.weight"].detach().clone();
+    torch::optim::SGD optimizer(model->parameters(),
+                                torch::optim::SGDOptions(0.01));
+    optimizer.zero_grad();
+    auto input = torch::randn({1, 3, 224, 224}, options.requires_grad(true));
+    const auto logits = model->forward(input);
+    ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+    EXPECT_EQ(logits.scalar_type(), torch::kHalf);
+    const auto loss = torch::nn::functional::cross_entropy(
+        logits.to(torch::kFloat32),
+        torch::tensor(
+            {1}, torch::TensorOptions().device(device).dtype(torch::kLong)));
+    ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+    loss.backward();
+    std::size_t gradients = 0;
+    for (const auto& entry : parameters) {
+      const auto gradient = entry.value().grad();
+      EXPECT_EQ(entry.value().scalar_type(), torch::kHalf) << entry.key();
+      if (entry.key() == "mask_token") {
+        EXPECT_FALSE(gradient.defined());
+        continue;
+      }
+      ASSERT_TRUE(gradient.defined()) << entry.key();
+      EXPECT_TRUE(gradient.device().is_cuda()) << entry.key();
+      EXPECT_EQ(gradient.scalar_type(), torch::kHalf) << entry.key();
+      EXPECT_EQ(gradient.sizes(), entry.value().sizes()) << entry.key();
+      EXPECT_TRUE(torch::isfinite(gradient).all().item<bool>()) << entry.key();
+      ++gradients;
+    }
+    EXPECT_EQ(gradients, 520U);
+    ASSERT_TRUE(input.grad().defined());
+    EXPECT_TRUE(torch::isfinite(input.grad()).all().item<bool>());
+    EXPECT_GT(input.grad().abs().max().item<double>(), 0.0);
+    optimizer.step();
+    EXPECT_GT(
+        (parameters["head.weight"] - head_before).abs().max().item<double>(),
+        0.0);
+    EXPECT_GT((parameters["patch_embed.proj.weight"] - patch_before)
+                  .abs()
+                  .max()
+                  .item<double>(),
+              0.0);
+    optimizer.zero_grad();
+  }
+  torch::cuda::synchronize(0);
+  const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  const auto peak_rss = ProcessPeakRssBytes();
+  EXPECT_GT(peak_rss, 0U);
+  EXPECT_LE(peak_rss, 8ULL << 30U);
+  EXPECT_GT(stats.allocated_bytes[0].peak, 0);
+  EXPECT_LE(stats.allocated_bytes[0].peak, 5LL << 30U);
+  // Deterministic cuBLAS workspaces outlive the model, as in the recovery
+  // resource gate. Release them only after all CUDA work has quiesced.
+  at::cuda::clearCublasWorkspaces();
+  const auto released = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  EXPECT_LE(released.allocated_bytes[0].current, 32LL << 20U);
+  c10::cuda::CUDACachingAllocator::emptyCache();
+  const auto cleared = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  EXPECT_LE(cleared.reserved_bytes[0].current, 64LL << 20U);
+  std::cout << "RESOURCE_METRICS model=dinov3_vith16plus "
+               "phase=cuda-fp16-storage-default224-forward-backward-sgd "
+               "applied_updates=1 gradient_tensors=520 elapsed_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - start)
+                   .count()
+            << " process_peak_rss_bytes=" << peak_rss
+            << " peak_cuda_allocated_bytes=" << stats.allocated_bytes[0].peak
+            << " cuda_allocated_after_destroy_bytes="
+            << stats.allocated_bytes[0].current
+            << " cuda_allocated_after_workspace_clear_bytes="
+            << released.allocated_bytes[0].current
+            << " cuda_reserved_after_empty_cache_bytes="
+            << cleared.reserved_bytes[0].current << '\n';
 #endif
 }
 

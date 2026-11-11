@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 验收 Ubuntu 上完整 DINOv3 H+ 的 224×224 CUDA FP16 参数存储前向、反向与一次 SGD 更新；显式门禁检查 520 项梯度、输入梯度及 head/patch embedding 更新、资源峰值和 cuBLAS 工作缓冲释放。
+
 - 本地运行和搜索可显式固定 CPU 亲和性，在用户程序执行前设置并严格回读，结果保存实际放置收据；新增只读 `local cpu-affinity` 查询，重试和 worker 拒绝不可用集合，终态重放保持。
 
 - 本地运行和搜索可显式绑定完整有效环境摘要，环境增删改在准入、重试和实际启动前拒绝；新增只返回摘要的 `local environment` 命令，原生启动复用同一份已核验快照，终态重放保持。
