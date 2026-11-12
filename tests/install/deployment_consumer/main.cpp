@@ -248,6 +248,99 @@ void CheckShapeOperators() {
   }
 }
 
+void CheckReductions() {
+  torch::nn::Module module;
+  exporter::ExportOptions fixed;
+  fixed.dynamic_batch = false;
+  for (const auto mean : {false, true}) {
+    for (const auto empty : {false, true}) {
+      for (const auto keepdim : {true, false}) {
+        const exporter::ForwardFunction forward =
+            [mean, empty, keepdim](std::span<const at::Tensor> inputs) {
+              const std::vector<std::int64_t> dimensions;
+              const auto axes = empty
+                                    ? at::OptionalIntArrayRef(dimensions)
+                                    : at::OptionalIntArrayRef{};
+              const auto output = mean
+                                      ? at::mean(inputs.front(), axes, keepdim)
+                                      : at::sum(inputs.front(), axes, keepdim);
+              return std::vector<at::Tensor>{
+                  keepdim ? output : at::unsqueeze(output, 0)};
+            };
+        const auto input = at::arange(24, at::kFloat).reshape({2, 3, 4});
+        const std::array examples{input};
+        const auto artifact =
+            exporter::export_module(module, forward, examples, fixed);
+        runtime::Session session(artifact.onnx, artifact.digest);
+        const std::vector<std::int64_t> shape =
+            keepdim ? std::vector<std::int64_t>{1, 1, 1}
+                    : std::vector<std::int64_t>{1};
+        CheckExact(session, input, shape, {mean ? 11.5F : 276.0F});
+      }
+    }
+  }
+  for (const auto mean : {false, true}) {
+    for (const auto dimensioned : {false, true}) {
+      const exporter::ForwardFunction forward =
+          [mean, dimensioned](std::span<const at::Tensor> inputs) {
+            const auto output = dimensioned
+                                    ? (mean ? at::mean(inputs.front(), {1},
+                                                       true, at::kDouble)
+                                            : at::sum(inputs.front(), {1},
+                                                      true, at::kDouble))
+                                    : (mean ? at::mean(inputs.front(), at::kDouble)
+                                            : at::sum(inputs.front(), at::kDouble));
+            const auto fp32 = output.to(at::kFloat);
+            return std::vector<at::Tensor>{
+                dimensioned ? fp32 : at::unsqueeze(fp32, 0)};
+          };
+      exporter::ExportOptions options;
+      options.dynamic_batch = dimensioned;
+      const std::array examples{
+          at::tensor({100000000.0F, 1.0F, -100000000.0F}).repeat({2, 1})};
+      const auto artifact =
+          exporter::export_module(module, forward, examples, options);
+      runtime::Session session(artifact.onnx, artifact.digest);
+      const std::vector<int> batches =
+          dimensioned ? std::vector<int>{1, 2, 5} : std::vector<int>{2};
+      for (const auto batch : batches) {
+        const auto input =
+            at::tensor({100000000.0F, 1.0F, -100000000.0F}).repeat({batch, 1});
+        const std::vector<std::int64_t> shape =
+            dimensioned ? std::vector<std::int64_t>{batch, 1}
+                        : std::vector<std::int64_t>{1};
+        const auto value = mean ? 1.0F / 3.0F
+                               : static_cast<float>(dimensioned ? 1 : batch);
+        CheckExact(session, input, shape,
+                   std::vector<float>(dimensioned ? batch : 1, value));
+      }
+    }
+  }
+  for (const auto mode : {0, 1, 2}) {
+    const exporter::ForwardFunction forward =
+        [mode](std::span<const at::Tensor> inputs) {
+          const auto output =
+              mode == 0 ? at::sum(inputs.front().to(at::kInt), {1}, true)
+              : mode == 1 ? at::sum(inputs.front(), {1}, true, at::kLong)
+                          : at::sum(inputs.front(), {1}, true, at::kInt);
+          return std::vector<at::Tensor>{output.to(at::kFloat)};
+        };
+    // Every value fits int32, but the first row's exact integer sum does not.
+    const auto row = mode == 0
+                         ? at::tensor({2147483520.0F, 256.0F, 0.0F})
+                         : at::tensor({1.75F, 2.5F, -1.25F});
+    const std::array examples{row.repeat({2, 1})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    for (const auto batch : {1, 2, 5}) {
+      const auto input = row.repeat({batch, 1});
+      // 2147483776 rounds to 2147483648 when the public output casts to FP32.
+      const auto value = mode == 0 ? 2147483648.0F : 2.0F;
+      CheckExact(session, input, {batch, 1}, std::vector<float>(batch, value));
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -376,9 +469,11 @@ int main() {
     }
     CheckFlatten();
     CheckShapeOperators();
+    CheckReductions();
     std::cout << "Native deployment consumer: single/multi-I/O dynamic batches "
                  "1,2,5 and 40 exact suffix/full flatten cases match on CPU; "
-                 "27 exact squeeze/permutation/scalar cases and 3 dynamic squeeze rejections\n";
+                 "27 exact squeeze/permutation/scalar cases and 3 dynamic squeeze rejections; "
+                 "25 exact reduction cases including Int32 promotion overflow boundary\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';

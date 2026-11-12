@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-da65017-onnx-reduction-install",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; ONNX Runtime 1.23.2 CPU EP",
+          "build_type": "Release",
+          "commit": "da650172baf003fc881e36694ac9e0a681163204",
+          "tests": "正式SDK部署消费者1项＋共享门禁3项通过/零skip。新增25个真实ORT归约场景：8个全轴None/empty及keepdim、8个Float64累加、9个int32/int64/默认提升；默认提升以超int32和独立核验。加既有回归总101次ORT及3类动态squeeze拒绝；源码59合同身份另列。",
+          "instrumentation": "固定Release和既有部署消费者cache；systemd/双锁/两主机原生并发1/编译CTest1job，0新树/叶、0SDK/runtime副本。cleanda65017导出库依同树生成安装规则定向更新，正式foundation保持原来源。",
+          "quality_evidence": {
+            "source_identity": "导出库基于cleanda65017及相同已修复generic_lowering对象增量构建；consumer为dirtyda65017的main.cpp补丁，逐文件SHA绑定收据。后续贡献和兼容说明仅为来源元数据。",
+            "installation": "236件混合SDK：230件含17库/程序/基础provenance保持42af0a6；4模板头b3dc310、共享采样头91aeccf、导出archive现da65017，含此前flatten/shape修复及当前归约修复。仅替换1库，其余235件SHA/mtime保持；基础指纹不改为全量当前构建。",
+            "consumer": "公开安装头、正式archive与Runtime实际链接，无源码include覆盖。全轴精确和276/均值11.5；[1e8,1,-1e8]以Float64累加后和1/均值1/3；小数逐项整数截断和2；[2147483520,256,0]默认int64和2147483776，转FP32后2147483648。参考不调用mean/sum。",
+            "resources": "3GiB编译/1GiB运行/门禁，swap0，峰1516871680B、limit/OOM0；固定consumer仅增64167B，原预算和截止保持。",
+            "preservation": "1352源码除声明consumer和来源元数据保持；828既有原生中824件SHA/mtime保持，仅foundation来源对象/库及consumer对象/程序4件更新。1388其他SDK/coverage和607质量产物保持，0训练。",
+            "receipts_archive_sha256": "3e4c94a00e339a306f350177b7c423cc06b8abd80bc9a92e5e9dd6891e27083a",
+            "scope": "仅当前Ubuntu CPU通用ONNX归约的定向安装验证；不授当前全SDK重建/完整配置、其他Provider、Windows/CUDA、全模型任务/资源或发布资格。普通整数语义不等于INT8恢复，网络安全与高成本矩阵保持暂停/暂缓。"
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-b2e724c-onnx-shape-install",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
