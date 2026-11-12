@@ -1,6 +1,6 @@
-# 用 C++ 训练与评估行人检测模型
+# C++ 训练与评估示例
 
-分割训练、完整检查点和IoU/Dice评估示例见[segmentation/](segmentation/README.md)。
+无需外部数据的分类推理、断点续评和JSON/HTML质量报告见[classification/](classification/README.md)；分割训练、完整检查点和IoU/Dice评估见[segmentation/](segmentation/README.md)。下文介绍行人检测训练与评估。
 
 [pedestrian_detector.cpp](detection/pedestrian_detector.cpp) 从随机初始化训练直接预测行人框的小型卷积模型，使用 `Trainer`、完整检查点和实际 detection evaluator 生成质量报告。模型声明和实现在同模块的 [model/](detection/model/) 子目录，训练与评估入口在 `detection/` 内。预测只读取 RGB；实例掩码用于训练目标和评估真值，不参与预测或解码。这是小规模接线示例，不能据此推导生产检测精度或完整平台支持。
 

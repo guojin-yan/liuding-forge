@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 增加可直接消费安装 SDK 的原生 C++ 分类评估示例，串联真实推理、来源统计、检查点、新进程续评、取消和完成态重放，生成保留 pass/fail/incomplete 语义的质量报告。
 - 修复通用 ONNX LayerNorm 的 Double 中间输入在较大公共偏移下产生错误方差的问题；保持 Double 计算并先中心化，补齐总体方差、可选仿射、单/双归一化维度及实际 CPU ORT 安装回归。
 - 修复通用 ONNX BatchNorm 推理导出拒绝可选仿射参数，以及内部多输出入口覆盖真实输出形状的问题；补齐缺省权重/偏置、归一化后展平、状态保持及实际 CPU ORT 安装回归。
 

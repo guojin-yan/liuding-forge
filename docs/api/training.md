@@ -127,6 +127,8 @@ auto result = training::evaluate_classification(model, next_batch, options);
 
 ## 评估保存与恢复
 
+无需外部数据的完整原生流程见[分类评估示例](../../examples/evaluation/classification/README.md)，包括物理检查点、新进程恢复、取消、身份变化拒绝和不重复推理的完成态报告重建。
+
 三类评估 session 在构造时固定数据、模型、配置摘要、构建指纹和评估 ID，接收 `source(batch_index, stop_token)` 形式的确定性索引源。同一索引必须返回相同输入、标签、图片身份和来源；配置摘要应包含批次划分、预处理及 seed。身份由调用方绑定真实内容，接口不会自行校验模型文件或数据字节。
 
 | Session | 保存的任务统计 | 可选 EOF 总量校验 |
