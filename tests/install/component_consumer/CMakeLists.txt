@@ -154,4 +154,14 @@ if(JYPPX_CONSUMER_COMPONENT STREQUAL "data")
         set_tests_properties(WeightedSampler-${weights} PROPERTIES
             LABELS "installed;data" TIMEOUT 30)
     endforeach()
+    add_executable(jyppx_distributed_sampler_consumer data/distributed_sampler.cpp)
+    target_link_libraries(jyppx_distributed_sampler_consumer PRIVATE
+        jyppx::liuding::data)
+    add_dependencies(jyppx_distributed_sampler_consumer jyppx_component_consumer)
+    foreach(epoch_state IN ITEMS negative malformed ordinary)
+        add_test(NAME DistributedSampler-${epoch_state}
+            COMMAND jyppx_distributed_sampler_consumer ${epoch_state})
+        set_tests_properties(DistributedSampler-${epoch_state} PROPERTIES
+            LABELS "installed;data" TIMEOUT 30)
+    endforeach()
 endif()

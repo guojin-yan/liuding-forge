@@ -11,6 +11,7 @@
 #include <jyppx/liuding/data/samplers/sampler.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -423,29 +424,23 @@ class DistributedSampler : public Sampler {
 
   /**
    * @brief Restores the shuffle epoch atomically.
-   * @param state Decimal state returned by save_state().
-   * @throws jyppx::liuding::SerializationError The state is malformed or
-   * negative.
+   * @param state Canonical unsigned decimal state returned by save_state().
+   * @throws jyppx::liuding::SerializationError The state has a sign, whitespace,
+   * leading zeros, trailing bytes, or a value outside the epoch range.
    */
   void load_state(const std::string& state) override {
-    size_t consumed = 0;
-    try {
-      if (state.empty() || state.front() == '-') {
-        ::jyppx::liuding::data::detail::throw_state_error(
-            "data.distributed_sampler", "load_state", "negative epoch");
-      }
-      const auto restored = std::stoull(state, &consumed);
-      if (consumed != state.size()) {
-        ::jyppx::liuding::data::detail::throw_state_error(
-            "data.distributed_sampler", "load_state", "trailing bytes");
-      }
-      epoch_ = restored;
-    } catch (const ::jyppx::liuding::SerializationError&) {
-      throw;
-    } catch (const std::exception&) {
+    if (state.empty() || (state.size() > 1 && state.front() == '0')) {
+      ::jyppx::liuding::data::detail::throw_state_error(
+          "data.distributed_sampler", "load_state", "non-canonical epoch");
+    }
+    std::uint64_t restored = 0;
+    const auto [end, error] =
+        std::from_chars(state.data(), state.data() + state.size(), restored);
+    if (error != std::errc{} || end != state.data() + state.size()) {
       ::jyppx::liuding::data::detail::throw_state_error(
           "data.distributed_sampler", "load_state", "invalid epoch");
     }
+    epoch_ = restored;
   }
 
  private:

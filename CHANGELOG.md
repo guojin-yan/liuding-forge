@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 修复分布式采样器将空白前缀负 epoch 接受为最大无符号数的问题；检查点仅接受规范十进制状态，拒绝时保留当前 epoch 和采样顺序，原合法状态格式不变。
+
 - 修复有放回加权采样在极小权重舍入边界选中零权重项的问题，使采样头可独立包含，补齐安装后 C++ 支持集、普通序列与状态恢复回归；明确 BatchSampler 的管线组批限制。
 
 - 数据集拆分在分配前检查数学长度，拒绝整数回绕；拼接/链式数据集拒绝总长度溢出，StackDataset 保留最大合法长度，补齐安装后 C++ 边界回归。

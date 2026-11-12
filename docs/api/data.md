@@ -251,6 +251,6 @@ class DistributedSampler;     // rank/world_size sharding
 
 `BatchSampler` 的 `indices()` 返回扁平样本索引，`size()` 返回批次数，当前不能直接用于要求两者长度一致的 `DataPipeline`；请向管线传入基础 sampler，并通过管线的 `batch_size` / `drop_last` 配置组批。
 
-`DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks (padding to even counts unless `drop_last`); call `set_epoch()` once per epoch to reshuffle. Pass `rank` and `world_size` explicitly from the external launcher or job configuration. v1.0 does not publish a process-group API.
+`DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` 按显式 rank/world_size 划分 epoch，不丢弃尾部时会补齐各 rank 的样本数；每个 epoch 调用一次 `set_epoch()`。状态为 `save_state()` 生成的规范无符号十进制，接受 0 至最大 `uint64_t`，拒绝符号、空白、前导零、尾字节及溢出；拒绝时当前 epoch 和后续顺序保持不变。既有合法状态格式保持可读。rank/world_size 由外部启动器或任务配置提供，v1.0 未提供进程组 API。
 
 Pass a custom sampler to the `DataPipeline` constructor for index strategies the built-ins do not cover, such as weighted sampling.
