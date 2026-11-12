@@ -227,19 +227,30 @@ Compose pipeline({
 
 `#include <jyppx/liuding/data/samplers/...>`
 
+下列具体采样器均继承 `Sampler`。
+
 ```cpp
 class Sampler { public:
     virtual std::vector<size_t> indices() const = 0;  // one epoch of indices
     virtual size_t size() const = 0;
 };
 
-class SequentialSampler : public Sampler;                       // 0..n-1 class RandomSampler : public Sampler;                           // seeded permutation class BatchSampler : public Sampler;                            // flattens + counts batches class WeightedRandomSampler : public Sampler;                   // weights, replacement opt. class SubsetRandomSampler : public Sampler;                     // permuted index subset class DistributedSampler : public Sampler;                      // rank/world_size sharding
+class SequentialSampler;      // 0..n-1
+class RandomSampler;          // seeded permutation
+class BatchSampler;           // flat indices; size counts batches
+class WeightedRandomSampler;  // weights, replacement opt.
+class SubsetRandomSampler;    // permuted index subset
+class DistributedSampler;     // rank/world_size sharding
 ```
 
 `RandomSampler(size, seed)` 每次返回覆盖全部索引的随机排列。默认算法为 `splitmix64-fisher-yates-rejection/v1`：64 位无符号 SplitMix64、从后向前的 Fisher–Yates，以及拒绝取模偏差的有界采样；不依赖标准库的 `std::shuffle` 或 distribution。同一 population、seed、epoch 和调用顺序在不同标准库上产生相同索引；`set_epoch(e)` 将状态重置为 `uint64(seed) + e`，按 2⁶⁴ 取模。未传 seed 时使用系统随机源，并在状态中保存实际 base seed。该保证不包含不同设备或平台上的浮点训练结果。
 
 `RandomSampler::algorithm_id()` 返回算法版本，`configuration_identity()` 同时包含算法和 population。`save_state()` 使用 `JYPPX-RANDOM-SAMPLER/v2`、population、base seed 和当前 64 位状态四行 ASCII（LF 分隔，无结尾换行）；`load_state()` 在完整验证后才修改实例，拒绝不同 population、非规范数值和旧 `std::shuffle` v1 状态。旧运行需要原版本继续恢复，新算法使用新的运行目录。该可移植保证仅适用于 `RandomSampler`，不自动扩展到 weighted、subset 或 distributed sampler。`BatchSampler(base, batch_size, drop_last)` 通过 `size()` 返回批次数。
 
-`WeightedRandomSampler(weights, num_samples, replacement, seed)` draws indices with probability proportional to `weights`. `DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks (padding to even counts unless `drop_last`); call `set_epoch()` once per epoch to reshuffle. Pass `rank` and `world_size` explicitly from the external launcher or job configuration. v1.0 does not publish a process-group API.
+`WeightedRandomSampler(weights, num_samples, replacement, seed)` 按权重抽样，权重须有限且非负、总和须有限且为正，`num_samples` 须为正；无放回抽样数不得超过正权重项数。零权重项不会被抽中，有放回模式在极小总权重的舍入边界仍保持这一约束。可独立包含 `<jyppx/liuding/data/samplers/weighted_random_sampler.hpp>`；相同标准库、配置和调用顺序下可用 `save_state()` / `load_state()` 精确续抽，不承诺跨标准库的加权序列或极端权重比下的精确实数概率。
+
+`BatchSampler` 的 `indices()` 返回扁平样本索引，`size()` 返回批次数，当前不能直接用于要求两者长度一致的 `DataPipeline`；请向管线传入基础 sampler，并通过管线的 `batch_size` / `drop_last` 配置组批。
+
+`DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks (padding to even counts unless `drop_last`); call `set_epoch()` once per epoch to reshuffle. Pass `rank` and `world_size` explicitly from the external launcher or job configuration. v1.0 does not publish a process-group API.
 
 Pass a custom sampler to the `DataPipeline` constructor for index strategies the built-ins do not cover, such as weighted sampling.

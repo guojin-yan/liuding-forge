@@ -144,4 +144,14 @@ if(JYPPX_CONSUMER_COMPONENT STREQUAL "data")
         set_tests_properties(DatasetView-${view} PROPERTIES
             LABELS "installed;data" TIMEOUT 30)
     endforeach()
+    add_executable(jyppx_weighted_sampler_consumer data/weighted_sampler.cpp)
+    target_link_libraries(jyppx_weighted_sampler_consumer PRIVATE
+        jyppx::liuding::data)
+    add_dependencies(jyppx_weighted_sampler_consumer jyppx_component_consumer)
+    foreach(weights IN ITEMS tiny leading-zero ordinary)
+        add_test(NAME WeightedSampler-${weights}
+            COMMAND jyppx_weighted_sampler_consumer ${weights})
+        set_tests_properties(WeightedSampler-${weights} PROPERTIES
+            LABELS "installed;data" TIMEOUT 30)
+    endforeach()
 endif()

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <utility>
@@ -41,7 +42,7 @@ class WeightedRandomSampler : public Sampler {
    */
   WeightedRandomSampler(std::vector<double> weights, size_t num_samples,
                         bool replacement = true,
-                        Optional<uint64_t> seed = std::nullopt)
+                        std::optional<uint64_t> seed = std::nullopt)
       : weights_(std::move(weights)),
         num_samples_(num_samples),
         replacement_(replacement),
@@ -179,7 +180,12 @@ class WeightedRandomSampler : public Sampler {
    * @return Population index selected by the sampled cumulative interval.
    */
   size_t draw(std::uniform_real_distribution<double>& uniform) const {
-    const double value = uniform(generator_);
+    double value = uniform(generator_);
+    // Floating-point rounding can reach the right endpoint for tiny totals.
+    // Keep the draw below the total so trailing zero weights stay excluded.
+    if (value >= cumulative_.back()) {
+      value = std::nextafter(cumulative_.back(), 0.0);
+    }
     const auto upper =
         std::upper_bound(cumulative_.begin(), cumulative_.end(), value);
     const size_t pos =
@@ -210,7 +216,7 @@ class SubsetRandomSampler : public Sampler {
    * @throws jyppx::liuding::InvalidArgument @p indices is empty.
    */
   SubsetRandomSampler(std::vector<size_t> indices,
-                      Optional<uint64_t> seed = std::nullopt)
+                      std::optional<uint64_t> seed = std::nullopt)
       : indices_(std::move(indices)),
         generator_(seed.has_value()
                        ? static_cast<std::mt19937_64::result_type>(*seed)
@@ -304,7 +310,7 @@ class DistributedSampler : public Sampler {
    */
   DistributedSampler(size_t size, size_t rank, size_t world_size,
                      bool shuffle = true,
-                     Optional<uint64_t> seed = std::nullopt,
+                     std::optional<uint64_t> seed = std::nullopt,
                      bool drop_last = false)
       : size_(size),
         rank_(rank),
