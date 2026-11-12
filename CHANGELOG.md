@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 修复通用 ONNX 形状操作的非单例 squeeze、负索引 permute 和标量转置语义；动态 squeeze 明确拒绝可能移除 batch 维的调用，避免输出秩随 batch 改变。
+
 - 修复通用 ONNX 导出中后缀 flatten 丢失前缀维度、全维展平错误生成二维结果的问题；保留动态 batch，补齐正负维度与真实 CPU ORT 的形状、逐元素回归。
 
 - 基础 Trainer 示例集中到 training 模块并支持独立 SDK 构建；修正优化器教程的旧数据循环，补齐参数组、三类调度事件及模型/有动量SGD/调度器的新进程协调恢复示例。

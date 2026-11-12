@@ -477,27 +477,40 @@ class Lowerer final {
     }
     if (symbol == "aten::permute" || symbol == "aten::transpose" ||
         symbol == "aten::t") {
+      const auto type = node.input(0)->type()->cast<c10::TensorType>();
+      if (!type || !type->dim())
+        Unsupported(node, "transpose requires a known tensor rank");
+      const auto rank = static_cast<std::int64_t>(*type->dim());
+      const auto dimension = [&](std::int64_t axis) {
+        const auto dimensions = std::max<std::int64_t>(rank, 1);
+        if (axis < -dimensions || axis >= dimensions)
+          Unsupported(node, "invalid transpose dimension");
+        return axis < 0 ? axis + dimensions : axis;
+      };
       std::vector<std::int64_t> permutation;
-      if (symbol == "aten::permute")
+      if (symbol == "aten::permute") {
         permutation = Ints(node.input(1), node);
-      else {
-        const auto type = node.input(0)->type()->cast<c10::TensorType>();
-        if (!type || !type->dim())
-          Unsupported(node, "transpose requires a known tensor rank");
-        const auto rank = static_cast<std::int64_t>(*type->dim());
+        if (permutation.size() != static_cast<std::size_t>(rank))
+          Unsupported(node, "permutation length differs from tensor rank");
+        std::set<std::int64_t> unique;
+        for (auto& axis : permutation) {
+          axis = dimension(axis);
+          if (!unique.insert(axis).second)
+            Unsupported(node, "permutation contains duplicate dimensions");
+        }
+      } else {
         for (std::int64_t index = 0; index < rank; ++index)
           permutation.push_back(index);
         const auto first =
-            symbol == "aten::t" ? 0 : (Int(node.input(1), node) + rank) % rank;
+            symbol == "aten::t" ? 0 : dimension(Int(node.input(1), node));
         const auto second = symbol == "aten::t"
-                                ? rank - 1
-                                : (Int(node.input(2), node) + rank) % rank;
-        if (rank == 0 || first < 0 || second < 0 || first >= rank ||
-            second >= rank)
-          Unsupported(node, "invalid transpose dimensions");
+                                ? std::max<std::int64_t>(rank - 1, 0)
+                                : dimension(Int(node.input(2), node));
+        if (rank == 0) return {Unary(node, "Identity")};
         std::swap(permutation[static_cast<std::size_t>(first)],
                   permutation[static_cast<std::size_t>(second)]);
       }
+      if (rank == 0) return {Unary(node, "Identity")};
       auto* result = Op(node, "Transpose", {Tensor(node.input(0), node)});
       result->is_(c10::Symbol::attr("perm"), permutation);
       return {result->output()};
@@ -519,12 +532,42 @@ class Lowerer final {
       result->i_(c10::Symbol::attr("axis"), axis);
       return {result->output()};
     }
-    if (symbol == "aten::unsqueeze" || symbol == "aten::squeeze") {
+    if (symbol == "aten::squeeze") {
+      const auto type = node.input(0)->type()->cast<c10::TensorType>();
+      if (!type || !type->dim())
+        Unsupported(node, "squeeze requires a known tensor rank");
+      const auto rank = static_cast<std::int64_t>(*type->dim());
+      if (rank == 0) return {Unary(node, "Identity")};
+      const bool dynamic =
+          options_.dynamic_batch || !options_.dynamic_axes.empty();
       std::vector<Value*> inputs{Tensor(node.input(0), node)};
-      if (node.inputs().size() > 1)
-        inputs.push_back(IntegerVector({Int(node.input(1), node)}));
-      return {Op(node, symbol == "aten::unsqueeze" ? "Unsqueeze" : "Squeeze",
-                 inputs)
+      if (node.inputs().size() > 1) {
+        auto axis = Int(node.input(1), node);
+        if (axis < -rank || axis >= rank)
+          Unsupported(node, "invalid squeeze dimension");
+        if (axis < 0) axis += rank;
+        if (dynamic && axis == 0)
+          Unsupported(node,
+                      "squeezing a dynamic batch may change output rank; use "
+                      "an explicit non-batch dimension or a static export");
+        const auto sizes = type->sizes().concrete_sizes();
+        if (!sizes) Unsupported(node, "squeeze requires known dimension sizes");
+        // ATen leaves a selected non-singleton dimension unchanged. ONNX
+        // Squeeze with that axis instead rejects the tensor at execution.
+        if ((*sizes)[static_cast<std::size_t>(axis)] != 1)
+          return {Unary(node, "Identity")};
+        inputs.push_back(IntegerVector({axis}));
+      } else if (dynamic) {
+        Unsupported(node,
+                    "dynamic squeeze needs an explicit non-batch dimension; "
+                    "removing all singleton axes may remove batch one");
+      }
+      return {Op(node, "Squeeze", inputs)->output()};
+    }
+    if (symbol == "aten::unsqueeze") {
+      return {Op(node, "Unsqueeze",
+                 {Tensor(node.input(0), node),
+                  IntegerVector({Int(node.input(1), node)})})
                   ->output()};
     }
     if (symbol == "aten::softmax" || symbol == "aten::_softmax" ||

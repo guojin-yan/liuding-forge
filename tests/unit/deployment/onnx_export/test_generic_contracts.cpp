@@ -508,6 +508,102 @@ TEST(NativeOnnxGenericRuntime, FlattensAllDimensionsToOneStaticDimension) {
   }
 }
 
+TEST(NativeOnnxShapeRuntime, SqueezeKeepsNonSingletonDimensionsUnchanged) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  for (const auto axis : {1, -3, 2, -2, 3, -1}) {
+    SCOPED_TRACE("axis=" + std::to_string(axis));
+    const exporter::ForwardFunction forward =
+        [axis](std::span<const at::Tensor> inputs) {
+          return Tensors{at::squeeze(inputs.front(), axis)};
+        };
+    const Tensors examples{at::arange(6, at::kFloat).reshape({2, 1, 3, 1})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    const auto normalized = axis < 0 ? axis + 4 : axis;
+    for (const auto batch : {1, 2, 5}) {
+      Tensors inputs{
+          at::arange(batch * 3, at::kFloat).reshape({batch, 1, 3, 1})};
+      const std::vector<std::int64_t> shape =
+          normalized == 1 ? std::vector<std::int64_t>{batch, 3, 1}
+          : normalized == 3 ? std::vector<std::int64_t>{batch, 1, 3}
+                            : std::vector<std::int64_t>{batch, 1, 3, 1};
+      const Tensors expected{inputs.front().reshape(shape)};
+      CheckOfficialCpu(artifact, inputs, expected, true, true);
+    }
+  }
+}
+
+TEST(NativeOnnxShapeRuntime, PermuteNormalizesNegativeDimensionIndices) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  for (const std::vector<std::int64_t> axes :
+       {std::vector<std::int64_t>{0, -1, -2}, {0, -2, -1}}) {
+    SCOPED_TRACE("second axis=" + std::to_string(axes[1]));
+    const exporter::ForwardFunction forward =
+        [axes](std::span<const at::Tensor> inputs) {
+          return Tensors{at::permute(inputs.front(), axes).contiguous()};
+        };
+    const Tensors examples{at::arange(12, at::kFloat).reshape({2, 2, 3})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    for (const auto batch : {1, 2, 5}) {
+      Tensors inputs{
+          at::arange(batch * 6, at::kFloat).reshape({batch, 2, 3})};
+      auto reference = at::empty(
+          axes[1] == -1 ? std::vector<std::int64_t>{batch, 3, 2}
+                        : std::vector<std::int64_t>{batch, 2, 3},
+          at::kFloat);
+      auto* values = reference.data_ptr<float>();
+      for (std::int64_t n = 0; n < batch; ++n)
+        for (std::int64_t row = 0; row < 2; ++row)
+          for (std::int64_t column = 0; column < 3; ++column) {
+            const auto offset = axes[1] == -1 ? n * 6 + column * 2 + row
+                                             : n * 6 + row * 3 + column;
+            values[offset] = static_cast<float>(n * 6 + row * 3 + column);
+          }
+      const Tensors expected{reference};
+      CheckOfficialCpu(artifact, inputs, expected, true, true);
+    }
+  }
+}
+
+TEST(NativeOnnxShapeRuntime, ScalarTransposeTAndSqueezePreserveRankZero) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  for (const auto mode : {0, 1, 2}) {
+    SCOPED_TRACE("mode=" + std::to_string(mode));
+    const exporter::ForwardFunction forward =
+        [mode](std::span<const at::Tensor> inputs) {
+          const auto scalar = at::mean(inputs.front());
+          const auto output = mode == 0 ? at::transpose(scalar, 0, -1)
+                              : mode == 1 ? at::t(scalar)
+                                          : at::squeeze(scalar, 0);
+          return Tensors{at::unsqueeze(output, 0)};
+        };
+    Tensors inputs{at::arange(6, at::kFloat).reshape({2, 3})};
+    const auto artifact =
+        exporter::export_module(module, forward, inputs, options);
+    const Tensors expected{at::full({1}, 2.5F)};
+    CheckOfficialCpu(artifact, inputs, expected, false, true);
+  }
+}
+
+TEST(NativeOnnxShapeRuntime, RejectsSqueezeThatCanRemoveDynamicBatchAxis) {
+  torch::nn::Module module;
+  for (const auto axis : {0, -3, 99}) {
+    const exporter::ForwardFunction forward =
+        [axis](std::span<const at::Tensor> inputs) {
+          return Tensors{axis == 99 ? at::squeeze(inputs.front())
+                                   : at::squeeze(inputs.front(), axis)};
+        };
+    const Tensors examples{at::ones({2, 3, 4})};
+    EXPECT_THROW(exporter::export_module(module, forward, examples),
+                 CompatibilityError)
+        << "axis=" << axis;
+  }
+}
+
 TEST(NativeOnnxGenericRuntime, NamedMultipleIoRunsForIndependentBatchSizes) {
   torch::NoGradGuard no_grad;
   UserPairModel model;
