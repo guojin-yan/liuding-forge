@@ -245,7 +245,9 @@ class Lowerer final {
   }
 
   Value* Unary(Node& node, const char* operation) {
-    return Op(node, operation, {Tensor(node.input(0), node)})->output();
+    auto* input =
+        Cast(node, Tensor(node.input(0), node), ScalarType(node.output()));
+    return Op(node, operation, {input})->output();
   }
 
   Value* Cast(Node& node, Value* input, at::ScalarType dtype) {
@@ -314,6 +316,13 @@ class Lowerer final {
         {"aten::round", "Round"},
         {"aten::erf", "Erf"},
         {"aten::hardswish", "HardSwish"}};
+    if ((symbol == "aten::floor" || symbol == "aten::ceil" ||
+         symbol == "aten::round") &&
+        c10::isIntegralType(ScalarType(node.input(0)), false)) {
+      // ATen keeps integer values and dtype unchanged. ONNX rounding operators
+      // accept floating point only; a float round-trip would lose integer bits.
+      return {Unary(node, "Identity")};
+    }
     if (const auto found = unary.find(symbol); found != unary.end())
       return {Unary(node, found->second)};
     if (symbol == "aten::hardsigmoid") {

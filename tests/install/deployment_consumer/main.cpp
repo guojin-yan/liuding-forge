@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "../../test_utils/deployment/onnx_export/arithmetic_cases.hpp"
+#include "../../test_utils/deployment/onnx_export/unary_cases.hpp"
 
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/session.hpp>
@@ -83,6 +84,68 @@ void Compare(const runtime::TensorOutput& actual,
                 std::abs(actual.values[index] - reference[index]) <= tolerance,
             "installed ONNX/native numerical mismatch at element " +
                 std::to_string(index));
+  }
+}
+
+void CheckUnaryOperators() {
+  for (const std::string_view operation :
+       {"sigmoid", "tanh", "exp", "log", "sqrt", "erf", "floor", "ceil",
+        "round"}) {
+    torch::nn::Module module;
+    const auto probes = jyppx::liuding::test::OnnxUnaryCases(module, operation);
+    Require(probes.size() == (operation == "floor" || operation == "ceil" ||
+                                      operation == "round"
+                                  ? 7
+                                  : 5),
+            "installed unary fixture count");
+    for (const auto& probe : probes) {
+      const auto label = std::string(operation) + "/" + probe.name;
+      const std::vector<at::Tensor> examples{probe.row.repeat({2, 1})};
+      const auto artifact =
+          exporter::export_module(module, probe.forward, examples);
+      if (!probe.cpu_kernel) {
+        const auto native = probe.forward(examples);
+        Require(native.size() == 1 &&
+                    at::allclose(native.front(),
+                                 probe.expected_row.repeat({2, 1}), 1e-6, 1e-6),
+                "installed Double Erf native reference");
+        bool refused = false;
+        try {
+          runtime::Session unsupported(artifact.onnx, artifact.digest);
+        } catch (const jyppx::liuding::CompatibilityError& error) {
+          refused = error.details().operation == "load" &&
+                    error.details().actual.find("Erf") != std::string::npos;
+        }
+        Require(refused, "ORT 1.23.2 CPU must refuse Double Erf " + label);
+        continue;
+      }
+      runtime::Session session(artifact.onnx, artifact.digest);
+      for (const auto batch : {1, 2, 5}) {
+        const auto input = probe.row.repeat({batch, 1});
+        const runtime::TensorInput binding{
+            .name = artifact.input_names.front(),
+            .values = std::span(input.const_data_ptr<float>(),
+                                static_cast<std::size_t>(input.numel())),
+            .shape = std::span(input.sizes().data(), input.sizes().size())};
+        const auto actual = session.run(std::span(&binding, 1));
+        const auto expected = probe.expected_row.repeat({batch, 1});
+        const auto native = probe.forward(std::vector<at::Tensor>{input});
+        Require(native.size() == 1 &&
+                    (probe.exact
+                         ? at::equal(native.front(), expected)
+                         : at::allclose(native.front(), expected, 1e-6, 1e-6)),
+                "installed native unary reference " + label);
+        Require(actual.size() == 1, "installed unary output count " + label);
+        Compare(actual.front(), expected);
+        if (probe.exact) {
+          for (std::size_t index = 0; index < actual.front().values.size();
+               ++index)
+            Require(actual.front().values[index] ==
+                        expected.const_data_ptr<float>()[index],
+                    "installed exact integer unary " + label);
+        }
+      }
+    }
   }
 }
 
@@ -629,6 +692,7 @@ int main() {
     CheckReductions();
     CheckActivations();
     CheckArithmetic();
+    CheckUnaryOperators();
     std::cout
         << "Native deployment consumer: single/multi-I/O dynamic batches "
            "1,2,5 and 40 exact suffix/full flatten cases match on CPU; "
@@ -637,7 +701,9 @@ int main() {
            "25 exact reduction cases including Int32 promotion overflow "
            "boundary; "
            "38 activation/dtype/scalar and 111 arithmetic/promotion cases "
-           "with independent references\n";
+           "with independent references; 150 unary dtype/integer cases "
+           "and one Double Erf CPU refusal with independent references "
+           "and 151 native forwards\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';

@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "../../../test_utils/deployment/onnx_export/arithmetic_cases.hpp"
+#include "../../../test_utils/deployment/onnx_export/unary_cases.hpp"
 
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
@@ -497,6 +498,56 @@ TEST(NativeOnnxArithmeticRuntime,
      BooleanArithmeticAndOrderingMatchTruthTables) {
   CheckArithmeticGroup("boolean");
 }
+
+class NativeOnnxUnaryRuntime : public ::testing::TestWithParam<const char*> {};
+
+TEST_P(NativeOnnxUnaryRuntime, PreservesComputationTypeAndIntegralValues) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  const auto probes = jyppx::liuding::test::OnnxUnaryCases(module, GetParam());
+  ASSERT_EQ(probes.size(), std::string_view(GetParam()) == "floor" ||
+                                   std::string_view(GetParam()) == "ceil" ||
+                                   std::string_view(GetParam()) == "round"
+                               ? 7
+                               : 5);
+  for (const auto& probe : probes) {
+    SCOPED_TRACE(std::string(GetParam()) + "/" + probe.name);
+    Tensors examples{probe.row.repeat({2, 1})};
+    const auto artifact =
+        exporter::export_module(module, probe.forward, examples);
+    if (!probe.cpu_kernel) {
+      const Tensors expected{probe.expected_row.repeat({2, 1})};
+      const auto native = probe.forward(examples);
+      ASSERT_EQ(native.size(), 1);
+      ASSERT_TRUE(at::allclose(native.front(), expected.front(), 1e-6, 1e-6));
+      try {
+        CheckOfficialCpu(artifact, examples, expected);
+        FAIL() << "ORT 1.23.2 CPU unexpectedly accepted Double Erf";
+      } catch (const Ort::Exception& error) {
+        EXPECT_EQ(error.GetOrtErrorCode(), ORT_NOT_IMPLEMENTED);
+        EXPECT_NE(std::string(error.what()).find("Erf"), std::string::npos);
+      }
+      continue;
+    }
+    for (const auto batch : {1, 2, 5}) {
+      Tensors inputs{probe.row.repeat({batch, 1})};
+      const Tensors expected{probe.expected_row.repeat({batch, 1})};
+      const auto native = probe.forward(inputs);
+      ASSERT_EQ(native.size(), 1);
+      if (probe.exact)
+        ASSERT_TRUE(at::equal(native.front(), expected.front()));
+      else
+        ASSERT_TRUE(at::allclose(native.front(), expected.front(), 1e-6, 1e-6));
+      CheckOfficialCpu(artifact, inputs, expected, true, probe.exact);
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Operators, NativeOnnxUnaryRuntime,
+                         ::testing::Values("sigmoid", "tanh", "exp", "log",
+                                           "sqrt", "erf", "floor", "ceil",
+                                           "round"),
+                         [](const auto& info) { return info.param; });
 
 TEST(NativeOnnxGenericRuntime,
      FlattensSuffixWithoutCollapsingPrefixDimensions) {
