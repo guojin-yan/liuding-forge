@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cpu-0255524-classification-evaluation-example",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "build_type": "Release",
+          "commit": "0255524a754ae17beb9a8413fc9274daf1a1d5dc",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;actual CPU FP32;GPU not exercised",
+          "tests": "8项正式安装SDK示例＋3共享检查零skip；八独立进程共9次真实Linear forward、0训练。连续/暂停恢复/取消恢复的状态及五报告逐字节相同，完成态重放0 source/forward，身份漂移拒绝。",
+          "instrumentation": "单代理/原生并发1，固定VS17主树、一个11.64MB独立示例cache及39共享DLL；3GiB Job、4GiB准入/2GiB停止，原40分钟截止保持，完整Windows6GiB准入不变。无框架库重建/SDK更新/运行库副本。",
+          "quality_evidence": {
+            "source_identity": "dirty89f0497示例编译，10件规范源码逐SHA等于clean 0255524a754ae17beb9a8413fc9274daf1a1d5dc；编译单元及两个CMake文件绑定实际执行。",
+            "numerics": "独立整数线性计算与Fraction混淆公式，12项有限/4项缺失观测×3路线核对；accuracy2/5、macro P/R4/9、macro F1为1/3。stdlib SHA256/struct独立核对实际数据/模型/配置身份，report的pass/fail/incomplete保持。",
+            "installation": "246安装件SHA/mtime全部保持；混合来源为93da49f基础、4810958数据静态库/三头、09a5497导出库。SDK实际构建指纹仍为93da49f，不称当前main完整重建。",
+            "consumer": "正式安装公开头/静态库/导入targets编译链接，无源码include覆盖；18框架archive及39共享DLL保持。",
+            "resources": "Job提交峰1041051648B，自有Job清空；示例exe751104B，未测整体训练/资源优势。PLAN只有压缩收据，无编译产物。",
+            "receipts_archive_sha256": "242858033d97366d71da84304ab0b381673ff48431aecefef1244742f3e25f4a",
+            "scope": "仅Windows CPU分类评估示例/安装消费；不授代表性训练质量、GPU或全库资格。ADR039/040困难矩阵继续暂缓，Ubuntu身份待核未连接。INT8延期、安全专项暂停、Actions不派发。"
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cpu-09a5497-onnx-layernorm-install",
           "os": "windows-11",
           "architecture": "x86_64",
