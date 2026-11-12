@@ -728,12 +728,46 @@ class Lowerer final {
     }
     if (symbol == "aten::layer_norm") {
       const auto normalized = Ints(node.input(1), node);
+      auto* input = Tensor(node.input(0), node);
+      if (ScalarType(input) == at::kDouble) {
+        // Keep FP64 statistics and center before squaring. A fused backend
+        // kernel may compute E[x*x] - E[x]*E[x], losing a small variance for
+        // inputs with a large common offset even when the input is Double.
+        std::vector<std::int64_t> axes;
+        for (auto axis = -static_cast<std::int64_t>(normalized.size());
+             axis < 0; ++axis)
+          axes.push_back(axis);
+        const auto mean = [&](Value* value) {
+          auto* result = Op(node, "ReduceMean", {value});
+          result->is_(c10::Symbol::attr("axes"), axes);
+          result->i_(c10::Symbol::attr("keepdims"), 1);
+          result->output()->setType(
+              c10::TensorType::get()->withScalarType(at::kDouble));
+          return result->output();
+        };
+        auto* centered = Op(node, "Sub", {input, mean(input)})->output();
+        auto* squared = Op(node, "Mul", {centered, centered})->output();
+        auto* variance = mean(squared);
+        auto* adjusted =
+            Op(node, "Add",
+               {variance, Scalar(Number(node.input(4), node), at::kDouble)})
+                ->output();
+        auto* deviation = Op(node, "Sqrt", {adjusted})->output();
+        auto* result = Op(node, "Div", {centered, deviation})->output();
+        if (!IsNone(node.input(2)))
+          result =
+              Op(node, "Mul", {result, Tensor(node.input(2), node)})->output();
+        if (!IsNone(node.input(3)))
+          result =
+              Op(node, "Add", {result, Tensor(node.input(3), node)})->output();
+        return {result};
+      }
       auto* weight =
           IsNone(node.input(2))
               ? Constant(at::ones(normalized, at::TensorOptions().dtype(
                                                   ScalarType(node.input(0)))))
               : Tensor(node.input(2), node);
-      std::vector<Value*> inputs{Tensor(node.input(0), node), weight};
+      std::vector<Value*> inputs{input, weight};
       if (!IsNone(node.input(3))) inputs.push_back(Tensor(node.input(3), node));
       auto* result = Op(node, "LayerNormalization", inputs);
       result->i_(c10::Symbol::attr("axis"),

@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 修复通用 ONNX LayerNorm 的 Double 中间输入在较大公共偏移下产生错误方差的问题；保持 Double 计算并先中心化，补齐总体方差、可选仿射、单/双归一化维度及实际 CPU ORT 安装回归。
 - 修复通用 ONNX BatchNorm 推理导出拒绝可选仿射参数，以及内部多输出入口覆盖真实输出形状的问题；补齐缺省权重/偏置、归一化后展平、状态保持及实际 CPU ORT 安装回归。
 
 - 修复通用 ONNX cat/stack 未统一混合类型列表的问题，保留 Tensor 顺序、正负轴及整数精度；补齐多输入拼接的原生参考和真实 CPU ORT 安装回归。

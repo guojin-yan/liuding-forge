@@ -503,6 +503,47 @@ TEST(NativeOnnxArithmeticRuntime,
 
 class NativeOnnxUnaryRuntime : public ::testing::TestWithParam<const char*> {};
 
+void CheckLayerNormalization(bool double_precision) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  const auto probes = jyppx::liuding::test::OnnxLayerNormalizationCases(
+      module, double_precision);
+  ASSERT_EQ(probes.size(), 16);
+  std::vector<at::Tensor> original_buffers;
+  for (const auto& buffer : module.buffers())
+    original_buffers.push_back(buffer.clone());
+  for (const auto& probe : probes) {
+    SCOPED_TRACE(probe.name);
+    const auto inputs_for = [&](int batch) {
+      return Tensors{jyppx::liuding::test::OnnxNormalizationTensor(
+          probe.input_values, probe.input_sample_shape, batch)};
+    };
+    const auto artifact =
+        exporter::export_module(module, probe.forward, inputs_for(2));
+    for (const auto batch : {1, 2, 5}) {
+      auto inputs = inputs_for(batch);
+      const Tensors expected{jyppx::liuding::test::OnnxNormalizationTensor(
+          probe.expected_values, probe.output_sample_shape, batch)};
+      const auto native = probe.forward(inputs);
+      ASSERT_EQ(native.size(), 1);
+      ASSERT_TRUE(at::allclose(native.front(), expected.front(), 1e-6, 1e-6));
+      CheckOfficialCpu(artifact, inputs, expected);
+    }
+  }
+  const auto buffers = module.buffers();
+  ASSERT_EQ(buffers.size(), original_buffers.size());
+  for (std::size_t index = 0; index < buffers.size(); ++index)
+    ASSERT_TRUE(at::equal(buffers[index], original_buffers[index]));
+}
+
+TEST(NativeOnnxLayerNormalizationRuntime, Float32UsesPopulationVariance) {
+  CheckLayerNormalization(false);
+}
+TEST(NativeOnnxLayerNormalizationRuntime,
+     Float64PreservesAccumulationPrecision) {
+  CheckLayerNormalization(true);
+}
+
 void CheckBatchNormalizationGroup(std::string_view group) {
   torch::NoGradGuard no_grad;
   torch::nn::Module module;

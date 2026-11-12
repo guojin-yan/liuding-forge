@@ -89,13 +89,19 @@ void Compare(const runtime::TensorOutput& actual,
   }
 }
 
-void CheckBatchNormalization() {
+void CheckNormalization() {
   for (const std::string_view group :
-       {"frontend", "internal", "internal_flatten"}) {
+       {"frontend", "internal", "internal_flatten", "layer_float",
+        "layer_double"}) {
     torch::nn::Module module;
+    const bool layer = group == "layer_float" || group == "layer_double";
     const auto probes =
-        jyppx::liuding::test::OnnxNormalizationCases(module, group);
-    Require(probes.size() == (group == "internal_flatten" ? 8 : 32),
+        layer ? jyppx::liuding::test::OnnxLayerNormalizationCases(
+                    module, group == "layer_double")
+              : jyppx::liuding::test::OnnxNormalizationCases(module, group);
+    Require(probes.size() == (layer                         ? 16
+                              : group == "internal_flatten" ? 8
+                                                            : 32),
             "installed normalization fixture count");
     std::vector<at::Tensor> original_buffers;
     for (const auto& buffer : module.buffers())
@@ -789,7 +795,7 @@ int main() {
     CheckArithmetic();
     CheckUnaryOperators();
     CheckSequenceOperators();
-    CheckBatchNormalization();
+    CheckNormalization();
     std::cout
         << "Native deployment consumer: single/multi-I/O dynamic batches "
            "1,2,5 and 40 exact suffix/full flatten cases match on CPU; "
@@ -803,7 +809,9 @@ int main() {
            "and 151 native forwards; 108 exact cat/stack mixed-type cases "
            "and 108 native forwards with independent references; "
            "216 BatchNorm optional-affine/internal/flatten cases and "
-           "216 native forwards with independent references\n";
+           "216 native forwards with independent references; "
+           "96 LayerNorm Float/Double precision and optional-affine cases "
+           "and 96 native forwards with independent references\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';

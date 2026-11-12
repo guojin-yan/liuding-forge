@@ -103,6 +103,68 @@ inline std::vector<OnnxNormalizationCase> OnnxNormalizationCases(
   return result;
 }
 
+inline std::vector<OnnxNormalizationCase> OnnxLayerNormalizationCases(
+    torch::nn::Module& module, bool double_precision) {
+  const auto dtype = double_precision ? at::kDouble : at::kFloat;
+  std::vector<OnnxNormalizationCase> result;
+  for (const int dimensions : {1, 2}) {
+    const std::vector<std::int64_t> normalized =
+        dimensions == 1 ? std::vector<std::int64_t>{4}
+                        : std::vector<std::int64_t>{2, 2};
+    const auto weight = module.register_buffer(
+        "ln_weight_" + std::to_string(dimensions),
+        at::tensor({1.0, -2.0, 0.5, 3.0}, at::TensorOptions().dtype(dtype))
+            .reshape(normalized));
+    const auto bias = module.register_buffer(
+        "ln_bias_" + std::to_string(dimensions),
+        at::tensor({0.25, -1.0, 2.0, 0.0}, at::TensorOptions().dtype(dtype))
+            .reshape(normalized));
+    const std::vector<std::int64_t> shape =
+        dimensions == 1 ? std::vector<std::int64_t>{2, 4}
+                        : std::vector<std::int64_t>{2, 2, 2};
+    for (const double epsilon : {0.0, 0.25}) {
+      for (const int affine : {0, 1, 2, 3}) {
+        const std::optional<at::Tensor> scale =
+            affine & 1 ? std::optional(weight) : std::nullopt;
+        const std::optional<at::Tensor> offset =
+            affine & 2 ? std::optional(bias) : std::nullopt;
+        constexpr std::array<double, 4> centered{-3.0, -1.0, 1.0, 3.0};
+        constexpr std::array<double, 4> scales{1.0, -2.0, 0.5, 3.0};
+        constexpr std::array<double, 4> offsets{0.25, -1.0, 2.0, 0.0};
+        std::vector<float> expected;
+        for (int group = 0; group < 2; ++group) {
+          for (std::size_t index = 0; index < centered.size(); ++index) {
+            const auto scale_value = affine & 1 ? scales[index] : 1.0;
+            const auto offset_value = affine & 2 ? offsets[index] : 0.0;
+            expected.push_back(static_cast<float>(
+                centered[index] / std::sqrt(5.0 + epsilon) * scale_value +
+                offset_value));
+          }
+        }
+        result.push_back(
+            {std::to_string(dimensions) + "/" + std::to_string(epsilon) + "/" +
+                 std::to_string(affine),
+             [dtype, double_precision, normalized, scale, offset,
+              epsilon](std::span<const at::Tensor> inputs) {
+               auto input = inputs[0].to(dtype);
+               // A large common offset isolates FP64 accumulation: lowering
+               // through FP32 destroys the small differences before variance.
+               if (double_precision) input = at::add(input, 100000000.0);
+               return std::vector<at::Tensor>{at::layer_norm(input, normalized,
+                                                             scale, offset,
+                                                             epsilon, false)
+                                                  .to(at::kFloat)};
+             },
+             shape,
+             shape,
+             {-3.F, -1.F, 1.F, 3.F, 7.F, 9.F, 11.F, 13.F},
+             std::move(expected)});
+      }
+    }
+  }
+  return result;
+}
+
 inline at::Tensor OnnxNormalizationTensor(
     const std::vector<float>& values,
     const std::vector<std::int64_t>& sample_shape, std::int64_t batch) {
