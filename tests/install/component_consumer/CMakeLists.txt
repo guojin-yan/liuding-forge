@@ -133,3 +133,15 @@ endif()
 
 enable_testing()
 add_test(NAME Runs COMMAND jyppx_component_consumer)
+
+if(JYPPX_CONSUMER_COMPONENT STREQUAL "data")
+    add_executable(jyppx_dataset_view_consumer data/dataset_views.cpp)
+    target_link_libraries(jyppx_dataset_view_consumer PRIVATE jyppx::liuding::data)
+    add_dependencies(jyppx_dataset_view_consumer jyppx_component_consumer)
+    foreach(view IN ITEMS concat split stack)
+        add_test(NAME DatasetView-${view}
+            COMMAND jyppx_dataset_view_consumer ${view})
+        set_tests_properties(DatasetView-${view} PROPERTIES
+            LABELS "installed;data" TIMEOUT 30)
+    endforeach()
+endif()

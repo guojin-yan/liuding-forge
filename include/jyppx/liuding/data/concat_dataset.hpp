@@ -11,6 +11,7 @@
 #include <jyppx/liuding/data/detail/error.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -33,7 +34,7 @@ class ConcatDataset : public Dataset<T> {
    * @brief Creates a concatenated view in caller-provided order.
    * @param datasets Non-empty collection of non-null datasets.
    * @throws jyppx::liuding::InvalidArgument The collection is empty or contains
-   * null.
+   * null, or the combined size cannot be represented by size_t.
    */
   explicit ConcatDataset(std::vector<std::shared_ptr<Dataset<T>>> datasets)
       : datasets_(std::move(datasets)) {
@@ -50,7 +51,14 @@ class ConcatDataset : public Dataset<T> {
                               "non-null datasets", "null dataset",
                               "Provide valid shared dataset handles.");
       }
-      cumulative += dataset->size();
+      const size_t child_size = dataset->size();
+      if (child_size > std::numeric_limits<size_t>::max() - cumulative) {
+        detail::throw_invalid(
+            "data.concat_dataset", "constructor.sizes",
+            "combined size representable by size_t", "size overflow",
+            "Reduce the combined logical dataset size.");
+      }
+      cumulative += child_size;
       cumulative_sizes_.push_back(cumulative);
     }
   }

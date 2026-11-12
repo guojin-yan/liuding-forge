@@ -1,6 +1,6 @@
-# API: Data
+# API：数据
 
-All data types live in the `jyppx::liuding::data` namespace. Include everything with `#include <jyppx/liuding/liuding.hpp>` or the individual headers shown below.
+数据类型位于 `jyppx::liuding::data` 命名空间。可包含 `#include <jyppx/liuding/liuding.hpp>` 或下列独立头文件。
 
 ## Dataset
 
@@ -41,7 +41,9 @@ public:
 };
 ```
 
-## Dataset utilities
+## 数据集视图
+
+`Subset` 按给定索引顺序共享源数据集，可保留重复索引；`ConcatDataset` 和 `ChainDataset` 拼接同类 map 数据集，合计长度超过 `size_t` 范围时在构造阶段抛出结构化 `InvalidArgument`，不会让累计偏移回绕。`StackDataset` 取各数据集最短公共前缀，拒绝空数据集；合法的最大 `size_t` 长度不会被当作空值。这些视图不按逻辑样本总数分配存储。
 
 ### Subset
 
@@ -83,7 +85,7 @@ random_split(std::shared_ptr<DatasetT> dataset,
              Optional<int64_t> seed = std::nullopt);
 ```
 
-Mirrors `torch.utils.data.random_split`: indices are shuffled (seeded when a seed is given) and assigned to consecutive subsets. `lengths` must sum to the dataset size.
+`random_split` 打乱全部索引，再按给定长度分配到各子集。`lengths` 的数学总和须等于数据集大小；在分配索引数组前逐项检查剩余数量，拒绝超量、少量及整数回绕输入，错误组件为 `data.random_split`、操作为 `lengths`。允许长度为零的子集。固定 seed 在同一标准库环境内复现顺序；这里使用 `std::shuffle`，不承诺与下文可移植 `RandomSampler` 相同的跨标准库顺序。该操作需要 O(N) 索引存储，逻辑数据集视图本身的轻量性不等于拆分可处理任意容量。
 
 ```cpp
 auto subsets = jyppx::liuding::data::random_split(

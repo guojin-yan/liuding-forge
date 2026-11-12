@@ -10,6 +10,7 @@
 #include <jyppx/liuding/data/dataset.hpp>
 #include <jyppx/liuding/data/detail/error.hpp>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <tuple>
@@ -48,7 +49,7 @@ size_t stack_min_size(
     std::index_sequence<I...>) {
   size_t smallest = std::numeric_limits<size_t>::max();
   ((smallest = std::min(smallest, std::get<I>(datasets)->size())), ...);
-  return smallest == std::numeric_limits<size_t>::max() ? 0 : smallest;
+  return sizeof...(Ts) == 0 ? 0 : smallest;
 }
 
 }  // namespace detail
