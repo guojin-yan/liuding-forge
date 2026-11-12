@@ -13,6 +13,29 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-b3dc310-dataset-template-patch",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; installed C++ dataset view templates",
+          "build_type": "Release",
+          "commit": "b3dc3104de0a0a91ea2ef4aaa23f54e85a4ea126",
+          "tests": "Two original installed concat/stack CTest failures reproduced and retained. Three repaired source-header contracts and three shared gates pass;after installing four template headers and clearing the source include overlay,the three contracts plus the original installed data consumer pass4/4. Ten successful CTest executions,seven unique contracts,zero skips. Old unsafe split iterator path is not executed;independent exact integer algebra proves the wrapped validation defect.",
+          "instrumentation": "Existing fixed data component-consumer cache reused with one build/CTest job. Only four client-instantiated template headers are updated via the exact generated CMake header installation rules. No framework/library rebuild,no new tree/leaf,no runtime copy. SDK binary provenance stays42af0a6;the installation deliberately has mixed binary/header provenance.",
+          "quality_evidence": {
+            "source_identity": "Validation at dirtyffb57a8 with eight changes;the complete source bytes are committed unchanged asb3dc3104de0a0a91ea2ef4aaa23f54e85a4ea126,treefc0eaac5c1d76b9f4856a511a789b6e5dee810b0. Later metadata changes do not alter these templates or native test sources.",
+            "installation": "236 installed files:232 including all18 library archives,programs and binary build-provenance retain SHA/mtime;four headers exactly match the committed repair. Current installed manifest is frozen separately from the original42af0a6 manifest. Installed C++ consumer is built with no source include overlay.",
+            "headers": "include/jyppx/liuding/data/chain_dataset.hpp; include/jyppx/liuding/data/concat_dataset.hpp; include/jyppx/liuding/data/stack_dataset.hpp; include/jyppx/liuding/data/subset.hpp",
+            "binary_source": "42af0a641f8a886e225383bec5d46441e48b7b27",
+            "template_header_source": "b3dc3104de0a0a91ea2ef4aaa23f54e85a4ea126",
+            "resources": "One native task across hosts,systemd,double locks,build/CTest1job;6GiB task,3GiB compile,1GiB runtime/gates,swap0. Peak1457565696 B;max/oom/oom_kill0. Original599 deadline and cumulative budgets preserved;all owned cgroups removed.",
+            "preservation": "1347 source,1388 other SDK/coverage,607 quality native and806 unselected Release products preserve SHA/mtime. Updated Release snapshot812 files. No representative model training.",
+            "receipts_archive_sha256": "8f83175be101a1e9deaf5d7e2a4a308d2d3a4a779ff97701a520dc8f9a24d539",
+            "scope": "Only the stated CPU C++ dataset size/arithmetic contracts and template installation patch. No whole current SDK binary refresh,full profile,Windows/CUDA,model/task/resource matrix or release qualification. Deferred matrices,INT8 and paused network-security work remain outside execution."
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-clean-62c55af-current-installed-consumers",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
