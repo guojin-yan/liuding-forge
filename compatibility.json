@@ -13,6 +13,32 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-c1ebf09-weighted-inline-patch",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; installed inline weighted sampler",
+          "build_type": "Release",
+          "commit": "c1ebf090b3cdafdd4563e5c7b7bfbf681ed0fb58",
+          "tests": "原独立头编译失败、两个极小权重CTest失败保留；旧ordinary对照1通过，候选3、共享门禁3、清除源码覆盖后的正式SDK消费7通过；14次成功执行、10唯一合同、零skip。两个旧场景各2044/4096零权重错误修复为0，ordinary完整序列三阶段相同；成功加权场景精确状态续抽通过。",
+          "instrumentation": "固定data消费者cache，systemd、双锁、编译/CTest1job；只按标准生成安装规则更新一个内联头，不重编框架库，不复制SDK/runtime。独立头使用直接声明的std::optional；原引擎/seed/状态和无放回算法不变。",
+          "quality_evidence": {
+            "source_identity": "原生验证在dirty b34f05ab048f13b41cf0cfe03e0a47696dcd53de五件候选；C++头、测试、CMake在功能提交 c1ebf090b3cdafdd4563e5c7b7bfbf681ed0fb58、tree b5737e2d39729cc957e14ea48921f965c3609933保持已验字节；验证后仅修订API说明性前向声明。后续来源元数据不改变C++输入。",
+            "installation": "236件SDK：231件含18库/二进制及构建来源保持42af0a6，四数据集模板头仍b3dc310，weighted_random_sampler.hpp内联头为本功能提交。相对599保持235件，仅更新1头；正式安装消费已清除源码-I及旧预包含。",
+            "binary_source": "42af0a641f8a886e225383bec5d46441e48b7b27",
+            "dataset_template_header_source": "b3dc3104de0a0a91ea2ef4aaa23f54e85a4ea126",
+            "weighted_inline_header_source": "c1ebf090b3cdafdd4563e5c7b7bfbf681ed0fb58",
+            "header": "include/jyppx/liuding/data/samplers/weighted_random_sampler.hpp",
+            "ordinary_sequence_sha256": "01a93de2049419c356804c586bd87ac80406a50bea0a30488a0ff25001460b24",
+            "digest_scope": "x86_64 little-endian size_t64; no cross-platform digest claim",
+            "resources": "6GiB任务、3GiB编译、1GiB运行/门禁、swap0；峰1360044032 B，max/oom/oom_kill0；原登记/截止与累计预算保留，自有cgroup清空。",
+            "preservation": "1348源码、1388其他SDK/coverage、607质量产物、806未选Release产物保持各自SHA/mtime；更新Release快照814件，消费者1503454 B，无新增树/叶、0训练。",
+            "receipts_archive_sha256": "12d611a4e0690fd747ded53ac6ac7b56dc86310d58d69ce6a9fd99b64035697d",
+            "scope": "仅此CPU加权支持集、独立头、普通序列/状态及安装消费。BatchSampler直接接入DataPipeline仍限用，采用基础sampler与管线组批。完整SDK当前全量重建、Windows/CUDA、模型/完整资源矩阵与正式发布不授资格；INT8延期、网络安全暂停、Actions不派发。"
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-b3dc310-dataset-template-patch",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
