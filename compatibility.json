@@ -13,6 +13,32 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-91aeccf-sampler-epoch-patch",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; installed distributed sampler epoch state",
+          "build_type": "Release",
+          "commit": "91aeccfa5d8cc2571ab529983c7bab3089d997f9",
+          "tests": "原SDK两个CTest失败保留：三个空白前缀负数与四个非规范输入被接受并改写epoch。修复后13非法样例全部原子拒绝；合法0/7/最大uint64_t的完整索引三阶段一致。旧合法对照1、候选3、共享门禁3、清除源码覆盖后的正式SDK消费10通过，17次成功执行/13唯一合同/零skip。",
+          "instrumentation": "systemd、双锁、编译/CTest1job，复用固定data消费者cache。以标准生成安装规则更新既有共享采样内联头，235其他SDK件保持；未重编18框架库、无SDK/runtime复制、无新树/叶。std::from_chars完整校验后才修改live epoch，合法状态格式与采样算法不变。",
+          "quality_evidence": {
+            "source_identity": "原生验证在dirty ece28678e3b6742ecb09bb3c1d8d46af73a2a461五件候选；全部候选字节在功能提交 91aeccfa5d8cc2571ab529983c7bab3089d997f9、tree ab96d1586bcb8ef0c74447b98f308d67f642520e保持不变。后续两件来源元数据不改变C++头、测试、CMake或API内容。",
+            "installation": "236件SDK：231件含18库/二进制及构建来源保持42af0a6，四数据集模板头仍b3dc310，weighted_random_sampler.hpp共享内联头为本功能提交，保留原c1ebf09零权重修复；补丁头总数仍5。清除源码-I后实际安装消费10/10。",
+            "binary_source": "42af0a641f8a886e225383bec5d46441e48b7b27",
+            "dataset_template_header_source": "b3dc3104de0a0a91ea2ef4aaa23f54e85a4ea126",
+            "sampler_inline_header_source": "91aeccfa5d8cc2571ab529983c7bab3089d997f9",
+            "header": "include/jyppx/liuding/data/samplers/weighted_random_sampler.hpp",
+            "valid_epoch_sequence_sha256": "{\"0\": \"bb16749a495ddcc0275997d631d23cead7ac693223e0f81c646333380e38b874\", \"18446744073709551615\": \"a08aea81f108d50712b820859ec95a4ea1d2fd219c12b2183cad269d0cd1cce9\", \"7\": \"2ae0fe086981b891eebc27d15c3597dddd761c87e7187de798eec37bcb325b52\"}",
+            "digest_scope": "x86_64 little-endian size_t64; no cross-platform digest claim",
+            "resources": "6GiB任务、3GiB编译、1GiB运行/门禁、swap0；峰1334837248 B，max/oom/oom_kill0；登记前路径核验失败保留/0原生，唯一原预算与截止保持，自有cgroup清空。",
+            "preservation": "1349源码、1388其他SDK/coverage、607质量产物与806未选Release件保持SHA/mtime；当前Release快照816件，固定消费者1730792 B，0训练。",
+            "receipts_archive_sha256": "fe7e3e276df2d0346cc3bc042242b067adb192984e55be412cac21b8f49eb3ed",
+            "scope": "仅此CPU分布式采样epoch解析、拒绝原子性、原合法状态/顺序及安装消费。未授跨标准库shuffle、实际分布式训练、当前SDK全量重建、Windows/CUDA、全模型/资源矩阵或正式发布资格。BatchSampler直接管线接入仍限用；INT8延期、网络安全暂停、Actions不派发。"
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-c1ebf09-weighted-inline-patch",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
