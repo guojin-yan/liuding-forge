@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "../../../test_utils/deployment/onnx_export/arithmetic_cases.hpp"
+#include "../../../test_utils/deployment/onnx_export/sequence_cases.hpp"
 #include "../../../test_utils/deployment/onnx_export/unary_cases.hpp"
 
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
@@ -500,6 +501,43 @@ TEST(NativeOnnxArithmeticRuntime,
 }
 
 class NativeOnnxUnaryRuntime : public ::testing::TestWithParam<const char*> {};
+
+void CheckSequenceGroup(std::string_view group) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  const auto probes = jyppx::liuding::test::OnnxSequenceCases(module, group);
+  ASSERT_EQ(probes.size(), 12);
+  for (const auto& probe : probes) {
+    SCOPED_TRACE(std::string(group) + "/" + probe.name);
+    const auto inputs_for = [&](int batch) {
+      Tensors inputs;
+      for (const auto& row : probe.rows)
+        inputs.push_back(row.repeat({batch, 1}));
+      return inputs;
+    };
+    const auto artifact =
+        exporter::export_module(module, probe.forward, inputs_for(2));
+    for (const auto batch : {1, 2, 5}) {
+      auto inputs = inputs_for(batch);
+      const Tensors expected{
+          jyppx::liuding::test::OnnxSequenceExpected(probe, batch)};
+      const auto native = probe.forward(inputs);
+      ASSERT_EQ(native.size(), 1);
+      ASSERT_TRUE(at::equal(native.front(), expected.front()));
+      CheckOfficialCpu(artifact, inputs, expected, true, true);
+    }
+  }
+}
+
+TEST(NativeOnnxSequenceRuntime, ConcatenationPromotesEveryInput) {
+  CheckSequenceGroup("cat");
+}
+TEST(NativeOnnxSequenceRuntime, RowStackPromotesBeforeInsertingDimension) {
+  CheckSequenceGroup("stack_rows");
+}
+TEST(NativeOnnxSequenceRuntime, ColumnStackPromotesBeforeInsertingDimension) {
+  CheckSequenceGroup("stack_columns");
+}
 
 TEST_P(NativeOnnxUnaryRuntime, PreservesComputationTypeAndIntegralValues) {
   torch::NoGradGuard no_grad;

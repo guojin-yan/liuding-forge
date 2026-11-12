@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "../../test_utils/deployment/onnx_export/arithmetic_cases.hpp"
+#include "../../test_utils/deployment/onnx_export/sequence_cases.hpp"
 #include "../../test_utils/deployment/onnx_export/unary_cases.hpp"
 
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
@@ -84,6 +85,51 @@ void Compare(const runtime::TensorOutput& actual,
                 std::abs(actual.values[index] - reference[index]) <= tolerance,
             "installed ONNX/native numerical mismatch at element " +
                 std::to_string(index));
+  }
+}
+
+void CheckSequenceOperators() {
+  for (const std::string_view group : {"cat", "stack_rows", "stack_columns"}) {
+    torch::nn::Module module;
+    const auto probes = jyppx::liuding::test::OnnxSequenceCases(module, group);
+    Require(probes.size() == 12, "installed sequence fixture count");
+    for (const auto& probe : probes) {
+      const auto label = std::string(group) + "/" + probe.name;
+      const auto inputs_for = [&](int batch) {
+        std::vector<at::Tensor> inputs;
+        for (const auto& row : probe.rows)
+          inputs.push_back(row.repeat({batch, 1}));
+        return inputs;
+      };
+      const auto artifact =
+          exporter::export_module(module, probe.forward, inputs_for(2));
+      runtime::Session session(artifact.onnx, artifact.digest);
+      for (const auto batch : {1, 2, 5}) {
+        const auto inputs = inputs_for(batch);
+        std::vector<runtime::TensorInput> bindings;
+        for (std::size_t index = 0; index < inputs.size(); ++index) {
+          const auto& input = inputs[index];
+          bindings.push_back(
+              {.name = artifact.input_names[index],
+               .values = std::span(input.const_data_ptr<float>(),
+                                   static_cast<std::size_t>(input.numel())),
+               .shape = std::span(input.sizes().data(), input.sizes().size())});
+        }
+        const auto expected =
+            jyppx::liuding::test::OnnxSequenceExpected(probe, batch);
+        const auto native = probe.forward(inputs);
+        Require(native.size() == 1 && at::equal(native.front(), expected),
+                "installed native sequence reference " + label);
+        const auto actual = session.run(bindings);
+        Require(actual.size() == 1, "installed sequence output count " + label);
+        Compare(actual.front(), expected);
+        for (std::size_t index = 0; index < actual.front().values.size();
+             ++index)
+          Require(actual.front().values[index] ==
+                      expected.const_data_ptr<float>()[index],
+                  "installed exact sequence " + label);
+      }
+    }
   }
 }
 
@@ -693,6 +739,7 @@ int main() {
     CheckActivations();
     CheckArithmetic();
     CheckUnaryOperators();
+    CheckSequenceOperators();
     std::cout
         << "Native deployment consumer: single/multi-I/O dynamic batches "
            "1,2,5 and 40 exact suffix/full flatten cases match on CPU; "
@@ -703,7 +750,8 @@ int main() {
            "38 activation/dtype/scalar and 111 arithmetic/promotion cases "
            "with independent references; 150 unary dtype/integer cases "
            "and one Double Erf CPU refusal with independent references "
-           "and 151 native forwards\n";
+           "and 151 native forwards; 108 exact cat/stack mixed-type cases "
+           "and 108 native forwards with independent references\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';

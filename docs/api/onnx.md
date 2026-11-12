@@ -70,6 +70,8 @@ const auto output = session.run(input, shape);
 
 `sigmoid`、`tanh`、`exp`、`log`、`sqrt`、`erf` 等一元运算在执行前应用捕获的结果类型，整数/布尔中间输入按 PyTorch 规则提升为浮点。整数 `floor`、`ceil`、`round` 保持输入类型和数值，不经过浮点转换；浮点输入保留对应舍入运算。ORT 1.23.2 的 CPU 后端没有 Double `Erf` 内核，加载时明确拒绝；需要该后端执行时，调用方应在 `erf` 前显式选择 FP32 并确认所需精度。
 
+`cat` / `stack` 按捕获的输出类型统一列表中每个 Tensor 的类型后再拼接，保持列表顺序与指定轴；`stack` 在类型转换后插入新维度。自动动态 batch 要求输出首维仍对应输入 batch，拼接 batch 维或在最前面插入固定大小的维度应选择固定形状导出。
+
 导出会真实执行 forward，并可能为动态 batch 校验再次执行。调用方负责设定 eval 模式、CPU 设备、数据类型和预处理，保证 forward 确定且不修改输入、模型状态或外部资源。trace 只捕获实际执行路径；动态 batch 会用另一 batch 检查图结构，遇到形状常量或路径变化明确拒绝，不能据此推导任意数据相关控制流均可导出。当前动态轴仅支持 batch 维；其他维度须固定。
 
 `ExportOptions` 设置 batch 上下界、命名和字节上限；`dynamic_batch=false` 导出固定形状。符号 batch 不会在 ONNX 中编码业务上下界，运行端还应设置 `max_batch_size` 并检查自己的最小 batch。输出大小限制不等于进程内存或显存硬配额。

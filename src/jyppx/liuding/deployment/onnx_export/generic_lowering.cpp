@@ -597,9 +597,12 @@ class Lowerer final {
       if (list->kind() != torch::jit::prim::ListConstruct)
         Unsupported(node, "concat requires an explicit tensor list");
       const auto axis = Int(node.input(1), node);
+      const auto dtype = ScalarType(node.output());
       std::vector<Value*> inputs;
       for (auto* entry : list->inputs()) {
-        auto* value = Tensor(entry, node);
+        // ATen promotes the whole list. ONNX Concat requires one element type,
+        // including the Unsqueeze inputs used to lower stack.
+        auto* value = Cast(node, Tensor(entry, node, dtype), dtype);
         if (symbol == "aten::stack")
           value =
               Op(node, "Unsqueeze", {value, IntegerVector({axis})})->output();
