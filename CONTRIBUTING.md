@@ -14,7 +14,7 @@ LibTorch 2.14.1+cpu / GCC 11.4.0 / Ubuntu 22.04.5 x86_64 的选定 Debug coverag
 
 Windows Release SDK 的基础安装已在干净提交 `93da49f` 完成18库/246件安装、独立八Core消费者及分阶段完整选定2123项CTest（2044通过、79条件跳过、0未解决失败），安装CLI的CPU/CUDA doctor通过。固定MSVC19.44.35227/CUDA12.9/sm86/LibTorch2.14.1+cu126与RTX3060 Laptop、driver576.02；两组件矩阵及用户暂停传输合同另列，实际安装指纹保持上述提交。一次模型元数据测试在断言通过后挂于LibTorch退出清理，定向复验正常退出；原异常保留，未宣称已修复，仍是发布资格限制。此结果不授予条件跳过路径或完整v1.0发布资格。
 
-当前Windows安装在上述基础上，ONNX导出静态库为 `ae97fad`，数据静态库及Sampler/BatchSampler/DataPipeline三个公开头为 `4810958`；其余241/246件保持基础安装，构建指纹仍为 `93da49f`。ONNX已有508次CPU ORT安装运行及3类动态拒绝，Double Erf因CPU缺内核明确拒绝；本次新增108个cat/stack混合类型场景，另108次原生LibTorch与独立参考逐项精确一致。最终77项源码合同、3项共享检查与1项正式消费零skip；既有数据管线和其他算子保持各自资格。现有消费者与39个共享DLL复用，无源码头覆盖；完整证据见兼容矩阵。该混合安装不代表当前main完整Windows SDK或GPU资格；Ubuntu环境与本次修复资格待既有主机身份变化核对后另验。
+当前Windows安装在上述基础上，ONNX导出静态库为 `b0716fc`，数据静态库及Sampler/BatchSampler/DataPipeline三个公开头为 `4810958`；其余241/246件保持基础安装，构建指纹仍为 `93da49f`。ONNX已有724次CPU ORT安装运行及3类动态拒绝，Double Erf因CPU缺内核明确拒绝；本次新增216个BatchNorm可选仿射/内部入口/展平场景，另216次原生LibTorch与独立公式核对，原统计/仿射状态保持。最终82项源码合同、3项共享检查与1项正式消费零skip；既有数据管线和其他算子保持各自资格。现有消费者与39个共享DLL复用，无源码头覆盖；完整证据见兼容矩阵。该混合安装不代表当前main完整Windows SDK或GPU资格；Ubuntu环境与本次修复资格待既有主机身份变化核对后另验。
 
 在仓库根目录分别运行以下两条命令，检查兼容矩阵和依赖声明：
 
