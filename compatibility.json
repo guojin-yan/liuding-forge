@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu-gcc114-cpu-63d3b51-complete-dinov2-small-frozen",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch 2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "63d3b5132466c32805043b006e4dd7f16a7b9056",
+          "tests": "Native DINOv2-S frozen transfer: three completed375-update lanes;continuous,two pauses at137 and259 with process resumes,and real SIGKILL after independently verified durable125 with continuation to375. Four shared CTest contracts pass with no skips. Three lanes have1125 logical final updates;extra applied C2 pre-kill updates were not measured.",
+          "instrumentation": "Fixed rebuilt-cpu-release and rebuilt-cpu-local-sdk-consumer trees,one compile job and one native workload across both hosts. Native cgroup memory.max=6GiB,swap.max=0;peak1003704320B,no memory-limit/OOM events. Original3h absolute deadline and cumulative600/9000/240s build/native/audit budgets retained;actual seconds{'build': 43.77183987607714, 'native': 2707.1518406698015, 'audit': 16.08826950401999}. No new build tree,SDK reinstall or runtime copies.",
+          "quality_evidence": {
+            "task": "Unchanged1000-training/1000-validation first100/class Fashion-MNIST images,seed20261029,RGB224,shorter-edge256 bicubic center crop,batch8,workers2/prefetch1,frozen backbone with batch_norm=eval,SGD0.01/momentum0.9/weight_decay0.0001/gamma0.9,three epochs. Accuracy=0.838 meets original0.65 threshold;official-test subset is validation,not an independent final test. Only device and current descriptor location differ from prior CUDA configuration. Qualified ResNet/CUDA tasks were not repeated.",
+            "recovery": "All13 compared result fields,10 checkpoint participants and198 blobs match. Final complete checkpoint SHA12690d763c8e3c373f987f34409606a472b0f87beea540689ca60a5ba14f88cb;model SHA161fb0b9ed9676bb28b518a9c79b544e72fa17855558989151ee329bf04ec91b. Frozen backbone state digest is unchanged;3850 trainable head parameters are registered and head digest changes. All final checkpoint/model files are byte-identical across lanes. Three SQLite snapshots pass independent integrity,foreign-key,completed-state and referenced-CAS checks.",
+            "reload": "Independent native C++ model-only reload uses actual installed SDK9fd2763e6bec5f4a33a2d0f96fa9ec32f94bf847;176 state tensors retain dtype/shape/payload before and after125 forward calls over1000 images,zero training updates. DINO public constructor uses position_antialias=false and final head mapping is strict. Independent checker rebuilds confusion/accuracy from10000 logits and1000 labels and verifies125 frozen sampling batches. Full normalized A tensors were not captured;no independent tensor-input/numerical or current full-SDK qualification is inferred.",
+            "source_identity": "Clean training source63d3b5132466c32805043b006e4dd7f16a7b9056,1338 tracked files and924 installed/coverage files preserve SHA/mtime. Framework CLI and temporary consumer built incrementally;consumer cache bytes/mtime and graph restored. No product algorithm changes,no training retries,no SDK reinstall or relabeling.",
+            "receipts_archive_sha256": "eb77adb4c323a8ffd8e20ee30d6cce93c6088c13b01bf4f04acbbd58808c37e4",
+            "local_audit_sha256": "0f62bedbc18b2407b1db992d3947ca8b41387850923c6ce95d20101badc52106",
+            "scope": "This Ubuntu CPU-only complete DINOv2-S frozen task and exact recovery only. Original DINO finetune missing common initial state remains separately blocked,not searched,reconstructed or replaced. Other capacities,finetune,recipes,Windows,device/resource matrices,final candidate and full release remain unqualified. INT8 deferred;network security work paused;Actions not dispatched."
+          }
+        },
+        {
           "id": "local-ubuntu-gcc114-cpu-3858e72-complete-resnet50-finetune",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
