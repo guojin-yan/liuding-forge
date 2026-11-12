@@ -28,9 +28,9 @@ python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 复用兼容的现有构建目录，保留其中的 generator、工具链和依赖路径；先检查目录内实际 `CMakeCache.txt` 的版本、配置和依赖身份，不能仅凭目录存在推定可复用。以下是已有兼容 Windows cache 时的增量构建示例：
 
 ```sh
-cmake -S . -B out/build/config-windows -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-cmake --build out/build/config-windows --config Release --target jyppx_test_core --parallel 2
-ctest --test-dir out/build/config-windows -C Release --output-on-failure -R "^(DeviceTest|TensorUtilsTest)\."
+cmake -S . -B out/build/windows-release -DFETCHCONTENT_FULLY_DISCONNECTED=ON -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
+cmake --build out/build/windows-release --config Release --target jyppx_test_core --parallel 1
+ctest --test-dir out/build/windows-release -C Release --output-on-failure -j 1 -R "^(DeviceTest|TensorUtilsTest)\."
 ```
 
 上述命令中的 `python` 应指向实际安装的 Python 3 解释器。Linux 使用对应的兼容构建目录；单配置 generator 可省略 `--config Release` 和 `-C Release`。没有可复用目录时，先按兼容矩阵准备依赖，再显式配置 `CMAKE_PREFIX_PATH` 和需要的组件。配置阶段不下载依赖；可选组件只按当前任务启用。
@@ -40,7 +40,7 @@ ONNX 独立验证可显式设置 `JYPPX_LIUDING_ONNX_REFERENCE_PYTHON`，使用�
 将示例中的 target 和测试选择替换为实际受影响的范围。公共头、CMake target 或组件依赖变化还需运行以下检查，并验证安装后消费者及相关组件关闭组合：
 
 ```sh
-ctest --test-dir out/build/config-windows -C Release --output-on-failure -R "^(ComponentDependencyGraph|RepositoryHygiene|PublicHeaderGuards)$"
+ctest --test-dir out/build/windows-release -C Release --output-on-failure -j 1 -R "^(ComponentDependencyGraph|RepositoryHygiene|PublicHeaderGuards)$"
 ```
 
 新增行为与缺陷修复应有能验证契约的测试，覆盖适用的错误、取消、资源边界和恢复路径。测试报告应注明源码身份、环境、通过/失败/跳过数量；跳过硬件测试不代表该环境已支持。覆盖率遵循 [coverage-policy.json](coverage-policy.json) 的组件策略。

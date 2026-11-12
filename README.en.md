@@ -6,6 +6,8 @@ Liuding Forge is a C++20 deep-learning training framework built on LibTorch for 
 
 > Status: the project is under active v1.0 development. Existing features and validation results apply only to their declared code scope and environment; they do not claim GA release readiness or full parity with PyTorch.
 
+Start with [SDK usage scope and limits](docs/user-guide/beta_limits.md) to select validated components, workflows, and environments; formal release and resource-intensive extension matrices require separate qualification.
+
 ## Product scope
 
 Liuding Forge targets engineering teams that build, recover, evaluate, and deliver training workloads in native C++. The project focuses on reliable training lifecycle management, data pipelines, optimizers and schedulers, evaluation, checkpoints, experiment artifacts, diagnostics, and delivery tools. Web UI, team services, RBAC, multi-tenancy, and remote control planes are outside this repository.

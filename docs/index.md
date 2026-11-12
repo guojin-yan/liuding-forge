@@ -1,6 +1,6 @@
 # 六丁炼算（Liuding Forge）文档
 
-六丁炼算是基于 LibTorch 的 C++20 深度学习训练框架，采用 [Apache License 2.0](../LICENSE)。安装、构建和最小接入方式见[项目主页](../README.md)，当前支持边界见 [Beta 限制](user-guide/beta_limits.md)。
+六丁炼算是基于 LibTorch 的 C++20 深度学习训练框架，采用 [Apache License 2.0](../LICENSE)。安装、构建和最小接入方式见[项目主页](../README.md)，当前支持边界与可运行工作流见 [SDK 使用范围与限制](user-guide/beta_limits.md)。
 
 ## 教程
 
@@ -26,6 +26,7 @@
 
 ## 用户指南
 
+- [SDK 使用范围、可运行工作流与限制](user-guide/beta_limits.md)
 - [命令行工具](user-guide/cli.md)
 - [部署](user-guide/deployment.md)
 - [模型包签名与信任策略](user-guide/bundle-signing.md)
