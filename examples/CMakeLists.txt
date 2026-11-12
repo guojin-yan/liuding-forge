@@ -46,6 +46,10 @@ endforeach()
 
 endif()
 
+if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::interop)
+    add_subdirectory(training)
+endif()
+
 if(TARGET jyppx_dataset_preparation)
     add_executable(jyppx_paired_affine_data data/paired_affine.cpp)
     set_target_properties(jyppx_paired_affine_data PROPERTIES

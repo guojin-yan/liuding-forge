@@ -1,80 +1,29 @@
-# Checkpoint Coordinator
+# 检查点协调器
 
-Header: `#include <jyppx/liuding/training/checkpoint_coordinator.hpp>`
+公共头为 `<jyppx/liuding/training/checkpoint_coordinator.hpp>`，链接 `jyppx::liuding::training`。`CheckpointCoordinator`将[参与者协议](checkpoint_participant.md)组合成事务保存与恢复；[文件存储](durable_checkpoint.md)提供实际容器和原子发布。
 
-Link target: `jyppx::liuding::training`
+## 登记与所有权
 
-The training checkpoint coordinator combines the storage-neutral participant contracts from `jyppx::liuding::foundation`. It does not define a file format, hash, codec, path layout, or artifact publication mechanism.
+`CheckpointParticipantRegistry`通过shared pointer持有参与者。单个或整组登记会先验证ID、清单和唯一性；`register_participants()`任一项失败时整个登记组都不生效。遍历始终按ID升序，与登记顺序无关。
 
-## Participant registry
+协调器借用registry，registry必须存活更久。登记、保存和恢复不具备线程安全性，调用方须外部串行化，并暂停模型、优化器及其他参与者的状态更新；存储事务不能冻结正在运行的训练。
 
-`CheckpointParticipantRegistry` owns registered participants through shared
-pointers. IDs must be stable and unique. The registry always traverses them in
-ascending ID order, so registration order cannot change checkpoint output or
-restore order.
+`CheckpointDescriptor`保存规范顺序的参与者清单，其 `restore_level`必须等于所有参与者中最弱的等级；不包含物理长度、路径和摘要。`validate_checkpoint_descriptor()`拒绝空集合、重复、顺序错误和不一致的等级。
 
-Registration validates that `participant_id()` matches
-`describe_state().participant_id`. Null, duplicate, or invalid participants are
-rejected before they can enter the registry. Registry mutation and coordinator operations are not thread-safe and must be externally serialized. The caller must also quiesce training mutations while save or restore runs; the sink transaction makes publication atomic but cannot freeze model or optimizer updates by itself.
+## 保存事务
 
-## Coordinated descriptor
+`save(sink)`先验证并固定完整描述符，再调用一次 `begin()`，逐个请求 `writer_for(id)`并保存状态，最后调用一次 `commit()`。从begin到commit任一阶段失败，协调器调用不抛异常的 `rollback()`后传播原异常。
 
-`CheckpointDescriptor` contains the canonically ordered participant manifests
-and the weakest `RestoreLevel` among them. It intentionally omits physical blob
-lengths and digests. An interop container may embed this descriptor beside its
-own version, length, digest, codec, and publication metadata.
+sink须复制描述符、限制字段并检查必需字段完整性，成功提交时原子发布。具体文件格式、摘要和持久化保证由存储适配器承担。
 
-`validate_checkpoint_descriptor()` rejects empty, unsorted, duplicated, or
-invalid participant sets and rejects an aggregate restore level that is stronger or weaker than the participant manifests actually permit.
+## 恢复事务
 
-## Save transaction
+`restore(source, policy)`要求来源提供稳定描述符和已验证的reader。协调器在修改前检查参与者ID集合完全相同、reader清单与来源描述符一致、存储恢复等级被调用方策略接受，并为所有当前参与者捕获有界回滚快照。每个参与者仍须检查自身版本、字段和应用约束。
 
-`CheckpointStateSink` is a transaction boundary implemented by a memory store,
-artifact writer, database adapter, or future interop container. A save follows
-this sequence:
+载入按ID升序进行；任一参与者失败时，所有已尝试参与者（包含失败者）按逆序恢复到操作前快照。回滚成功后重新抛出原失败；回滚自身失败则抛出包含原异常的 `InternalError`，此时调用方须将实时训练状态视为不确定，不能继续训练或将其发布为成功结果。
 
-1. Validate and freeze the complete descriptor.
-2. Call `begin()` once.
-3. Ask every participant to write through its assigned bounded `StateWriter`.
-4. Call `commit()` once after every required field is complete.
-5. Call non-throwing `rollback()` after any failure from `begin()` through
-   `commit()`.
+`CheckpointCoordinatorOptions`默认限制1024个参与者和1GiB回滚预算。预算按当前参与者所有字段的声明最大值合计，包含可选字段；不足时在载入参与者前拒绝，不会静默关闭回滚，也不等于进程RSS上限。
 
-The sink must copy the descriptor, reject undeclared or duplicate writes, check required fields, and publish atomically. Filesystem and hash policy remain an interop responsibility.
+## 与Trainer配合
 
-## Restore transaction
-
-`CheckpointStateSource` exposes one immutable descriptor and stable readers.
-The source verifies physical integrity before exposing bytes. The coordinator
-then performs logical preflight before any participant mutation:
-
-- validates the stored descriptor and caller restore policy;
-- requires the exact registered participant ID set;
-- requires each reader manifest to equal its descriptor entry;
-- validates every current participant and the configured rollback budget.
-
-After preflight, the coordinator captures each current participant in bounded
-memory. It then restores stored state in canonical order. If any participant
-fails, all attempted participants, including the failing participant, are
-restored from snapshots in reverse order. A rollback failure becomes an
-`InternalError` with the original restore failure nested; callers must then
-treat live training state as indeterminate.
-
-## Resource limits
-
-`CheckpointCoordinatorOptions` bounds participant count and the sum of declared
-field maxima used for rollback snapshots. The defaults are 1024 participants
-and 1 GiB. Projects with larger states must raise the byte limit explicitly;
-the coordinator never silently disables rollback.
-
-Participant field limits are security and reliability boundaries rather than
-capacity hints. Interop readers must additionally enforce actual artifact
-lengths, aggregate archive limits, decompression ratios, and strong digests.
-
-## Current boundary
-
-This API establishes coordination mechanics only. Exact training recovery is
-not supported until model, optimizer, scheduler, scaler, RNG, DataPipeline,
-metric, callback, and strategy participants have their own tested schemas and
-the interop checkpoint container has passed corruption and interruption tests.
-The legacy Trainer checkpoint format is not adapted or forwarded by this API.
+当前Trainer已接入模型、优化器、调度器、数据、RNG、精度缩放器、回调及其他登记状态，通过 `save_checkpoint()`和 `restore_checkpoint()`在已提交安全边界保存与恢复；具体要求见[训练API](training.md)。协调器本身无法发现漏登的状态，也不将旧容器、任意pickle或未提交梯度转换为可恢复训练域。自定义循环可直接组合registry、coordinator和FileCheckpointStore，参见[可运行示例](durable_checkpoint.md#自定义状态示例)。
