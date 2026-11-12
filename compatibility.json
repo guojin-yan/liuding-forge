@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cpu-ae97fad-onnx-sequence-install",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;ORT1.23.2 CPU EP;GPU not exercised",
+          "build_type": "Release",
+          "commit": "ae97fad681662a611b8a44a910753902336df832",
+          "tests": "77源码合同＋3共享检查＋1正式SDK消费通过，零skip；3旧红保留。新增108ORT与108原生独立参考逐项精确一致；安装总508ORT，3动态拒绝和Double Erf CPU拒绝保持。",
+          "instrumentation": "固定VS17 Release/既有部署消费者/39共享DLL复用，单代理和原生总并发1；3GiB内核Job、4GiB准入/2GiB停止、原40分钟截止。0训练/新框架树/消费者叶/运行库副本，完整Windows任务6GiB准入保持。",
+          "quality_evidence": {
+            "source_identity": "dirty275d2b9构建，六件规范源码逐SHA等于clean ae97fad681662a611b8a44a910753902336df832；源码测试与安装消费者分别绑定实际编译文件。",
+            "numerics": "cat/stack按捕获输出类型转换每个输入后再插轴/拼接；双向顺序、正负轴、三种混合类型和batch1/2/5。独立整数/Fraction/IEEE754和列表布局；Float/Double的2^24消去边界及Bool/Long大于2^53残差防止过早浮点转换。",
+            "installation": "仅定向替换ONNX导出archive SHA256 8a5eba2f03f1782d5559de5d7b4548bdaa3ffb36aad4d40f8745a861f024c82c；245/246件SHA/mtime保持。基础93da49f、数据静态库/三头4810958保持，未重标全量SDK。",
+            "consumer": "正式公开头/静态库/导入targets真实编译链接，无源码头覆盖；39共享DLL身份/大小/mtime保持。",
+            "resources": "Job提交峰1108627456B，所有自有Job清空；PLAN仅紧凑收据，无编译对象/DLL/SDK副本。",
+            "receipts_archive_sha256": "5ab9b3aa39fbbfa6f369e3d53ee8a4d4c41a1866b59c28668afdcd658ba2933f",
+            "scope": "本次Windows CPU导出/安装消费；不授GPU、其他EP、全main SDK或完整设备/资源矩阵。困难矩阵ADR040暂缓，正式发布ADR039延期。Ubuntu身份待核，未连接同步；INT8延期、安全专项暂停、Actions不派发。"
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cpu-884055f-onnx-unary-install",
           "os": "windows-11",
           "architecture": "x86_64",
