@@ -17,6 +17,7 @@
 11. [C++ 检查点、ONNX 导出与推理](../examples/deployment/README.md)
 12. [本地搜索：训练、指标排序与最佳模型快照](../examples/experiment/README.md)
 13. [使用 C++ 准备与读取多种数据集](../examples/data/README.md)
+14. [在 C++ 中执行本地程序、持久任务与 typed 输出](../examples/experiment/local_execution/README.md)
 15. [原生 TensorBoard：记录评估指标](../examples/experiment/README.md#原生-tensorboard)
 16. [离线 OTLP：准备标准遥测请求](../examples/experiment/README.md#离线-otlp-协议准备)
 17. [原生 OTLP HTTP：发送指标与审计日志](tutorials/native-otlp-http.md)
