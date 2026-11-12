@@ -10,6 +10,7 @@
 
 #include <torch/torch.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -79,6 +80,70 @@ void Compare(const runtime::TensorOutput& actual,
                 std::abs(actual.values[index] - reference[index]) <= tolerance,
             "installed ONNX/native numerical mismatch at element " +
                 std::to_string(index));
+  }
+}
+
+void CheckFlatten() {
+  torch::nn::Module module;
+  for (const auto start : {1, 2, 3, -3, -2, -1}) {
+    for (const auto end : {-1, 3}) {
+      const exporter::ForwardFunction forward =
+          [start, end](std::span<const at::Tensor> inputs) {
+            return std::vector<at::Tensor>{
+                at::flatten(inputs.front(), start, end)};
+          };
+      const std::array examples{
+          at::arange(48, at::kFloat).reshape({2, 2, 3, 4})};
+      const auto artifact = exporter::export_module(module, forward, examples);
+      runtime::Session session(artifact.onnx, artifact.digest);
+      const auto axis = start < 0 ? start + 4 : start;
+      for (const auto batch : {1, 2, 5}) {
+        const auto input =
+            at::arange(batch * 24, at::kFloat).reshape({batch, 2, 3, 4});
+        const auto actual = session.run(
+            std::span(input.const_data_ptr<float>(),
+                      static_cast<std::size_t>(input.numel())),
+            std::span(input.sizes().data(), input.sizes().size()));
+        const std::vector<std::int64_t> expected_shape =
+            axis == 1 ? std::vector<std::int64_t>{batch, 24}
+            : axis == 2 ? std::vector<std::int64_t>{batch, 2, 12}
+                        : std::vector<std::int64_t>{batch, 2, 3, 4};
+        Require(actual.shape == expected_shape &&
+                    actual.values.size() ==
+                        static_cast<std::size_t>(batch * 24),
+                "installed suffix flatten preserves prefix dimensions");
+        for (std::size_t index = 0; index < actual.values.size(); ++index)
+          Require(actual.values[index] == static_cast<float>(index),
+                  "installed suffix flatten preserves exact row-major data");
+      }
+    }
+  }
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  for (const std::vector<std::int64_t> shape :
+       {std::vector<std::int64_t>{24}, {2, 3, 4}}) {
+    for (const auto start : {0, -static_cast<int>(shape.size())}) {
+      const exporter::ForwardFunction forward =
+          [start](std::span<const at::Tensor> inputs) {
+            return std::vector<at::Tensor>{
+                at::flatten(inputs.front(), start, -1)};
+          };
+      const auto input = at::arange(24, at::kFloat).reshape(shape);
+      const std::array examples{input};
+      const auto artifact =
+          exporter::export_module(module, forward, examples, options);
+      runtime::Session session(artifact.onnx, artifact.digest);
+      const auto actual = session.run(
+          std::span(input.const_data_ptr<float>(),
+                    static_cast<std::size_t>(input.numel())),
+          std::span(input.sizes().data(), input.sizes().size()));
+      Require(actual.shape == std::vector<std::int64_t>{24} &&
+                  actual.values.size() == 24U,
+              "installed all-axis flatten returns rank one");
+      for (std::size_t index = 0; index < actual.values.size(); ++index)
+        Require(actual.values[index] == static_cast<float>(index),
+                "installed all-axis flatten preserves exact data");
+    }
   }
 }
 }  // namespace
@@ -207,8 +272,9 @@ int main() {
       Compare(outputs[0], (logits + offset).contiguous());
       Compare(outputs[1], (logits * offset).contiguous());
     }
+    CheckFlatten();
     std::cout << "Native deployment consumer: single/multi-I/O dynamic batches "
-                 "1,2,5 match on CPU\n";
+                 "1,2,5 and 40 exact suffix/full flatten cases match on CPU\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';

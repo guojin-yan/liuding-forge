@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-1970086-onnx-flatten-install",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; ONNX Runtime 1.23.2 CPU EP",
+          "build_type": "Release",
+          "commit": "1970086aca9fa1b83ddb28b2cd1746d0d7bc3c3c",
+          "tests": "正式SDK部署消费者1项＋共享门禁3项通过/零skip。消费者新增40次flatten实际ORT核对，包含动态batch1/2/5、正负维度、前缀保持和全展平rank1；加原单/多I/O合计49次ORT运行。源回归604的49合同与3门禁及其helper补验身份另列，不冒充本次全套执行。",
+          "instrumentation": "仅原固定Release目录和既有out/build/sdk-deployment-consumer；systemd/双锁/原生并发1/编译CTest1job，0SDK或runtime副本、0新树/叶。清洁1970086导出库经生成安装规则定向更新；编译仅刷新foundation来源对象，正式安装foundation保持原来源。",
+          "quality_evidence": {
+            "source_identity": "框架库以clean1970086公开源码/相同已修复generic_lowering对象增量构建；安装消费测试在dirty1970086的main.cpp补丁，文件SHA绑定独立收据。后续兼容/贡献说明仅为来源元数据。",
+            "installation": "236件混合SDK：230件含17库/程序/基础二进制来源保持42af0a6；4数据集模板头为b3dc310、1共享采样内联头为91aeccf；onnx-export静态库为1970086。基础build-provenance不改成全集新构建。仅1 archive替换，235件SHA/mtime保持。",
+            "consumer": "公开导出头与安装头相同，无源码include覆盖；运行时Session链接实际安装onnx-runtime与foundation，所有flatten预期形状及arange逐元素由独立声明精确核对。",
+            "resources": "3GiB编译/1GiB运行/门禁，swap0；峰1522659328B，limit/OOM0。固定consumer增量48052B，原预算/绝对截止保持。",
+            "preservation": "1352源码、1388其他SDK/coverage、607质量产物和822既有Release原生产物保持；只更新本消费者源码及明确版本对象/库，0训练。",
+            "receipts_archive_sha256": "ddab9efda25eba343715d11602bf70efd9b771d57d877a39a79be46e036f777c",
+            "scope": "仅Ubuntu CPU原生通用ONNX后缀展平与正式SDK消费；不授完整当前SDK重建、全配置、其他Provider、Windows/CUDA、全模型/任务/资源或发布资格。INT8延期、网络安全暂停、困难矩阵按ADR039/040暂缓。"
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-91aeccf-sampler-epoch-patch",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
