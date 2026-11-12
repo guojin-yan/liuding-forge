@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cpu-884055f-onnx-unary-install",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;ORT1.23.2 CPU EP;GPU not exercised",
+          "build_type": "Release",
+          "commit": "884055f765554f37d9f4e6934329f78e1fa0352d",
+          "tests": "74源码合同＋3共享检查＋1正式SDK消费通过，零skip；9旧红和首候选73通过/1后端失败保留。新增150ORT运行、151原生独立参考，Double Erf CPU明确拒绝；安装总400ORT及3动态拒绝。",
+          "instrumentation": "固定VS17 Release/既有部署消费者与39共享DLL复用；单代理/原生总并发1，3GiB内核Job、4GiB准入/2GiB停止、原40分钟截止；0训练/新框架树/消费者叶/运行库副本。完整Windows任务6GiB准入保持。",
+          "quality_evidence": {
+            "source_identity": "dirty093574b编译；六件规范源码逐SHA等于clean 884055f765554f37d9f4e6934329f78e1fa0352d，源码测试和安装消费分别绑定实际文件。",
+            "numerics": "六类数学算子的Long/Int/Bool/Double/Float计算类型，以及五类整数和两类浮点舍入；batch1/2/5。独立90位Decimal/erf级数、整数与ties-to-even参考，大于2^53的整数残差逐位一致。CPU Double Erf无kernel，保留原失败并验明拒绝，不降类型或虚报可用。",
+            "installation": "仅定向安装ONNX导出archive SHA256 ebcbd2447ab8f0db93aa9b9874d94540c8d298bd78d6a8762e8bf6870895d64a；245/246件SHA/mtime保持。基础93da49f、数据静态库/三头4810958保持，不重标全量SDK。",
+            "consumer": "正式公开头/静态库/导入targets编译链接，无源码头覆盖；39共享DLL身份/大小/mtime保持。",
+            "resources": "Job提交峰1114320896B；全部自有Job清空，PLAN仅紧凑收据，无编译对象/DLL/SDK副本。",
+            "receipts_archive_sha256": "357301bb2838664f4651d3590bdbb0c401943e7813bf9c4582a2c9552c1373fa",
+            "scope": "仅Windows CPU本次导出/安装消费；不授GPU、其他EP、全main SDK或完整设备/性能矩阵。困难矩阵ADR040暂缓，正式发布ADR039延期；Ubuntu身份待核，未连接/同步。INT8延期、安全专项暂停、Actions不派发。"
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cpu-6823d85-onnx-arithmetic-install",
           "os": "windows-11",
           "architecture": "x86_64",
