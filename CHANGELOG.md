@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 修复 BatchSampler 直接接入 DataPipeline 的样本数与批次数混淆，以及 epoch 转发和恢复配置身份缺失；保留批次数 API，补齐尾批、worker 顺序、精确恢复及冲突配置拒绝。
+
 - 修复通用 ONNX hardsigmoid 的斜率与 PyTorch 不一致，以及 softmax/log_softmax 计算类型、内部入口和标量秩转换遗漏；补齐独立公式与真实 CPU ORT 回归。
 
 - 修复通用 ONNX mean/sum 全维归约遗漏 keepdim，以及显式累加类型和整数求和提升未在归约前生效的问题；补齐真实 CPU ORT 的形状、消去误差与逐项整数转换回归。

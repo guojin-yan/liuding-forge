@@ -47,6 +47,32 @@ class BatchSampler : public Sampler {
   size_t size() const override;
 
   /**
+   * @brief Returns the flat sample count after applying the tail policy.
+   * @return Number of indices returned by indices(), including nested views.
+   */
+  size_t sample_count() const;
+
+  /**
+   * @brief Selects the underlying sampler's logical epoch.
+   * @param epoch Non-negative epoch forwarded without advancing the sequence.
+   */
+  void set_epoch(std::uint64_t epoch) override { sampler_->set_epoch(epoch); }
+
+  /**
+   * @brief Reports the underlying sampler's epoch-selection capability.
+   * @return True when the underlying sampler supports deterministic epochs.
+   */
+  bool supports_epoch_control() const override {
+    return sampler_->supports_epoch_control();
+  }
+
+  /**
+   * @brief Identifies the underlying order and this view's batching policy.
+   * @return Versioned configuration identity, or empty if the base has none.
+   */
+  std::string configuration_identity() const override;
+
+  /**
    * @brief Delegates checkpoint capability to the underlying sampler.
    * @return Underlying sampler checkpoint capability.
    */
@@ -71,6 +97,12 @@ class BatchSampler : public Sampler {
    * @return Positive configured batch size.
    */
   size_t batch_size() const { return batch_size_; }
+
+  /**
+   * @brief Reports whether the final incomplete batch is removed.
+   * @return Configured tail policy.
+   */
+  bool drop_last() const { return drop_last_; }
 
  private:
   std::shared_ptr<Sampler> sampler_;  ///< Shared provider of sample ordering.

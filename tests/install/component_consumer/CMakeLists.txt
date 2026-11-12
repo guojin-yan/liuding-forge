@@ -164,4 +164,13 @@ if(JYPPX_CONSUMER_COMPONENT STREQUAL "data")
         set_tests_properties(DistributedSampler-${epoch_state} PROPERTIES
             LABELS "installed;data" TIMEOUT 30)
     endforeach()
+    add_executable(jyppx_batch_sampler_consumer data/batch_sampler.cpp)
+    target_link_libraries(jyppx_batch_sampler_consumer PRIVATE jyppx::liuding::data)
+    add_dependencies(jyppx_batch_sampler_consumer jyppx_component_consumer)
+    foreach(batch_contract IN ITEMS tail resume rejected)
+        add_test(NAME BatchSampler-${batch_contract}
+            COMMAND jyppx_batch_sampler_consumer ${batch_contract})
+        set_tests_properties(BatchSampler-${batch_contract} PROPERTIES
+            LABELS "installed;data" TIMEOUT 30)
+    endforeach()
 endif()

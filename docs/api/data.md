@@ -249,7 +249,9 @@ class DistributedSampler;     // rank/world_size sharding
 
 `WeightedRandomSampler(weights, num_samples, replacement, seed)` 按权重抽样，权重须有限且非负、总和须有限且为正，`num_samples` 须为正；无放回抽样数不得超过正权重项数。零权重项不会被抽中，有放回模式在极小总权重的舍入边界仍保持这一约束。可独立包含 `<jyppx/liuding/data/samplers/weighted_random_sampler.hpp>`；相同标准库、配置和调用顺序下可用 `save_state()` / `load_state()` 精确续抽，不承诺跨标准库的加权序列或极端权重比下的精确实数概率。
 
-`BatchSampler` 的 `indices()` 返回扁平样本索引，`size()` 返回批次数，当前不能直接用于要求两者长度一致的 `DataPipeline`；请向管线传入基础 sampler，并通过管线的 `batch_size` / `drop_last` 配置组批。
+`BatchSampler` 的 `indices()` 返回扁平样本索引，`size()` 保持返回批次数，`sample_count()` 返回应用尾批策略后的样本数；支持嵌套视图，并在截断前检查底层声明的样本数与实际索引长度。可直接传给 `DataPipeline`，管线的 `batch_size` / `drop_last` 必须与该视图一致，冲突在构造时拒绝；有效样本数为零仍拒绝构造。也可直接传基础 sampler，由管线组批。
+
+`BatchSampler` 将 `set_epoch()`、epoch 能力和状态保存/恢复转发给底层 sampler；配置身份同时绑定底层类型/配置、批大小及尾批策略。底层缺少稳定身份时不提升恢复等级；底层支持状态、身份与确定性 batch factory 时，管线可按原合同精确恢复已提交游标及后续 epoch。旧版未记录该配置身份的 BatchSampler 管线状态会被视为拓扑不兼容，须使用原版本恢复。
 
 `DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` 按显式 rank/world_size 划分 epoch，不丢弃尾部时会补齐各 rank 的样本数；每个 epoch 调用一次 `set_epoch()`。状态为 `save_state()` 生成的规范无符号十进制，接受 0 至最大 `uint64_t`，拒绝符号、空白、前导零、尾字节及溢出；拒绝时当前 epoch 和后续顺序保持不变。既有合法状态格式保持可读。rank/world_size 由外部启动器或任务配置提供，v1.0 未提供进程组 API。
 

@@ -37,8 +37,10 @@ class Sampler {
   virtual std::vector<size_t> indices() const = 0;
 
   /**
-   * @brief Returns the number of indices produced for one epoch.
-   * @return Number of indices returned by `indices()`.
+   * @brief Returns the epoch cardinality in the sampler's declared units.
+   * @return Number of indices returned by `indices()` for sample samplers.
+   * BatchSampler preserves its batch-count API and exposes sample_count() for
+   * the flat index count instead.
    */
   virtual size_t size() const = 0;
 

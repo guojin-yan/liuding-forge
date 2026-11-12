@@ -9,6 +9,7 @@
 
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/dataset.hpp>
+#include <jyppx/liuding/data/samplers/batch_sampler.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/data/samplers/weighted_random_sampler.hpp>
@@ -456,6 +457,125 @@ TEST(DataPipelineTest, RequiresExplicitEpochAndDoesNotImplicitlyAdvance) {
       make_factory(dataset));
   peer.set_epoch(3);
   EXPECT_EQ(pipeline.state().epoch_indices, peer.state().epoch_indices);
+}
+
+TEST(DataPipelineTest, BatchSamplerPreservesTailAndWorkerOrder) {
+  using namespace jyppx::liuding;
+  using namespace jyppx::liuding::data;
+  for (const auto workers : {0U, 2U}) {
+    for (const auto drop_last : {false, true}) {
+      SCOPED_TRACE(workers);
+      SCOPED_TRACE(drop_last);
+      auto sampler = std::make_shared<samplers::BatchSampler>(
+          std::make_shared<samplers::SequentialSampler>(6), 4, drop_last);
+      DataPipeline pipeline(sampler,
+                            {.pipeline_id = "data.pipeline.batch-sampler",
+                             .dataset_version = "dataset/v1",
+                             .dataset_size = 6,
+                             .schema = BatchSchema::any("tensor.rows", 1),
+                             .batch_factory_id = "factory.tensor-rows/v1",
+                             .batch_size = 4,
+                             .drop_last = drop_last,
+                             .num_workers = workers,
+                             .prefetch_batches = 2},
+                            make_factory(make_dataset()));
+      pipeline.set_epoch(7);
+      EXPECT_EQ(pipeline.capability().restore_level, RestoreLevel::exact);
+      EXPECT_TRUE(pipeline.capability().deterministic_epoch);
+      EXPECT_EQ(pipeline.state().epoch_indices,
+                drop_last ? (std::vector<std::size_t>{0, 1, 2, 3})
+                          : (std::vector<std::size_t>{0, 1, 2, 3, 4, 5}));
+      auto batch = pipeline.next();
+      ASSERT_TRUE(batch);
+      EXPECT_EQ(batch->sample_ids, (std::vector<std::uint64_t>{0, 1, 2, 3}));
+      EXPECT_EQ(batch->epoch, 7U);
+      EXPECT_EQ(batch->sequence, 0U);
+      EXPECT_TRUE(
+          torch::equal(batch->value.toTensor(),
+                       torch::arange(0, 8, torch::kFloat32).view({4, 2})));
+      batch = pipeline.next();
+      EXPECT_EQ(batch.has_value(), !drop_last);
+      if (batch) {
+        EXPECT_EQ(batch->sample_ids, (std::vector<std::uint64_t>{4, 5}));
+        EXPECT_EQ(batch->sequence, 1U);
+        EXPECT_TRUE(
+            torch::equal(batch->value.toTensor(),
+                         torch::arange(8, 12, torch::kFloat32).view({2, 2})));
+      }
+      EXPECT_FALSE(pipeline.next());
+    }
+  }
+}
+
+TEST(DataPipelineTest, BatchSamplerRejectsConflictingBatchOptions) {
+  using namespace jyppx::liuding;
+  using namespace jyppx::liuding::data;
+  auto sampler = std::make_shared<samplers::BatchSampler>(
+      std::make_shared<samplers::SequentialSampler>(6), 4, false);
+  DataPipelineOptions options{.pipeline_id = "data.pipeline.batch-sampler",
+                              .dataset_version = "dataset/v1",
+                              .dataset_size = 6,
+                              .schema = BatchSchema::any("tensor.rows", 1),
+                              .batch_factory_id = "factory.tensor-rows/v1",
+                              .batch_size = 2};
+  auto factory = make_factory(make_dataset());
+  EXPECT_THROW(DataPipeline(sampler, options, factory), InvalidArgument);
+  options.batch_size = 4;
+  options.drop_last = true;
+  EXPECT_THROW(DataPipeline(sampler, options, factory), InvalidArgument);
+}
+
+TEST(DataPipelineCheckpointTest, BatchSamplerRestoresCursorAndNextEpoch) {
+  using namespace jyppx::liuding;
+  using namespace jyppx::liuding::data;
+  for (const auto workers : {0U, 2U}) {
+    for (const auto drop_last : {false, true}) {
+      SCOPED_TRACE(workers);
+      SCOPED_TRACE(drop_last);
+      const DataPipelineOptions options{
+          .pipeline_id = "data.pipeline.batch-sampler.restore",
+          .dataset_version = "dataset/v1",
+          .dataset_size = 6,
+          .schema = BatchSchema::any("tensor.rows", 1),
+          .batch_factory_id = "factory.tensor-rows/v1",
+          .batch_size = 4,
+          .drop_last = drop_last,
+          .num_workers = workers,
+          .prefetch_batches = 2};
+      const auto create = [&](std::int64_t seed) {
+        return std::make_unique<DataPipeline>(
+            std::make_shared<samplers::BatchSampler>(
+                std::make_shared<samplers::RandomSampler>(6, seed), 4,
+                drop_last),
+            options, make_factory(make_dataset()));
+      };
+      auto source = create(17);
+      source->set_epoch(4);
+      ASSERT_TRUE(source->next());
+      auto saved = save_state(*source);
+      auto target = create(91);
+      target->load_state(saved, RestorePolicy::exact_only);
+      EXPECT_EQ(target->state().next_cursor, 4U);
+      EXPECT_EQ(target->state().next_sequence, 1U);
+      while (const auto expected = source->next()) {
+        const auto actual = target->next();
+        ASSERT_TRUE(actual);
+        EXPECT_EQ(actual->sample_ids, expected->sample_ids);
+        EXPECT_EQ(actual->sequence, expected->sequence);
+        EXPECT_TRUE(
+            torch::equal(actual->value.toTensor(), expected->value.toTensor()));
+      }
+      EXPECT_FALSE(target->next());
+      source->set_epoch(9);
+      target->set_epoch(9);
+      samplers::RandomSampler reference(6, 17);
+      reference.set_epoch(9);
+      auto expected = reference.indices();
+      if (drop_last) expected.resize(4);
+      EXPECT_EQ(source->state().epoch_indices, expected);
+      EXPECT_EQ(target->state().epoch_indices, expected);
+    }
+  }
 }
 
 TEST(DataPipelineCheckpointTest, RestoresExactInEpochCursor) {
