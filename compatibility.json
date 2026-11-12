@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cpu-6823d85-onnx-arithmetic-install",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;ORT1.23.2 CPU EP;GPU not exercised",
+          "build_type": "Release",
+          "commit": "6823d857225194c139a4443d16b7fe135af66900",
+          "tests": "最终65源码合同、3共享检查及1正式SDK消费通过/零skip；先前65＋3补强前回归及五旧红保留。安装消费合计250ORT、3动态拒绝，新增111算术/比较/布尔场景，另111原生LibTorch结果与独立参考精确一致。",
+          "instrumentation": "复用固定VS17 Release及既有_ic/deployment消费者，39共享DLL保持；原生/编译/CTest1job，3GiB内核Job、4GiB物理/提交准入、2GiB停止，沿原40分钟截止。0新构建树/消费者叶/运行库副本，完整Windows任务6GiB准入保持。",
+          "quality_evidence": {
+            "source_identity": "dirty6acfb96构建，6件规范源码逐SHA等于clean 6823d857225194c139a4443d16b7fe135af66900；最终源码测试和正式安装消费分别绑定实际编译文件。",
+            "numerics": "运算前统一捕获计算类型；比较按有维/零维Tensor与标量的result_type语义，整数真除法转为浮点，整数常量/alpha不经过double，布尔逻辑/顺序转换为合法ONNX。独立有理数/整数/IEEE754/真值表；双向混合类型、1e8消去误差、±(2^53+1)、batch1/2/5逐项精确核对。",
+            "installation": "正式Windows SDK仅定向替换ONNX导出archive，245/246文件SHA/mtime保持；基础构建来源93da49f，数据静态库/三头来源4810958保持。导出archive SHA256 9f30ad4462b6233516841011d849e0bc8010c44e69e2aa2fe86a02e494e7025f；不重标整个SDK。",
+            "consumer": "公开安装头、正式静态库和导入targets真实编译/链接；无源码头覆盖，已有消费者目录和39共享DLL文件身份/字节/mtime保持；ORT DLL未变。共享C++夹具按deployment/onnx_export归拢。",
+            "resources": "Job提交峰1100222464B，全部自有Job清空；0训练，PLAN只留紧凑压缩收据，不保存编译对象/SDK/DLL副本。",
+            "receipts_archive_sha256": "aa9597683ddb5145d1e3ac69919e82ce4347099e50fcf6b8bc70c9573a4c1974",
+            "scope": "仅本次Windows CPU ONNX修复及安装消费，不授完整main SDK/GPU/其他EP/33变体全矩阵/长期私有workspace资源或发布。Ubuntu身份待核，本批未连接同步；ADR039/040困难矩阵暂缓，INT8延期、安全专项暂停、Actions不派发。"
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cpu-4810958-batch-sampler-install",
           "os": "windows-11",
           "architecture": "x86_64",
