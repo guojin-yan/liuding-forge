@@ -260,7 +260,12 @@ jyppx_add_gtest(jyppx_test_nn_model_adapter
 jyppx_add_gtest(jyppx_test_nn_model_checkpoint
     LINK_TARGET jyppx::liuding::nn
     nn/test_model_checkpoint_participant.cpp
+    nn/model_checkpoint/record_function_observer.cpp
 )
+# RecordFunction is provided by Release LibTorch; isolate its NDEBUG-dependent
+# header ABI in one test bridge without disabling project assertions/sanitizers.
+set_source_files_properties(nn/model_checkpoint/record_function_observer.cpp
+    PROPERTIES COMPILE_DEFINITIONS NDEBUG)
 if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
     target_compile_definitions(jyppx_test_nn_model_checkpoint PRIVATE
         JYPPX_LIUDING_NN_CUDA_METRICS=1)

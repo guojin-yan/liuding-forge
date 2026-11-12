@@ -197,7 +197,7 @@ class Lowerer final {
       name = "constant_" + std::to_string(counter_++);
     } while (initializers_.contains(name));
     auto* value = graph_->addInput(name);
-    value->setType(c10::TensorType::create(tensor));
+    value->inferTypeFrom(tensor);
     initializers_.emplace(name, std::move(tensor));
     return value;
   }
@@ -240,7 +240,7 @@ class Lowerer final {
         graph_->create(c10::Symbol::onnx(operation), inputs, outputs);
     result->insertBefore(&before);
     if (outputs == 1 && before.outputs().size() == 1)
-      result->output()->setType(before.output()->type());
+      result->output()->copyMetadata(before.output());
     return result;
   }
 

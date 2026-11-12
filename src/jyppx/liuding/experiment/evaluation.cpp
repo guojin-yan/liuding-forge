@@ -385,18 +385,19 @@ EvaluationSuite read_suite(const Json &value, const EvaluationLimits &limits) {
     fields(rule,
            {"rule_id", "definition", "context", "minimum_samples", "minimum",
             "maximum", "max_absolute_regression", "max_relative_regression"});
-    suite.rules.push_back(EvaluationRule{
-        .rule_id = rule.at("rule_id").get<std::string>(),
-        .definition = read_definition(rule.at("definition")),
-        .context = rule.at("context").get<TelemetryAttributes>(),
-        .minimum_samples =
-            unsigned_number<std::uint64_t>(rule.at("minimum_samples")),
-        .minimum = optional_number(rule.at("minimum")),
-        .maximum = optional_number(rule.at("maximum")),
-        .max_absolute_regression =
-            optional_number(rule.at("max_absolute_regression")),
-        .max_relative_regression =
-            optional_number(rule.at("max_relative_regression"))});
+    EvaluationRule parsed;
+    parsed.rule_id = rule.at("rule_id").get<std::string>();
+    parsed.definition = read_definition(rule.at("definition"));
+    parsed.context = rule.at("context").get<TelemetryAttributes>();
+    parsed.minimum_samples =
+        unsigned_number<std::uint64_t>(rule.at("minimum_samples"));
+    parsed.minimum = optional_number(rule.at("minimum"));
+    parsed.maximum = optional_number(rule.at("maximum"));
+    parsed.max_absolute_regression =
+        optional_number(rule.at("max_absolute_regression"));
+    parsed.max_relative_regression =
+        optional_number(rule.at("max_relative_regression"));
+    suite.rules.push_back(std::move(parsed));
   }
   validate_evaluation_suite(suite, limits);
   return suite;

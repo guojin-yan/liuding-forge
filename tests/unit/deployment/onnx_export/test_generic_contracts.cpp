@@ -108,18 +108,18 @@ exporter::OperatorLowering ErfcLowering(std::size_t& calls) {
       throw std::runtime_error("Unexpected erfc schema in consumer lowering");
     }
     auto* erf = graph.create(c10::Symbol::onnx("Erf"), {source.input()}, 1U);
-    erf->output()->setType(source.output()->type());
+    erf->output()->copyMetadata(source.output());
     erf->insertBefore(&source);
 
     const auto one = at::ones({}, at::TensorOptions().dtype(at::kFloat));
     auto* constant = graph.create(c10::Symbol::onnx("Constant"), 1U);
     constant->t_(c10::Symbol::attr("value"), one);
-    constant->output()->setType(c10::TensorType::create(one));
+    constant->output()->inferTypeFrom(one);
     constant->insertBefore(&source);
 
     auto* difference = graph.create(c10::Symbol::onnx("Sub"),
                                     {constant->output(), erf->output()}, 1U);
-    difference->output()->setType(source.output()->type());
+    difference->output()->copyMetadata(source.output());
     difference->insertBefore(&source);
     return std::vector<torch::jit::Value*>{difference->output()};
   };
@@ -448,6 +448,29 @@ TEST(NativeOnnxGenericRuntime, NamedMultipleIoRunsForIndependentBatchSizes) {
     auto inputs = Examples(batch);
     const auto expected = model.forward(inputs[0], inputs[1]);
     CheckOfficialCpu(artifact, inputs, expected);
+  }
+}
+
+TEST(NativeOnnxGenericRuntime,
+     AliasedInputOutputsKeepPublicNamesAndSymbolicBatches) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  const exporter::ForwardFunction forward =
+      [](std::span<const at::Tensor> inputs) {
+        return Tensors{inputs[0], inputs[0], inputs[0] + inputs[1]};
+      };
+  auto options = NamedOptions();
+  options.output_names = {"first_copy", "second_copy", "sum"};
+  options.dynamic_axes = {{"left", {{0, "batch"}}},
+                          {"right", {{0, "batch"}}},
+                          {"first_copy", {{0, "batch"}}},
+                          {"second_copy", {{0, "batch"}}},
+                          {"sum", {{0, "batch"}}}};
+  const auto artifact =
+      exporter::export_module(module, forward, Examples(), options);
+  for (const auto batch : {1, 2, 5, 8}) {
+    auto inputs = Examples(batch);
+    CheckOfficialCpu(artifact, inputs, forward(inputs));
   }
 }
 

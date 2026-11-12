@@ -154,6 +154,30 @@ TEST(NativeOnnxReport, RejectsTamperingUnknownFieldsFalseClaimsAndCoercions) {
                ResourceExhausted);
 }
 
+TEST(NativeOnnxReport, RejectsMalformedLateFieldsWithoutRetainingReports) {
+  const auto artifact = Artifact();
+  const auto encoded = exporter::serialize_export_report(*artifact.report);
+  const auto document = Json::parse(encoded);
+  for (const auto& field : {"tensor-digest", "tensor-dtype", "output-dtype",
+                            "build-type", "source-digest"}) {
+    auto changed = document;
+    if (std::string(field) == "tensor-digest")
+      changed["inputs"][0]["digest"]["hex"] = "short";
+    if (std::string(field) == "tensor-dtype")
+      changed["inputs"][0]["dtype"] = false;
+    if (std::string(field) == "output-dtype")
+      changed["outputs"][0]["dtype"] = "float128";
+    if (std::string(field) == "build-type")
+      changed["build"]["dependency_lock_digest"] = 42;
+    if (std::string(field) == "source-digest")
+      changed["source"]["config_digest"] = "short";
+    EXPECT_THROW(exporter::deserialize_export_report(changed.dump()), Error)
+        << field;
+  }
+  EXPECT_EQ(exporter::serialize_export_report(
+                exporter::deserialize_export_report(encoded)), encoded);
+}
+
 TEST(NativeOnnxReport, RecordsCallerLineageAndRejectsInvalidSourceDigests) {
   auto artifact = Artifact();
   artifact.report->source = {.run_id = "trained-run",
