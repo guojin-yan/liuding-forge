@@ -13,6 +13,26 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-7fda3e1-delegated-process-memory",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; Linux delegated cgroup v2 process contracts",
+          "build_type": "Release",
+          "commit": "7fda3e13a371337953a9e781dba9d4abbff195ef",
+          "tests": "Only the five previously skipped local-process memory contracts are executed:5 passes,0 skips. Together with the earlier 125 passes,the original 130 unique contracts are qualified in stages across 135 actual test executions;initial skips remain recorded. A preliminary unsupported CTest regex executes zero tests and remains failed.",
+          "instrumentation": "Reuse the unchanged native C++ local-process runner test executable built at clean42af0a6;validation clean7fda3e1 differs only in three metadata/documents. The existing Python child fixture drives allocations,group escape,cancellation and exhaustion;it is a test fixture,not an installed product dependency. No build,training or passed-test repeat.",
+          "quality_evidence": {
+            "source_identity": "Clean 7fda3e13a371337953a9e781dba9d4abbff195ef,tree ef0f6c945a2bfdb0ad04fccc14c9fb0b25e45fb5. Test executable SHA256 615e416b3e69402e88661bfd1c8c740b10ea2f66769307d03830f09830c3adfe;fixture SHA256 eb622fc797a4a6ce8fbb8b9d12574d1bdbab93b2996b342bf053e4672a7950b2. Installed SDK stays at actual42af0a6.",
+            "memory_contracts": "64MiB kernel policy before application allocations,OS-enforced exhaustion,cancellation of descendants outside the POSIX group,group OOM descendant cleanup,and a shared aggregate limit across processes. Tests assert native result/status and process cleanup. Scope is these fixture contracts only.",
+            "boundary_observations": "2GiB task,512MiB delegation,1GiB CTest,zero swap. Task-accounted peak 136323072 B. Expected descendant groups produce3 group OOM events and8 killed fixture processes;task and delegated parent local max/oom/oom_kill counters remain0. All owned cgroups removed,no forced task cleanup. These observations do not give universal RSS/VRAM or zero-cache guarantees.",
+            "preservation": "1343 source files,1388 other SDK/coverage files,776 Release native outputs,607 quality native files and236 installed files retain SHA and mtime. The original absolute deadline and cumulative command budgets are retained. One native job across hosts,CTest1job,double shared locks,no Actions dispatch.",
+            "receipts_archive_sha256": "0d1b7fb721e0cac19ceb145f1483773c89ad0fb9f693d378ca89ddc4605935f7",
+            "scope": "Five Linux process memory contracts close their earlier environmental skips. The complete current profile,Windows/CUDA,all RunSpec/task/resource matrices and release are not qualified. Deferred high-cost matrices,INT8 and paused network-security work stay outside this execution."
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-clean-42af0a6-sdk-repair-regression",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
