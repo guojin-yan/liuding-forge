@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cpu-09a5497-onnx-layernorm-install",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "build_type": "Release",
+          "commit": "09a5497f79d1b79059e66406aebf9bae8ebce4e0",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;ORT1.23.2 CPU EP;GPU not exercised",
+          "tests": "84源码合同＋3共享检查＋1正式SDK消费通过，零skip；Double精度旧红保留。新增96ORT及96原生独立公式核对，安装总820ORT，3动态拒绝和Double Erf CPU拒绝保持。",
+          "instrumentation": "固定VS17 Release/既有部署消费者/39共享DLL复用，单代理及原生总并发1；3GiB内核Job、4GiB准入/2GiB停止，原40分钟截止保持。0训练/新树/消费者叶/运行库副本，完整Windows6GiB准入保持。",
+          "quality_evidence": {
+            "source_identity": "dirty6574919构建，六件规范源码逐SHA等于clean 09a5497f79d1b79059e66406aebf9bae8ebce4e0；源码及安装消费分别绑定实际编译文件。",
+            "numerics": "Double LayerNorm改用Double中心化平方均值；1e8公共偏移下总体方差5，原ORT结果与PyTorch/90位Decimal参考不符。Float/Double、末尾1/2归一化维、四种仿射组合、eps0/0.25和batch1/2/5均核对，affine buffer保持。",
+            "installation": "仅替换ONNX导出archive SHA256 fb18d2f0ebf22c055a6b9a7667b8b5385e2ae6fec8a13e6dcfafbdb27cac7d5e；245/246件SHA/mtime保持。基础93da49f、数据静态库/三头4810958保持，不重标全量SDK。",
+            "consumer": "使用正式安装公开头/库/导入targets编译链接，无源码头覆盖；39共享DLL身份/大小/mtime保持。",
+            "resources": "Job提交峰1114349568B，自有Job全部清空；PLAN仅紧凑收据，无编译对象/DLL/SDK副本。",
+            "receipts_archive_sha256": "7d33fa76aaefa9d5bccfe2f39ac206b1734393d1b0790b7b2af9df76d409252d",
+            "scope": "本次Windows CPU导出及安装消费；其他设备/全main SDK不授资格。昂贵或缺资源矩阵ADR040暂缓，正式发布ADR039延期；Ubuntu身份待核，本批未连接。INT8延期、安全专项暂停、Actions不派发。"
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cpu-b0716fc-onnx-batch-normalization-install",
           "os": "windows-11",
           "architecture": "x86_64",
