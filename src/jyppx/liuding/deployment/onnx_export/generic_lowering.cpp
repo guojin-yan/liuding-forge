@@ -269,10 +269,15 @@ class Lowerer final {
         {"aten::ceil", "Ceil"},
         {"aten::round", "Round"},
         {"aten::erf", "Erf"},
-        {"aten::hardsigmoid", "HardSigmoid"},
         {"aten::hardswish", "HardSwish"}};
     if (const auto found = unary.find(symbol); found != unary.end())
       return {Unary(node, found->second)};
+    if (symbol == "aten::hardsigmoid") {
+      auto* result = Op(node, "HardSigmoid", {Tensor(node.input(0), node)});
+      result->f_(c10::Symbol::attr("alpha"), 1.0 / 6.0);
+      result->f_(c10::Symbol::attr("beta"), 0.5);
+      return {result->output()};
+    }
     static const std::unordered_map<std::string, const char*> binary{
         {"aten::mul", "Mul"},       {"aten::pow", "Pow"},
         {"aten::matmul", "MatMul"}, {"aten::mm", "MatMul"},
@@ -580,12 +585,37 @@ class Lowerer final {
                   ->output()};
     }
     if (symbol == "aten::softmax" || symbol == "aten::_softmax" ||
-        symbol == "aten::log_softmax") {
-      auto* result =
-          Op(node, symbol == "aten::log_softmax" ? "LogSoftmax" : "Softmax",
-             {Tensor(node.input(0), node)});
-      result->i_(c10::Symbol::attr("axis"), Int(node.input(1), node));
-      return {result->output()};
+        symbol == "aten::log_softmax" || symbol == "aten::_log_softmax") {
+      auto* input = Tensor(node.input(0), node);
+      auto type = input->type()->cast<c10::TensorType>();
+      if (!type || !type->dim())
+        Unsupported(node, "softmax requires a known tensor rank");
+      const auto dtype = ScalarType(node.output());
+      // Both explicit dtype and the internal half_to_float option select the
+      // computation type, so conversion must precede normalization.
+      if (ScalarType(input) != dtype) {
+        auto* cast = Op(node, "Cast", {input});
+        cast->i_(c10::Symbol::attr("to"), OnnxType(dtype, node));
+        type = type->withScalarType(dtype);
+        cast->output()->setType(type);
+        input = cast->output();
+      }
+      const bool scalar = *type->dim() == 0;
+      if (scalar) {
+        auto* reshape = Op(node, "Reshape", {input, IntegerVector({1})});
+        type = type->withSizes(std::vector<std::int64_t>{1});
+        reshape->output()->setType(type);
+        input = reshape->output();
+      }
+      const bool logarithmic =
+          symbol == "aten::log_softmax" || symbol == "aten::_log_softmax";
+      auto* result = Op(node, logarithmic ? "LogSoftmax" : "Softmax", {input});
+      result->i_(c10::Symbol::attr("axis"),
+                 scalar ? 0 : Int(node.input(1), node));
+      if (!scalar) return {result->output()};
+      result->output()->setType(type);
+      return {Op(node, "Squeeze", {result->output(), IntegerVector({0})})
+                  ->output()};
     }
     if (symbol == "aten::dropout") {
       if (Boolean(node.input(2), node))
