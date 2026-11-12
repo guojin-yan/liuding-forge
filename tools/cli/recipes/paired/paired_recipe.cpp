@@ -3,7 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
-#include "local_execution/recipe_local_attempt.hpp"
+#include "experiment/local_execution/recipe_local_attempt.hpp"
 #include "paired_search_bridge.hpp"
 #include "recipe_support.hpp"
 #include "recipes/diagnostics/failure_report.hpp"

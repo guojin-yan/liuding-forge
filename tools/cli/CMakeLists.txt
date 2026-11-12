@@ -13,22 +13,22 @@ add_library(jyppx_cli_objects OBJECT
     migration/api_migration.cpp
     migration/config_migration.cpp
     doctor_config.cpp
-    evaluation_data.cpp
+    experiment/evaluation_data.cpp
     data_preparation.cpp
     model_checkpoint.cpp
     bundle_signing.cpp
     deployment/onnx/onnx_delivery.cpp
     deployment/onnx/onnx_verification.cpp
     deployment/onnx/onnx_reconstruction.cpp
-    local_execution/local_attempt.cpp
-    local_execution/local_search.cpp
-    offline_workflow.cpp
+    experiment/local_execution/local_attempt.cpp
+    experiment/local_execution/local_search.cpp
+    experiment/offline_workflow.cpp
     recipes/image/image_recipe.cpp
     recipes/image/recipe_initial_state.cpp
     recipes/image/transfer_recipe.cpp
     recipes/paired/paired_recipe.cpp
     recipes/diagnostics/failure_report.cpp
-    run_commands.cpp
+    experiment/run_commands.cpp
     telemetry/telemetry_commands.cpp
     telemetry/native_otlp_worker.cpp
     telemetry/native_tensorboard_worker.cpp

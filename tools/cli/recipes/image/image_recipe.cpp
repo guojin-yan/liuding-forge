@@ -12,7 +12,7 @@
 #include "transfer_search_bridge.hpp"
 
 #if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
-#include "local_execution/recipe_local_attempt.hpp"
+#include "experiment/local_execution/recipe_local_attempt.hpp"
 #include "recipe_bn_calibration.hpp"
 #include "recipes/diagnostics/failure_report.hpp"
 #if defined(JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS)

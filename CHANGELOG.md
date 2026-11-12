@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- CLI 评估、run 命令与离线工作流集中到 experiment 模块，本地执行的头文件和源码归入其 local_execution 子目录。
+
 - 安装后 C++ 持久任务示例补齐 Ubuntu CUDA 完整双输入双输出训练、精确续训与资源组合验收。
 
 - CLI 遥测命令、原生 OTLP/TensorBoard worker、协议及私有头集中到 telemetry 模块目录，便于按模块浏览和维护。
