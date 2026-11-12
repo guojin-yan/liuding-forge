@@ -1,4 +1,8 @@
-# 数据准备示例
+# 数据加载与准备示例
+
+## 批次加载与断点恢复
+
+[basic_data_pipeline.cpp](basic_data_pipeline.cpp) 展示 TensorDataset、明确 tuple schema、串行与双 worker 组批、文件状态保存、新进程精确续读及异常后显式恢复。可直接用本目录的 CMake 工程消费已安装 SDK，只依赖 `data`、`interop`；完整构建命令、预期输出与恢复边界见[数据加载教程](../../docs/tutorials/02_data_loading.md)。原 `jyppx_basic_data_pipeline` 目标和 `liuding-forge-example-basic-data-pipeline` 文件名保持，仓库整体构建时输出仍位于 examples 目录。
 
 ## 双输入训练数据
 

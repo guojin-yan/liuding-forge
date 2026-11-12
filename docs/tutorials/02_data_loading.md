@@ -1,107 +1,79 @@
-# Tutorial 2: Data Loading
+# 教程 2：数据加载与断点恢复
 
-JYPPX uses an explicit-epoch `DataPipeline`. A sampler selects sample IDs, a `DataBatchFactory` fetches and collates those samples, and every committed batch carries schema, lineage, epoch, and sequence metadata. The pipeline never advances to another epoch implicitly.
+本教程使用六丁炼算的显式 epoch `DataPipeline`，将 Tensor 数据集组装为带 schema、样本 ID、epoch 和批次序号的输入。完成后可以运行串行组批、双 worker 预取，以及退出进程后从已提交批次继续读取。所有示例均为原生 C++，不需要 Python、下载数据或训练模型。
 
-## Tensor datasets
+## 1. 构建完整示例
 
-`TensorDataset` exposes paired input and target tensors as `Example` values. The following factory turns its samples into the tuple consumed by a typical training step:
+先准备与编译器、LibTorch 匹配的已安装 SDK，具体组合见[构建说明](../../CONTRIBUTING.md#构建与验证)。在仓库根目录运行以下命令，将路径替换为实际 SDK 和 LibTorch；复用兼容的构建目录，不要把已有其他源码入口的 CMake cache 改成此入口：
 
-```cpp
-auto inputs = torch::rand({100, 3}); auto targets = torch::randint(0, 2, {100}); auto dataset =
-    std::make_shared<jyppx::liuding::data::TensorDataset>(inputs, targets);
-auto sampler =
-    std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(dataset->size(), 7);
-
-jyppx::liuding::data::DataPipeline pipeline(
-    std::move(sampler),
-    {.pipeline_id = "data.train",
-     .dataset_version = "example.train/v1",
-     .dataset_size = dataset->size(),
-     .schema = jyppx::liuding::data::BatchSchema::any("example.train.batch", 1),
-     .batch_factory_id = "example.tensor-pair/v1",
-     .batch_size = 16},
-    [dataset](std::span<const std::size_t> indices,
-              const jyppx::liuding::data::DataWorkerContext&,
-              std::stop_token) {
-      std::vector<torch::Tensor> data;
-      std::vector<torch::Tensor> targets;
-      data.reserve(indices.size());
-      targets.reserve(indices.size());
-      for (const auto index : indices) {
-        const auto sample = dataset->get(index);
-        data.push_back(sample.data);
-        targets.push_back(sample.target);
-      }
-      return c10::ivalue::Tuple::create(
-          {torch::stack(data), torch::stack(targets)});
-    });
-
-pipeline.set_epoch(0); while (const auto batch = pipeline.next()) { const auto& values = batch->value.toTuple()->elements(); train_step(values.at(0).toTensor(), values.at(1).toTensor()); }
+```sh
+cmake -S examples/data -B out/build/data-examples -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="/path/to/sdk;/path/to/libtorch"
+cmake --build out/build/data-examples --config Release --target jyppx_basic_data_pipeline --parallel 1
+ctest --test-dir out/build/data-examples -C Release --output-on-failure --parallel 1
 ```
 
-The final batch is smaller unless `.drop_last = true`. `set_epoch(epoch)` selects exactly one sampler order and resets the committed cursor. `next()` returns an empty optional at exhaustion and does not start another epoch.
+此独立 CMake 工程只要求 `data` 和 `interop` 组件。源码集中在 [examples/data/basic_data_pipeline.cpp](../../examples/data/basic_data_pipeline.cpp)。Linux 单配置可执行文件位于 `out/build/data-examples/`，Windows 多配置位于其 `Release/` 子目录；Windows 还需将匹配的 LibTorch DLL 目录加入 `PATH`，Linux 按 SDK 安装方式配置运行库搜索路径。
 
-## Custom datasets
+## 2. 从 TensorDataset 到批次
 
-Derive from `jyppx::liuding::data::Dataset<T>` and implement `get()` and `size()`:
+示例创建 10 条 CPU 样本，样本 `i` 的输入为两个 float32 特征 `[i, i+10]`，int64 标签为 `i % 3`。`TensorDataset::get()` 返回含 `data`、`target` 的 `Example`；`RandomSampler(10, 7)` 决定样本 ID 顺序，batch factory 读取样本后分别 `torch::stack`，返回二元 tuple。
 
-```cpp
-class MyDataset final : public jyppx::liuding::data::Dataset<jyppx::liuding::data::Example> { public: jyppx::liuding::data::Example get(std::size_t index) const override {
-    return {features_[index], labels_[index]};
-}
+`batch_schema()` 声明输入为 `[动态批长,2]` 的 float32 CPU Tensor，标签为 `[动态批长]` 的 int64 CPU Tensor，并标明 `features` 和 `target` 语义。动态批长允许最后一个不完整批次；有已知结构时应使用这种明确 schema，使错误 dtype、设备或形状在批次提交前暴露。`BatchSchema::any` 适合确实无法约束结构的值，不负责验证这些 Tensor 契约。
 
-std::size_t size() const override {
-    return static_cast<std::size_t>(features_.size(0));
-}
+在可执行文件所在目录运行：
 
-private: torch::Tensor features_ = torch::randn({500, 8}); torch::Tensor labels_ = torch::randint(0, 3, {500}); };
+```sh
+./liuding-forge-example-basic-data-pipeline inline
+./liuding-forge-example-basic-data-pipeline workers
 ```
 
-The batch factory owns collation policy. It may return any `c10::IValue` that matches the declared `BatchSchema`, including a tensor, tuple, list, or dictionary. Its `batch_factory_id` must change whenever behavior that affects replay compatibility changes.
+两次均显示 3 批、10 条样本，批长依次为 4、4、2；每批打印实际样本 ID。默认不带参数也运行 `inline`。程序逐样本检查输入和标签与 ID 对应，检查整轮 ID 无遗漏、无重复。`set_epoch(3)` 只选择这一轮，耗尽后 `next()` 返回空值，不会隐式开始下一轮；设置 `drop_last=true` 才会丢弃不足一批的尾部。
 
-## Train and validation splits
+## 3. 启用 worker 预取
 
-`random_split` produces deterministic subset views when given a seed:
-
-```cpp
-const auto subsets = jyppx::liuding::data::random_split(
-    dataset, std::vector<std::size_t>{80, 20}, /*seed=*/42);
-```
-
-Create an independent sampler and pipeline for each subset. Give each pipeline a unique `pipeline_id` and a dataset version that identifies the underlying data lineage. Training and validation cursors can then participate in the same checkpoint without identity collisions.
-
-For sequential or remote sources, use `IterableDataPipeline` and declare the source's actual restore guarantee. Exact sources must expose deterministic cursor state with zero replay and omission. Bounded sources publish finite bounds and a degradation reason. Best-effort sources may reopen the saved epoch without cursor continuity. Checkpoint migration preserves this declared level; it never upgrades a bounded or best-effort source to exact.
-
-## Worker prefetch
-
-Set `.num_workers` to use the in-process worker pool and set `.prefetch_batches` to the total number of scheduled but uncommitted batches:
+`make_pipeline()` 中的关键配置如下；`workers` 为 true 时使用两个进程内线程，否则在消费者线程组批：
 
 ```cpp
-jyppx::liuding::data::DataPipelineOptions options{
-    .pipeline_id = "data.train",
-    .dataset_version = "example.train/v1",
-    .dataset_size = dataset->size(),
-    .schema = jyppx::liuding::data::BatchSchema::any("example.train.batch", 1),
-    .batch_factory_id = "example.tensor-pair/v1",
-    .batch_size = 32,
-    .num_workers = 4,
-    .prefetch_batches = 8,
-    .persistent_workers = true,
-    .worker_seed = 7};
+      .batch_size = 4,
+      .num_workers = workers ? 2U : 0U,
+      .prefetch_batches = 3,
+      .persistent_workers = workers,
+      .worker_seed = 7};
 ```
 
-Worker completion may be out of order, but consumer-visible batches remain in sampler order. Dataset access and captured factory state must be safe for concurrent calls. Long-running factories must honor the supplied stop token so epoch replacement and `close()` remain bounded.
+`prefetch_batches` 限制已调度但尚未提交的批次数，不是字节数或整个进程的内存上限。worker 可乱序完成，消费者仍按 sampler 顺序取得批次。此例只并发读取不变 Tensor，factory 在样本循环中检查 stop token，`close()` 会停止并回收 worker；该实现不是进程 worker。
 
-A non-JYPPX exception from a worker is reported as a structured `jyppx::liuding::BackendError` on the consuming thread. The failed batch is not committed. Use `.num_workers = 0` to reproduce factory failures inline.
+自定义数据集应继承 `Dataset<T>`，提供 `get(index)` 和 `size()`，明确拒绝越界，且避免 worker 修改共享数据。factory 的捕获对象必须可安全并发访问；随机变换须从 `DataWorkerContext` 的稳定 epoch、sequence、worker_seed 或显式样本流派生，不能依赖可变全局 RNG。`persistent_workers` 只决定线程是否跨 epoch 保留，调用 `close()` 后仍会回收。
 
-## Determinism and checkpointing
+## 4. 退出进程后恢复
 
-`DataWorkerContext` provides stable `epoch`, `sequence`, `worker_id`, `shard_sequence`, and `worker_seed` values. With `n` workers, batch sequence `s` belongs to logical shard `s % n` and has shard-local sequence `s / n`. These identities are independent of physical thread scheduling. A factory declared deterministic must derive random work from that context rather than mutable process-global state. The pipeline saves only committed state; prefetched batches are rebuilt after restore.
+在同一可执行文件目录依次运行下列命令。每一行都会启动一个新进程，状态文件放在可写目录：
 
-map 当前写 v5、iterable 当前写 v4，保存完整输入/输出 schema 与 consumer 配置。无 consumer 的相邻 v4/v3 仍支持完整结构恢复；历史 v3/v2 label 只迁移可证明等价的 `BatchSchema::any`。变换在 transfer 后、commit 前执行，失败须显式恢复或重新选定 epoch，详见[提交前批次变换](../api/batch_consumer_transform.md)。
+```sh
+./liuding-forge-example-basic-data-pipeline save ./pipeline-state/workers.bin workers
+./liuding-forge-example-basic-data-pipeline restore ./pipeline-state/workers.bin workers
+./liuding-forge-example-basic-data-pipeline failure ./pipeline-state/workers.bin workers
+```
 
-Use `SequentialSampler` for fixed order, `RandomSampler` for seeded epoch permutations, `WeightedRandomSampler` for weighted draws, `SubsetRandomSampler` for a subset, and `DistributedSampler` for rank-local sharding. Sampler configuration and state are part of restore compatibility.
+`save` 消费第一批后输出 `saved cursor=4 sequence=1`，仅保存已经提交的 4 条样本。核心保存步骤为：
 
-## Transforms
+```cpp
+  interop::FileStateArchive archive(path, archive_options(false));
+  archive.begin({pipeline->describe_state()});
+  pipeline->save_state(archive.writer_for(pipeline->participant_id()));
+  archive.commit();
+```
 
-Apply transforms inside `Dataset::get()` or the batch factory. Tensor transforms include normalization, resize, crop, flip, padding, rotation, affine, grayscale, and color jitter. When workers are enabled, the transform and all captured state must satisfy the same concurrency and deterministic replay rules as the rest of the factory.
+`restore` 用只读 `FileStateArchive` 打开完整性校验后的文件，以 `RestorePolicy::exact_only` 加载。它重建未提交的预取工作，读取余下 6 条样本，逐批比较样本 ID、序号、epoch 和全部 Tensor 值与连续执行的后缀，最后输出 `restored batches=2 samples=6 tail=2 exact=true`。将三条命令末尾及文件名改为 `inline`，可体验相同流程的串行版本。
+
+`failure` 故意让下一批 factory 抛出异常；消费者收到 `BackendError`，已提交边界仍为 cursor 4、sequence 1。示例关闭故障开关后显式重载同一检查点，再验证余下批次，输出 `failure preserved cursor=4 sequence=1`。实际应用须处理故障原因，然后显式恢复或重新选择 epoch，不能把异常当作已经消费了失败批次。
+
+状态恢复要求 pipeline ID、数据版本、batch schema、factory ID、sampler 配置和 worker 拓扑等与保存时兼容；修改影响重放的逻辑时同步更新其身份。示例检查当前管线具备 `RestoreLevel::exact`，恢复请求也明确要求 exact。归档字节限制还必须容纳参与者声明的字段上限，因此本例设置 64MiB 制品、32MiB 单字段上限；实际 10 样本状态远小于该上限，限制不是预分配。
+
+这里保存的只有数据参与者。`next()` 成功返回代表数据批次已经提交，不代表模型更新、优化器、回调或外部写入也一起提交；完整训练检查点需把这些参与者交给[检查点协调器](../api/checkpoint_coordinator.md)，不能单独用本例保证训练的恰好一次更新。公共管线方法由单个 owner 调用，捕获状态时暂停该 owner 的修改。
+
+## 5. 更换数据与采样方式
+
+`random_split(dataset, lengths, seed)` 创建可重现的子集视图；训练和验证分别创建 sampler、pipeline ID 与数据版本，避免检查点参与者身份冲突。`SequentialSampler` 用于固定顺序，`RandomSampler` 用于带种子的 epoch 排列；加权、子集和分布式采样的配置及状态约束见[数据 API](../api/data.md)。直接给管线基础 sampler，再用 `batch_size`、`drop_last` 组批；`BatchSampler` 的直接接入限制以 API 说明为准。
+
+图像解码、标注和变换接入见[数据示例](../../examples/data/README.md)与[图像分类教程](image_classification_recipe.md)。可在 `get()` 或 factory 中执行变换，并遵守相同的并发、取消和确定性要求；设备传输后、提交前的变换见[批次变换 API](../api/batch_consumer_transform.md)。顺序流使用 `IterableDataPipeline`，按来源实际能力声明 exact、bounded 或 best-effort，不能通过选择恢复策略把较弱来源提升为 exact。

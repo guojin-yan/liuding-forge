@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 数据加载示例集中到 examples/data，可独立消费 SDK；补齐明确 tuple schema、双 worker 预取、文件检查点的新进程精确续读与异常边界验证，重写中文数据加载教程。
+
 - 修复分布式采样器将空白前缀负 epoch 接受为最大无符号数的问题；检查点仅接受规范十进制状态，拒绝时保留当前 epoch 和采样顺序，原合法状态格式不变。
 
 - 修复有放回加权采样在极小权重舍入边界选中零权重项的问题，使采样头可独立包含，补齐安装后 C++ 支持集、普通序列与状态恢复回归；明确 BatchSampler 的管线组批限制。

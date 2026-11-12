@@ -5,7 +5,7 @@
 ## 教程
 
 1. [基础训练](tutorials/01_basic_training.md)
-2. [数据加载](tutorials/02_data_loading.md)
+2. [数据加载、worker 预取与断点恢复](tutorials/02_data_loading.md)
 3. [优化器与调度器](tutorials/03_optimizers.md)
 4. [回调、检查点与指标](tutorials/04_callbacks.md)
 5. [混合精度训练](tutorials/05_mixed_precision.md)
@@ -16,7 +16,7 @@
 10. [DINOv2/DINOv3 中间层特征（C++）](../examples/transfer_learning/intermediate_features.md)
 11. [C++ 检查点、ONNX 导出与推理](../examples/deployment/README.md)
 12. [本地搜索：训练、指标排序与最佳模型快照](../examples/experiment/README.md)
-13. [使用 C++ 准备与读取多种数据集](../examples/data/README.md)
+13. [使用 C++ 加载批次、恢复状态与准备多种数据集](../examples/data/README.md)
 14. [在 C++ 中执行本地程序、持久任务与 typed 输出](../examples/experiment/local_execution/README.md)
 15. [原生 TensorBoard：记录评估指标](../examples/experiment/README.md#原生-tensorboard)
 16. [离线 OTLP：准备标准遥测请求](../examples/experiment/README.md#离线-otlp-协议准备)
