@@ -424,19 +424,28 @@ class Lowerer final {
     }
     if (symbol == "aten::mean" || symbol == "aten::sum") {
       const bool mean = symbol == "aten::mean";
-      std::vector<Value*> inputs{Tensor(node.input(0), node)};
-      auto* result = static_cast<Node*>(nullptr);
-      if (node.inputs().size() >= 3 && !IsNone(node.input(1))) {
-        const auto axes = Ints(node.input(1), node);
-        if (!mean) inputs.push_back(IntegerVector(axes));
-        result = Op(node, mean ? "ReduceMean" : "ReduceSum", inputs);
-        if (mean) result->is_(c10::Symbol::attr("axes"), axes);
-        result->i_(c10::Symbol::attr("keepdims"),
-                   Boolean(node.input(2), node) ? 1 : 0);
-      } else {
-        result = Op(node, mean ? "ReduceMean" : "ReduceSum", inputs);
-        result->i_(c10::Symbol::attr("keepdims"), 0);
+      auto* input = Tensor(node.input(0), node);
+      const auto dtype = ScalarType(node.output());
+      // ATen applies an explicit dtype (or sum's integral promotion) before
+      // accumulation. Casting the reduced result cannot recover lost values.
+      if (ScalarType(input) != dtype) {
+        const auto type = input->type()->cast<c10::TensorType>();
+        if (!type) Unsupported(node, "reduction requires a typed tensor");
+        auto* cast = Op(node, "Cast", {input});
+        cast->i_(c10::Symbol::attr("to"), OnnxType(dtype, node));
+        cast->output()->setType(type->withScalarType(dtype));
+        input = cast->output();
       }
+      const bool dimensioned = node.inputs().size() >= 3;
+      const auto axes = dimensioned && !IsNone(node.input(1))
+                            ? Ints(node.input(1), node)
+                            : std::vector<std::int64_t>{};
+      std::vector<Value*> inputs{input};
+      if (!mean && !axes.empty()) inputs.push_back(IntegerVector(axes));
+      auto* result = Op(node, mean ? "ReduceMean" : "ReduceSum", inputs);
+      if (mean && !axes.empty()) result->is_(c10::Symbol::attr("axes"), axes);
+      result->i_(c10::Symbol::attr("keepdims"),
+                 dimensioned && Boolean(node.input(2), node) ? 1 : 0);
       return {result->output()};
     }
     if (symbol == "aten::flatten") {

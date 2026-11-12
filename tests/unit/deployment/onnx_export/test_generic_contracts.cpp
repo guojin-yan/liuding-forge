@@ -604,6 +604,107 @@ TEST(NativeOnnxShapeRuntime, RejectsSqueezeThatCanRemoveDynamicBatchAxis) {
   }
 }
 
+TEST(NativeOnnxReductionRuntime, AllDimensionsKeepDimForNoneAndEmptyAxes) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  for (const auto mean : {false, true}) {
+    for (const auto empty : {false, true}) {
+      for (const auto keepdim : {true, false}) {
+        SCOPED_TRACE("mean=" + std::to_string(mean) +
+                     " empty=" + std::to_string(empty) +
+                     " keepdim=" + std::to_string(keepdim));
+        const exporter::ForwardFunction forward =
+            [mean, empty, keepdim](std::span<const at::Tensor> inputs) {
+              const std::vector<std::int64_t> dimensions;
+              const auto axes = empty
+                                    ? at::OptionalIntArrayRef(dimensions)
+                                    : at::OptionalIntArrayRef{};
+              const auto output = mean
+                                      ? at::mean(inputs.front(), axes, keepdim)
+                                      : at::sum(inputs.front(), axes, keepdim);
+              return Tensors{keepdim ? output : at::unsqueeze(output, 0)};
+            };
+        Tensors inputs{at::arange(24, at::kFloat).reshape({2, 3, 4})};
+        const auto artifact =
+            exporter::export_module(module, forward, inputs, options);
+        const std::vector<std::int64_t> shape =
+            keepdim ? std::vector<std::int64_t>{1, 1, 1}
+                    : std::vector<std::int64_t>{1};
+        const Tensors expected{at::full(shape, mean ? 11.5F : 276.0F)};
+        CheckOfficialCpu(artifact, inputs, expected, false, true);
+      }
+    }
+  }
+}
+
+TEST(NativeOnnxReductionRuntime, FloatingDtypeIsAppliedBeforeAccumulation) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  for (const auto mean : {false, true}) {
+    for (const auto dimensioned : {false, true}) {
+      SCOPED_TRACE("mean=" + std::to_string(mean) +
+                   " dimensioned=" + std::to_string(dimensioned));
+      const exporter::ForwardFunction forward =
+          [mean, dimensioned](std::span<const at::Tensor> inputs) {
+            const auto output = dimensioned
+                                    ? (mean ? at::mean(inputs.front(), {1},
+                                                       true, at::kDouble)
+                                            : at::sum(inputs.front(), {1},
+                                                      true, at::kDouble))
+                                    : (mean ? at::mean(inputs.front(), at::kDouble)
+                                            : at::sum(inputs.front(), at::kDouble));
+            const auto fp32 = output.to(at::kFloat);
+            return Tensors{dimensioned ? fp32 : at::unsqueeze(fp32, 0)};
+          };
+      exporter::ExportOptions options;
+      options.dynamic_batch = dimensioned;
+      const Tensors examples{
+          at::tensor({100000000.0F, 1.0F, -100000000.0F}).repeat({2, 1})};
+      const auto artifact =
+          exporter::export_module(module, forward, examples, options);
+      const std::vector<int> batches =
+          dimensioned ? std::vector<int>{1, 2, 5} : std::vector<int>{2};
+      for (const auto batch : batches) {
+        Tensors inputs{
+            at::tensor({100000000.0F, 1.0F, -100000000.0F}).repeat({batch, 1})};
+        const std::vector<std::int64_t> shape =
+            dimensioned ? std::vector<std::int64_t>{batch, 1}
+                        : std::vector<std::int64_t>{1};
+        const auto value = mean ? 1.0F / 3.0F
+                               : static_cast<float>(dimensioned ? 1 : batch);
+        const Tensors expected{at::full(shape, value)};
+        CheckOfficialCpu(artifact, inputs, expected, dimensioned, true);
+      }
+    }
+  }
+}
+
+TEST(NativeOnnxReductionRuntime, IntegralDtypeCastsEachValueBeforeSum) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  for (const auto mode : {0, 1, 2}) {
+    SCOPED_TRACE("mode=" + std::to_string(mode));
+    const exporter::ForwardFunction forward =
+        [mode](std::span<const at::Tensor> inputs) {
+          const auto output =
+              mode == 0 ? at::sum(inputs.front().to(at::kInt), {1}, true)
+              : mode == 1 ? at::sum(inputs.front(), {1}, true, at::kLong)
+                          : at::sum(inputs.front(), {1}, true, at::kInt);
+          return Tensors{output.to(at::kFloat)};
+        };
+    const Tensors examples{at::tensor({1.75F, 2.5F, -1.25F}).repeat({2, 1})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    for (const auto batch : {1, 2, 5}) {
+      Tensors inputs{
+          at::tensor({1.75F, 2.5F, -1.25F}).repeat({batch, 1})};
+      const Tensors expected{at::full({batch, 1}, 2.0F)};
+      CheckOfficialCpu(artifact, inputs, expected, true, true);
+    }
+  }
+}
+
 TEST(NativeOnnxGenericRuntime, NamedMultipleIoRunsForIndependentBatchSizes) {
   torch::NoGradGuard no_grad;
   UserPairModel model;
