@@ -13,15 +13,16 @@ if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::experiment)
     endif()
     jyppx_add_gtest(jyppx_test_image_output_evidence
         LINK_TARGET jyppx::liuding::data_image
-        test_image_output_evidence.cpp)
+        data_image/output/test_evidence.cpp)
     target_link_libraries(jyppx_test_image_output_evidence PRIVATE
         jyppx::liuding::experiment)
     if(TARGET jyppx::liuding::vision_render)
         jyppx_add_gtest(jyppx_test_image_output_pipeline
             LINK_TARGET jyppx::liuding::data_image
-            test_image_output_pipeline.cpp)
+            data_image/output/test_pipeline.cpp
+            data_image/output/test_multibatch.cpp)
         target_link_libraries(jyppx_test_image_output_pipeline PRIVATE
-            jyppx::liuding::vision_render)
+            jyppx::liuding::vision_render jyppx::liuding::experiment)
     endif()
     if(Python3_Interpreter_FOUND)
         add_executable(jyppx_image_output_recovery_child

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 图像输出集成测试按模块集中，补验多批次解码到文件/CAS/事件的字节背压、取消和证据失败释放。
+
 - CLI 模型制品、检查点与共用私有头集中到 deployment/artifacts，按同一模块目录维护。
 
 - 补齐 Ubuntu CUDA 行人分割完整连续训练与既有暂停、强杀恢复的同环境模型及完整状态等价验收。
