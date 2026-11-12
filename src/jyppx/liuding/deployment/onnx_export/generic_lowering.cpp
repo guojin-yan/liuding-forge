@@ -11,6 +11,7 @@
 #include <torch/csrc/jit/ir/constants.h>
 
 #include <ATen/Functions.h>
+#include <ATen/native/TypeProperties.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -202,7 +203,7 @@ class Lowerer final {
     return value;
   }
 
-  Value* Scalar(double number, at::ScalarType dtype) {
+  Value* Scalar(const at::Scalar& number, at::ScalarType dtype) {
     return Constant(at::scalar_tensor(
         number, at::TensorOptions().dtype(dtype).device(at::kCPU)));
   }
@@ -226,8 +227,7 @@ class Lowerer final {
     if (literal->isBool())
       return Scalar(literal->toBool() ? 1.0 : 0.0, hint.value_or(at::kBool));
     if (literal->isInt())
-      return Scalar(static_cast<double>(literal->toInt()),
-                    hint.value_or(at::kLong));
+      return Scalar(literal->toInt(), hint.value_or(at::kLong));
     if (literal->isDouble())
       return Scalar(literal->toDouble(), hint.value_or(at::kFloat));
     if (literal->isIntList()) return IntegerVector(literal->toIntVector());
@@ -248,11 +248,55 @@ class Lowerer final {
     return Op(node, operation, {Tensor(node.input(0), node)})->output();
   }
 
-  Value* Binary(Node& node, const char* operation) {
-    return Op(node, operation,
-              {Tensor(node.input(0), node),
-               Tensor(node.input(1), node, ScalarType(node.input(0)))})
-        ->output();
+  Value* Cast(Node& node, Value* input, at::ScalarType dtype) {
+    if (ScalarType(input) == dtype) return input;
+    const auto type = input->type()->cast<c10::TensorType>();
+    if (!type) Unsupported(node, "type conversion requires a typed tensor");
+    auto* result = Op(node, "Cast", {input});
+    result->i_(c10::Symbol::attr("to"), OnnxType(dtype, node));
+    result->output()->setType(type->withScalarType(dtype));
+    return result->output();
+  }
+
+  at::ScalarType ComparisonType(Node& node) {
+    at::native::ResultTypeState state;
+    for (const auto index : {0U, 1U}) {
+      auto* input = node.input(index);
+      const auto literal = Literal(input);
+      if (literal && literal->isScalar()) {
+        state =
+            at::native::update_result_type_state(literal->toScalar(), state);
+        continue;
+      }
+      const auto type = input->type()->cast<c10::TensorType>();
+      if (!type || !type->dim() || !type->scalarType())
+        Unsupported(node, "comparison promotion requires known dtype and rank");
+      auto& category = *type->dim() == 0 ? state.zeroResult : state.dimResult;
+      category = category == at::ScalarType::Undefined
+                     ? *type->scalarType()
+                     : c10::promoteTypes(category, *type->scalarType());
+    }
+    return at::native::result_type(state);
+  }
+
+  Value* Binary(Node& node, const char* operation,
+                std::optional<at::ScalarType> computation_type = {}) {
+    const auto dtype = computation_type.value_or(ScalarType(node.output()));
+    auto* left = Cast(node, Tensor(node.input(0), node, dtype), dtype);
+    auto* right = Cast(node, Tensor(node.input(1), node, dtype), dtype);
+    // ONNX numeric arithmetic/ordering operators do not accept bool inputs.
+    if (dtype == at::kBool) {
+      const std::string name(operation);
+      if (name == "Mul" || name == "Min")
+        operation = "And";
+      else if (name == "Add" || name == "Max")
+        operation = "Or";
+      else if (name == "Greater" || name == "Less") {
+        left = Cast(node, left, at::kLong);
+        right = Cast(node, right, at::kLong);
+      }
+    }
+    return Op(node, operation, {left, right})->output();
   }
 
   std::vector<Value*> Convert(Node& node, const std::string& symbol) {
@@ -282,19 +326,29 @@ class Lowerer final {
         {"aten::mul", "Mul"},       {"aten::pow", "Pow"},
         {"aten::matmul", "MatMul"}, {"aten::mm", "MatMul"},
         {"aten::bmm", "MatMul"},    {"aten::maximum", "Max"},
-        {"aten::minimum", "Min"},   {"aten::eq", "Equal"},
-        {"aten::gt", "Greater"},    {"aten::lt", "Less"}};
+        {"aten::minimum", "Min"}};
     if (const auto found = binary.find(symbol); found != binary.end())
       return {Binary(node, found->second)};
+    if (symbol == "aten::eq" || symbol == "aten::gt" || symbol == "aten::lt") {
+      const auto* operation = symbol == "aten::eq"   ? "Equal"
+                              : symbol == "aten::gt" ? "Greater"
+                                                     : "Less";
+      return {Binary(node, operation, ComparisonType(node))};
+    }
     if (symbol == "aten::add" || symbol == "aten::sub") {
-      auto* right = Tensor(node.input(1), node, ScalarType(node.input(0)));
-      if (node.inputs().size() > 2 && Number(node.input(2), node) != 1.0)
-        right = Op(node, "Mul",
-                   {right, Scalar(Number(node.input(2), node),
-                                  ScalarType(node.input(0)))})
+      const auto dtype = ScalarType(node.output());
+      auto* left = Cast(node, Tensor(node.input(0), node, dtype), dtype);
+      auto* right = Cast(node, Tensor(node.input(1), node, dtype), dtype);
+      if (node.inputs().size() > 2 && Number(node.input(2), node) != 1.0) {
+        auto* alpha = Tensor(node.input(2), node, dtype);
+        const auto right_type = right->type();
+        right = Op(node, dtype == at::kBool ? "And" : "Mul", {right, alpha})
                     ->output();
-      return {Op(node, symbol == "aten::add" ? "Add" : "Sub",
-                 {Tensor(node.input(0), node), right})
+        right->setType(right_type);
+      }
+      if (dtype == at::kBool && symbol == "aten::add")
+        return {Op(node, "Or", {left, right})->output()};
+      return {Op(node, symbol == "aten::add" ? "Add" : "Sub", {left, right})
                   ->output()};
     }
     if (symbol == "aten::div") {

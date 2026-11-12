@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 修复通用 ONNX 二元运算遗漏类型提升、整数真除法截断、大整数标量/alpha 精度丢失及布尔运算类型不合法；补齐算术、比较和逻辑真值表的真实 CPU ORT 回归。
+
 - 修复 BatchSampler 直接接入 DataPipeline 的样本数与批次数混淆，以及 epoch 转发和恢复配置身份缺失；保留批次数 API，补齐尾批、worker 顺序、精确恢复及冲突配置拒绝。
 
 - 修复通用 ONNX hardsigmoid 的斜率与 PyTorch 不一致，以及 softmax/log_softmax 计算类型、内部入口和标量秩转换遗漏；补齐独立公式与真实 CPU ORT 回归。

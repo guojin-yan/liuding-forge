@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../../../test_utils/deployment/onnx_export/arithmetic_cases.hpp"
+
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -453,6 +455,47 @@ void CheckOfficialCpu(const exporter::ExportResult& artifact,
       }
     }
   }
+}
+
+void CheckArithmeticGroup(std::string_view group) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  const auto cases = jyppx::liuding::test::OnnxArithmeticCases(module, group);
+  ASSERT_FALSE(cases.empty());
+  for (const auto& probe : cases) {
+    SCOPED_TRACE(std::string(group) + "/" + probe.name);
+    const auto inputs_for = [&](int batch) {
+      Tensors inputs;
+      for (const auto& row : probe.rows)
+        inputs.push_back(row.repeat({batch, 1}));
+      return inputs;
+    };
+    const auto examples = inputs_for(2);
+    const auto artifact =
+        exporter::export_module(module, probe.forward, examples);
+    for (const auto batch : {1, 2, 5}) {
+      auto inputs = inputs_for(batch);
+      const Tensors expected{probe.expected_row.repeat({batch, 1})};
+      CheckOfficialCpu(artifact, inputs, expected, true, true);
+    }
+  }
+}
+
+TEST(NativeOnnxArithmeticRuntime, NumericOperandsUseCapturedComputationType) {
+  CheckArithmeticGroup("numeric");
+}
+TEST(NativeOnnxArithmeticRuntime, IntegralTrueDivisionPreservesFractions) {
+  CheckArithmeticGroup("division");
+}
+TEST(NativeOnnxArithmeticRuntime, ComparisonsRespectTensorAndScalarPromotion) {
+  CheckArithmeticGroup("comparison");
+}
+TEST(NativeOnnxArithmeticRuntime, IntegralScalarAndAlphaRetainExactBits) {
+  CheckArithmeticGroup("integer");
+}
+TEST(NativeOnnxArithmeticRuntime,
+     BooleanArithmeticAndOrderingMatchTruthTables) {
+  CheckArithmeticGroup("boolean");
 }
 
 TEST(NativeOnnxGenericRuntime,

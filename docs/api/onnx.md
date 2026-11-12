@@ -66,6 +66,8 @@ const auto output = session.run(input, shape);
 
 `hardsigmoid` 使用 PyTorch 的 `clamp(x / 6 + 0.5, 0, 1)` 定义。`softmax` / `log_softmax` 及其内部 ATen 入口在归一化前应用计算类型转换，支持正负轴；标量输入保留标量结果，使用 Runtime 时同样须先增加一个维度。
 
+二元算术在运算前应用捕获的计算类型，整数真除法保留小数；`eq` / `gt` / `lt` 按 PyTorch 的普通 Tensor、零维 Tensor 和标量优先级确定比较类型。整数标量和 `add` / `sub` 的整数 `alpha` 直接保存为整数，避免经过 double 丢失大于 2⁵³ 的有效位；布尔加法/最大值按逻辑或、乘法/最小值按逻辑与转换。公开 Runtime I/O 仍为 FP32，其他中间类型的 kernel 可用性取决于所选 ORT 后端。
+
 导出会真实执行 forward，并可能为动态 batch 校验再次执行。调用方负责设定 eval 模式、CPU 设备、数据类型和预处理，保证 forward 确定且不修改输入、模型状态或外部资源。trace 只捕获实际执行路径；动态 batch 会用另一 batch 检查图结构，遇到形状常量或路径变化明确拒绝，不能据此推导任意数据相关控制流均可导出。当前动态轴仅支持 batch 维；其他维度须固定。
 
 `ExportOptions` 设置 batch 上下界、命名和字节上限；`dynamic_batch=false` 导出固定形状。符号 batch 不会在 ONNX 中编码业务上下界，运行端还应设置 `max_batch_size` 并检查自己的最小 batch。输出大小限制不等于进程内存或显存硬配额。
