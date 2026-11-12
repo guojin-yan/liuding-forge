@@ -5,12 +5,26 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/liuding/liuding.hpp>
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/foundation/random_checkpoint_participant.hpp>
+#include <jyppx/liuding/nn/model_adapter.hpp>
+#include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
+#include <jyppx/liuding/optim/linear_lr_scheduler.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/training/scheduler_adapter.hpp>
+#include <jyppx/liuding/training/single_device_strategy.hpp>
+#include <jyppx/liuding/training/trainer.hpp>
 
+#include <cmath>
+#include <exception>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <span>
+#include <stdexcept>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -111,6 +125,7 @@ jyppx::liuding::training::FitRequest make_request(
 
 int main() {
   try {
+    torch::set_num_threads(1);
     torch::manual_seed(7);
     const auto inputs =
         torch::arange(0, 8, torch::TensorOptions().dtype(torch::kFloat32))
@@ -137,12 +152,27 @@ int main() {
                                                .run_id = "run.example",
                                                .trace_id = "trace.example",
                                                .max_epochs = 2});
-    trainer.prepare(make_request(model, optimizer, train, validation));
+    auto request = make_request(model, optimizer, train, validation);
+    const auto scheduler = request.optimizers.front().scheduler;
+    trainer.prepare(std::move(request));
     const auto result = trainer.fit();
+    const auto training_loss = result.training_metrics.at("training.loss");
+    const auto validation_loss = result.validation_metrics.at("validation.loss");
+    if (result.status != jyppx::liuding::training::FitStatus::completed ||
+        result.completed_epochs != 2 || result.global_step != 4 ||
+        optimizer->completed_steps() != 4 ||
+        scheduler->scheduler().completed_steps() != 4 ||
+        std::abs(optimizer->learning_rates().front() - 0.01) > 1e-14 ||
+        !std::isfinite(training_loss) || !std::isfinite(validation_loss)) {
+      throw std::runtime_error("Incomplete Trainer example execution");
+    }
     std::cout << "status=" << static_cast<int>(result.status)
               << " global_step=" << result.global_step
               << " learning_rate=" << optimizer->learning_rates().front()
-              << '\n';
+              << " epochs=" << result.completed_epochs
+              << " scheduler_steps=" << scheduler->scheduler().completed_steps()
+              << " training_loss=" << training_loss
+              << " validation_loss=" << validation_loss << '\n';
     trainer.close();
     return 0;
   } catch (const std::exception& error) {

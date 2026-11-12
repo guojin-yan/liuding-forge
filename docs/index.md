@@ -4,9 +4,9 @@
 
 ## 教程
 
-1. [基础训练](tutorials/01_basic_training.md)
+1. [基础训练与可独立构建的 C++ 示例](tutorials/01_basic_training.md)
 2. [数据加载、worker 预取与断点恢复](tutorials/02_data_loading.md)
-3. [优化器与调度器](tutorials/03_optimizers.md)
+3. [优化器、调度与新进程状态恢复](tutorials/03_optimizers.md)
 4. [回调、检查点与指标](tutorials/04_callbacks.md)
 5. [混合精度训练](tutorials/05_mixed_precision.md)
 6. [图像分类：ResNet18、CIFAR-10 与 Fashion-MNIST](tutorials/image_classification_recipe.md)

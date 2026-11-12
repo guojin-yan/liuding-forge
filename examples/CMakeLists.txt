@@ -3,11 +3,6 @@ if(TARGET jyppx::liuding::data AND TARGET jyppx::liuding::interop)
 endif()
 
 if(TARGET jyppx::liuding::sdk)
-add_executable(jyppx_basic_trainer basic_trainer.cpp)
-set_target_properties(jyppx_basic_trainer PROPERTIES
-    OUTPUT_NAME liuding-forge-example-basic-trainer)
-target_link_libraries(jyppx_basic_trainer PRIVATE jyppx::liuding::sdk)
-
 add_executable(jyppx_mnist mnist/mnist.cpp)
 set_target_properties(jyppx_mnist PROPERTIES
     OUTPUT_NAME liuding-forge-example-mnist)
@@ -38,7 +33,6 @@ target_link_libraries(jyppx_distillation PRIVATE jyppx::liuding::sdk)
 # libraries. Copy the DLLs (not the whole directory, which also holds large
 # import libraries) once before the examples build.
 foreach(example_target IN ITEMS
-        jyppx_basic_trainer
         jyppx_mnist jyppx_distillation)
     jyppx_add_torch_runtime_dependency(${example_target})
 endforeach()
