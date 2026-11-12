@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-b2e724c-onnx-shape-install",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; ONNX Runtime 1.23.2 CPU EP",
+          "build_type": "Release",
+          "commit": "b2e724c2154a72774a27535ff267cf3f47fce08b",
+          "tests": "正式SDK部署消费者1项＋共享门禁3项通过/零skip。新增27次形状算子真实ORT精确核对及3类动态squeeze拒绝，包含非单例/正负轴、负排列、标量transpose/t/squeeze；加原flatten与单/多I/O总76次ORT运行。源码56唯一合同分阶段通过的身份另列。",
+          "instrumentation": "固定Release和既有部署消费者cache；systemd/双锁/原生并发1/编译CTest1job，0新树/叶、0SDK/runtime副本。cleanb2e724c导出库经同树生成安装规则定向更新，正式foundation保持原来源。",
+          "quality_evidence": {
+            "source_identity": "框架库以cleanb2e724c源码/相同已修复generic_lowering对象增量构建；安装消费在dirtyb2e724c的main.cpp补丁，文件SHA绑定收据。后续贡献/兼容说明仅为来源元数据。",
+            "installation": "236件混合SDK：230件含17库/程序/基础provenance保持42af0a6；4模板头为b3dc310、1共享采样头为91aeccf；onnx-export archive现为b2e724c，包含此前flatten及本次形状修复。仅替换1库，235安装件SHA/mtime保持，基础安装指纹保持。",
+            "consumer": "只使用正式安装头和archive，无源码include覆盖；预期维度及逐元素值由标量索引、序列或常数2.5独立声明。27新增ORT有效场景和3类CompatibilityError拒绝实际运行，旧失败保留。",
+            "resources": "3GiB编译/1GiB运行/门禁，swap0；峰1509130240B、limit/OOM0；消费者仅增70783B，原绝对截止和累积预算保持。",
+            "preservation": "1352源码除声明补丁保持；828既有Release/消费者原生中824件SHA/mtime保持，仅foundation来源对象/库及本消费者对象/程序4件更新。其他1388SDK/coverage、607质量产物保持，0训练。",
+            "receipts_archive_sha256": "2900b50ca4175281f518db0a2a1a4331869bdd3f470469fb4898c56bcf022a14",
+            "scope": "仅Ubuntu CPU当前通用ONNX形状修复的定向安装消费，不授全量当前SDK/完整配置、其他Provider、Windows/CUDA、全模型任务资源或发布资格。困难矩阵按ADR039/040暂缓，INT8延期、网络安全暂停。"
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-1970086-onnx-flatten-install",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",

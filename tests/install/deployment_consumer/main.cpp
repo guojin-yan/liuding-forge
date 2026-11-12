@@ -7,6 +7,7 @@
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/session.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/verification.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <torch/torch.h>
 
@@ -146,6 +147,107 @@ void CheckFlatten() {
     }
   }
 }
+void CheckExact(runtime::Session& session, const at::Tensor& input,
+                const std::vector<std::int64_t>& shape,
+                const std::vector<float>& values) {
+  const auto actual = session.run(
+      std::span(input.const_data_ptr<float>(),
+                static_cast<std::size_t>(input.numel())),
+      std::span(input.sizes().data(), input.sizes().size()));
+  Require(actual.shape == shape && actual.values == values,
+          "installed shape operator exact independent reference");
+}
+
+void CheckShapeOperators() {
+  torch::nn::Module module;
+  for (const auto axis : {1, -3, 2, -2, 3, -1}) {
+    const exporter::ForwardFunction forward =
+        [axis](std::span<const at::Tensor> inputs) {
+          return std::vector<at::Tensor>{at::squeeze(inputs.front(), axis)};
+        };
+    const std::array examples{
+        at::arange(6, at::kFloat).reshape({2, 1, 3, 1})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    const auto normalized = axis < 0 ? axis + 4 : axis;
+    for (const auto batch : {1, 2, 5}) {
+      const auto input =
+          at::arange(batch * 3, at::kFloat).reshape({batch, 1, 3, 1});
+      const std::vector<std::int64_t> shape =
+          normalized == 1 ? std::vector<std::int64_t>{batch, 3, 1}
+          : normalized == 3 ? std::vector<std::int64_t>{batch, 1, 3}
+                            : std::vector<std::int64_t>{batch, 1, 3, 1};
+      std::vector<float> values(static_cast<std::size_t>(batch * 3));
+      for (std::size_t index = 0; index < values.size(); ++index)
+        values[index] = static_cast<float>(index);
+      CheckExact(session, input, shape, values);
+    }
+  }
+  for (const std::vector<std::int64_t> axes :
+       {std::vector<std::int64_t>{0, -1, -2}, {0, -2, -1}}) {
+    const exporter::ForwardFunction forward =
+        [axes](std::span<const at::Tensor> inputs) {
+          return std::vector<at::Tensor>{
+              at::permute(inputs.front(), axes).contiguous()};
+        };
+    const std::array examples{
+        at::arange(12, at::kFloat).reshape({2, 2, 3})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    for (const auto batch : {1, 2, 5}) {
+      const auto input =
+          at::arange(batch * 6, at::kFloat).reshape({batch, 2, 3});
+      const std::vector<std::int64_t> shape =
+          axes[1] == -1 ? std::vector<std::int64_t>{batch, 3, 2}
+                        : std::vector<std::int64_t>{batch, 2, 3};
+      std::vector<float> values(static_cast<std::size_t>(batch * 6));
+      for (std::int64_t n = 0; n < batch; ++n)
+        for (std::int64_t row = 0; row < 2; ++row)
+          for (std::int64_t column = 0; column < 3; ++column) {
+            const auto offset = axes[1] == -1 ? n * 6 + column * 2 + row
+                                             : n * 6 + row * 3 + column;
+            values[static_cast<std::size_t>(offset)] =
+                static_cast<float>(n * 6 + row * 3 + column);
+          }
+      CheckExact(session, input, shape, values);
+    }
+  }
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  for (const auto mode : {0, 1, 2}) {
+    const exporter::ForwardFunction forward =
+        [mode](std::span<const at::Tensor> inputs) {
+          const auto scalar = at::mean(inputs.front());
+          const auto output = mode == 0 ? at::transpose(scalar, 0, -1)
+                              : mode == 1 ? at::t(scalar)
+                                          : at::squeeze(scalar, 0);
+          return std::vector<at::Tensor>{at::unsqueeze(output, 0)};
+        };
+    const auto input = at::arange(6, at::kFloat).reshape({2, 3});
+    const std::array examples{input};
+    const auto artifact =
+        exporter::export_module(module, forward, examples, options);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    CheckExact(session, input, {1}, {2.5F});
+  }
+  for (const auto axis : {0, -3, 99}) {
+    const exporter::ForwardFunction forward =
+        [axis](std::span<const at::Tensor> inputs) {
+          return std::vector<at::Tensor>{
+              axis == 99 ? at::squeeze(inputs.front())
+                         : at::squeeze(inputs.front(), axis)};
+        };
+    const std::array examples{at::ones({2, 3, 4})};
+    bool rejected = false;
+    try {
+      static_cast<void>(exporter::export_module(module, forward, examples));
+    } catch (const jyppx::liuding::CompatibilityError& error) {
+      rejected = std::string(error.what()).find("dynamic") != std::string::npos;
+    }
+    Require(rejected, "installed dynamic squeeze rejects variable output rank");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -273,8 +375,10 @@ int main() {
       Compare(outputs[1], (logits * offset).contiguous());
     }
     CheckFlatten();
+    CheckShapeOperators();
     std::cout << "Native deployment consumer: single/multi-I/O dynamic batches "
-                 "1,2,5 and 40 exact suffix/full flatten cases match on CPU\n";
+                 "1,2,5 and 40 exact suffix/full flatten cases match on CPU; "
+                 "27 exact squeeze/permutation/scalar cases and 3 dynamic squeeze rejections\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';
