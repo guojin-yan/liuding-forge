@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 刷新干净提交 `c444816` 的 Ubuntu CPU Release SDK：18库/236件安装、独立八Core消费者与选定2189项合同分阶段闭合（1990通过/199条件跳过）；定向补验12项临时目录不符的数据准备夹具，并仅对剩余1项隔离监督cgroup父目录后补验通过，原失败及平台/发布边界保留。
+
 - 图像输出集成测试按模块集中，补验多批次解码到文件/CAS/事件的字节背压、取消和证据失败释放。
 
 - CLI 模型制品、检查点与共用私有头集中到 deployment/artifacts，按同一模块目录维护。

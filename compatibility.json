@@ -13,6 +13,31 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-c444816-selected-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; CPU correctness/install profile",
+          "build_type": "Release",
+          "commit": "c4448167164d23891884c469bbaeabfa2c660f88",
+          "tests": "Complete frozen selection of2189 CTest contracts closed in stages:1990 passes,199 conditional skips,zero unresolved failures. Initial 12 data-preparation fixture failures retained;only those 12 repeated using an external owned TMPDIR. Eleven pass;one then exposes a fixture-parent emptiness assertion because the supervisor command is a sibling. Only that failed CTest is repeated with an isolated fixture parent and passes. All originally successful CTest contracts reused. Independent eight-Core installed consumer1/1 passes. Two matrices and four paused transport contracts are separate.",
+          "instrumentation": "Ubuntu22.04.5/GCC11.4/LibTorch2.14.1+cpu,Release/Ninja;18 framework libraries with tests,examples and docs enabled. Fixed rebuilt-cpu-release/linux-release/linux-sdk-consumer directories reused;compile and CTest jobs1;native work serial across hosts. No runtime copies or new build tree.",
+          "quality_evidence": {
+            "source_identity": "Clean committedc4448167164d23891884c469bbaeabfa2c660f88,tree6ac43db2145563f06601691d309d0be3d9436fbc;1340 tracked files retain SHA/mtime and independently match Git blob bytes. Later qualification metadata does not relabel the installed binary.",
+            "installation": "Actual in-place CPU SDK refresh toc4448167164d23891884c469bbaeabfa2c660f88:18 framework libraries,236 installed files,independent eight-Core consumer,installed CLI fingerprint and CPU doctor verified. Previous9fd2763 lane retained as historical qualification. Three other SDKs plus695 coverage files,1388 files total,retain SHA/mtime.",
+            "selection": "Excluded OptionalComponentMatrix and PreviewComponentMatrix,plus MnistHttpsContract.AllowsOnlyFrozenFullHttpsUrls,MnistHttpsContract.RejectsInvalidContractBeforeTransportOrFilesystem,NativeOtlpHttpTrustedTls and NativeOtlpHttpWireContract. Exclusions are neither passes nor hardware skips;CPU hardware skips do not qualify CUDA.",
+            "reference_fixture_retry": "The initial runner placed TMPDIR under the repository;12 native or independent-reference data-preparation fixtures correctly rejected dataset publication there. Retrying only those 12 with an owned repository-external TMPDIR gives11 passes and one remaining cleanup assertion. Its delegated parent also contained the supervisor command group;isolating its own fixture parent resolves that one CTest. Source,SDK,expected assertions and frozen selection remain unchanged. Both failure stages are retained.",
+            "native_memory": "Delegated Linux process-boundary tests include deliberate child-cgroup OOM enforcement. Child counters are distinct from parent local events;no false claim of globally zero OOMs. Initial failing CTest phase has no final parent-local memory snapshot;retained periodic observations and the final selected-command cgroup counters are reported separately.",
+            "resources": "Original7200-second absolute window and cumulative build1800/native4200/audit300-second budgets retained. Build/native6GiB memory.max with swap0,host4GiB stop floor;build peak2421846016 B,native selected-command peak5574512640 B,minimum host available12161335296 B. Duplicate test SDKs and owned workspaces verified before removal;fixed build,current SDK,consumers and shared runtime retained. Observations are not universal product memory or paired-performance claims.",
+            "receipts_archive_sha256": "811e1f7f31f06608c9a50a4a3481abc840fc9c3ba4924343e09c587570a65bfd",
+            "independent_audit_sha256": "a4ace871645a607da1c685455cea737770d383993f26bd9b0b22541e5a4c71c2",
+            "installed_manifest_sha256": "a2a11ae61c550713834448f18f7dc6ff6581e5eb2f5100cdfa38facae0a89c76",
+            "selected_results_sha256": "d44af3845c833724ec36bf571a6616a2cb3a066478920cc15c93f7f868611096",
+            "scope": "Only this exact selected Ubuntu CPU Release SDK. Conditional skips,other platforms/devices,remaining model/recipe/RunSpec/real-resource matrices,final candidate and production release remain unqualified. INT8 deferred;network security work paused;Actions not dispatched."
+          }
+        },
+        {
           "id": "local-ubuntu-gcc114-cu126-5573f7f-segmentation-continuous-recovery",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
