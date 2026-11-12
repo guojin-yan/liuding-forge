@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 补齐 Ubuntu CUDA 行人分割完整连续训练与既有暂停、强杀恢复的同环境模型及完整状态等价验收。
+
 - CLI 评估、run 命令与离线工作流集中到 experiment 模块，本地执行的头文件和源码归入其 local_execution 子目录。
 
 - 安装后 C++ 持久任务示例补齐 Ubuntu CUDA 完整双输入双输出训练、精确续训与资源组合验收。

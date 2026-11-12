@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu-gcc114-cu126-5573f7f-segmentation-continuous-recovery",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CUDA;LibTorch 2.14.1+cu126;CUDA Toolkit 12.6.3;RTX 2060;driver 580.178.04",
+          "build_type": "Release",
+          "commit": "5573f7fa8c98f711ce432e41eee715617981a34b",
+          "tests": "One previously missing 1200-update continuous native C++ segmentation task completes; five existing CTest contracts pass without skips. Prior paused and process-killed recovery tasks are reused without retraining.",
+          "instrumentation": "Fixed rebuilt-cuda-release tree, one compile job and serial native workload; no new build tree, SDK reinstall or runtime copies. Native memory.max=3GiB and swap.max=0, aggregate peak 834666496 B, no memory-limit/OOM events. Sampled owned GPU-process peak 236978176 B is an observation, not a VRAM hard limit. Original deadline and cumulative budgets retained.",
+          "quality_evidence": {
+            "task": "Fixed Penn-Fudan 170 image/mask pairs; 120 training, 25 validation, 25 test; RGB128, nearest-exact mask, seed20261028, 80 epochs, batch8, Adam0.001, FP32 and two CPU threads. Final weights are used without validation/test selection. Test mean IoU0.6775097448001463, foreground IoU0.4917045291009642 and segmentation-derived AP50=0.35066555700861873 meet original0.60/0.35/0.10 thresholds.",
+            "complete_state": "Continuous model bytes equal both prior Ubuntu CUDA resumed and process-kill-recovered finals. All7 checkpoint participants and103 blobs, totalling370493 payload bytes, match. Only build.git_commit differs; independently re-encoding the complete expected container matches checkpoint SHA39417ddb81d9954ce005274f0ddac57537c85e52b489e865cbbf9b1f4c0d3526. The dependency lock digest is unchanged.",
+            "independent_reference": "Pillow/NumPy/COCO verifies all170 input pairs, image/mask preprocessing and held-out scores. Independent Windows maintenance audit compares complete model/checkpoint bytes, all saved images/masks/logits with retained prior evidence, and recomputes dataset/source IoU and Dice using scalar standard-library arrays. This audit does not execute Windows product training.",
+            "source_identity": "Clean training source 5573f7fa8c98f711ce432e41eee715617981a34b, tree 58506e1635e45d9b639f0ca17703fdf283f82b77;1338 tracked sources,924 formal SDK/coverage files and5 cached reference files retain SHA/mtime. Later documentation and compatibility metadata have separate delivery identity.",
+            "receipts_archive_sha256": "1625c6b1e223f1479b8f3f9dded08d6a9c7a592325b67711ce51de145901ea6c",
+            "local_audit_sha256": "0a16cc08e0b3f7bd732e252e47db60396a0db5b613d704205c68fb598776f286",
+            "scope": "Only the stated Ubuntu CUDA segmentation task and same-environment continuous/recovery equivalence. Historical Windows-to-Ubuntu model-SHA comparison remains failed and is not replaced. Other models, recipes, platforms, full resource matrices, final candidate and full release remain unqualified. INT8 deferred; network security work paused; Actions not dispatched."
+          }
+        },
+        {
           "id": "local-ubuntu-gcc114-cu126-97c490c-installed-sdk-paired-training",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
