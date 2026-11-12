@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cpu-60d9b8b-onnx-activation-install",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;ORT1.23.2 CPU EP;GPU not exercised",
+          "build_type": "Release",
+          "commit": "60d9b8b62c4cc6de507bbbd3a8c4bce8d7d4daa6",
+          "tests": "60源码合同分阶段27＋33、3共享门禁和1正式安装消费通过/零skip；安装消费139次ORT含38新增hard激活/计算类型/标量场景及3类动态拒绝。四类旧缺陷真实复现，原维护失败保留。",
+          "instrumentation": "固定VS17 Release和现有_ic/deployment cache；原生/编译/CTest1job，独立小切片3GiB Job、4GiB物理准入/2GiB停止；未降低完整Windows SDK的6GiB原准入。0新框架树/消费者叶/运行库副本。",
+          "quality_evidence": {
+            "source_identity": "以dirty22225a2五文件构建，规范源码逐SHA等于clean60d9b8b；后续兼容/贡献说明仅为元数据。只定向编译ONNX导出库/测试，其他库保持原来源；C++回归、安装消费和当前完整配置分别判断。",
+            "installation": "正式Windows SDK246件中245件SHA/mtime保持93da49f；导出archive为60d9b8b对应修复，SHA256 ddf9b44a4b6cf428f074137f899317fc9c284bf53306a1797699fe7013591f2a。包含此前flatten/shape/归约及本次激活修复；基础provenance仍93da49f，不重标整个SDK。",
+            "consumer": "公开安装头/正式archive/导入targets，无源码头覆盖；复用原消费者并把程序输出放到已有原生目录，39共享DLL文件身份/大小/mtime保持，ORT DLL与正式SDK逐SHA相同。此次关闭已满足的staging事件，实际编译/链接/运行不省略。",
+            "numerics": "HardSigmoid显式alpha1/6、beta0.5；四入口先Cast再归一化，标量临时rank1后还原。15分段点、正负轴和batch1/2/5；[0,-104,-105]乘独立Float64权重检出FP32下溢，期望由clamp/exp/常数计算。8标量场景精确1/0。",
+            "resources": "3GiB内核Job提交上限，峰1334079488B；原40分钟绝对截止沿用，失败未重置，所有自有Job清空。资源计量不查询子进程完整路径，未进行训练。",
+            "receipts_archive_sha256": "b4bf5b3dde899a7bb269674f85185d4a0c061987a2fa358e4b6432747f333e6e",
+            "scope": "只授本次Windows CPU ONNX定向修复/安装消费；不授当前完整SDK、CUDA/其他EP、33模型全矩阵或发布。Ubuntu因既有主机身份检查拒绝变更密钥而未连接，当前环境/本修复资格未确认。INT8延期、安全专项暂停，困难矩阵按ADR039/040暂缓。"
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-da65017-onnx-reduction-install",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
