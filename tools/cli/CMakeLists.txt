@@ -17,9 +17,9 @@ add_library(jyppx_cli_objects OBJECT
     data_preparation.cpp
     model_checkpoint.cpp
     bundle_signing.cpp
-    onnx_delivery.cpp
-    onnx_verification.cpp
-    onnx_reconstruction.cpp
+    deployment/onnx/onnx_delivery.cpp
+    deployment/onnx/onnx_verification.cpp
+    deployment/onnx/onnx_reconstruction.cpp
     local_execution/local_attempt.cpp
     local_execution/local_search.cpp
     offline_workflow.cpp
@@ -60,13 +60,13 @@ if(TARGET jyppx::liuding::onnx_export)
 endif()
 if(TARGET jyppx::liuding::onnx_runtime)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::onnx_runtime)
-    set_property(SOURCE onnx_verification.cpp onnx_reconstruction.cpp APPEND PROPERTY
+    set_property(SOURCE deployment/onnx/onnx_verification.cpp deployment/onnx/onnx_reconstruction.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_ONNX_RUNTIME=1)
     jyppx_add_onnx_runtime_dependency(jyppx_cli)
 endif()
 if(TARGET jyppx::liuding::models)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::models)
-    set_property(SOURCE onnx_reconstruction.cpp APPEND PROPERTY
+    set_property(SOURCE deployment/onnx/onnx_reconstruction.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_ONNX_MODELS=1)
 endif()
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)

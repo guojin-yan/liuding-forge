@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- CLI 的 ONNX 导出、验证与交付实现集中到 deployment/onnx 模块目录，命令和组件开关保持原有行为。
+
 - CLI 配置迁移与 API 扫描的实现和私有头集中到 migration 模块目录，原有命令与迁移合同保持。
 
 - CLI 本地执行、资源接口、持久任务及有界搜索的实现和私有头集中到 local_execution，贡献指南明确同模块先归大目录、再按职责细分。
