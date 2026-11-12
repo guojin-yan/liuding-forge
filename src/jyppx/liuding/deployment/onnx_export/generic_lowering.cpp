@@ -432,14 +432,25 @@ class Lowerer final {
       const bool no_training = symbol != "aten::batch_norm";
       if (!no_training && Boolean(node.input(5), node))
         Unsupported(node, "training BatchNorm is not an inference export");
-      std::vector<Value*> inputs;
-      for (std::size_t index = 0; index < 5; ++index) {
-        if (IsNone(node.input(index)))
-          Unsupported(node,
-                      "BatchNorm requires affine state and running statistics");
-        inputs.push_back(Tensor(node.input(index), node));
+      const auto type = node.input(0)->type()->cast<c10::TensorType>();
+      const auto sizes = type ? type->sizes().concrete_sizes() : std::nullopt;
+      if (!sizes || sizes->size() < 2 || (*sizes)[1] <= 0)
+        Unsupported(node, "BatchNorm requires a known channel dimension");
+      if (IsNone(node.input(3)) || IsNone(node.input(4)))
+        Unsupported(node, "inference BatchNorm requires running statistics");
+      const auto options = at::TensorOptions().dtype(ScalarType(node.input(0)));
+      std::vector<Value*> inputs{Tensor(node.input(0), node)};
+      for (std::size_t index = 1; index < 5; ++index) {
+        if (IsNone(node.input(index))) {
+          inputs.push_back(Constant(index == 1
+                                        ? at::ones({(*sizes)[1]}, options)
+                                        : at::zeros({(*sizes)[1]}, options)));
+        } else {
+          inputs.push_back(Tensor(node.input(index), node));
+        }
       }
       auto* result = Op(node, "BatchNormalization", inputs);
+      result->output()->copyMetadata(node.output(0));
       result->f_(c10::Symbol::attr("epsilon"),
                  Number(node.input(no_training ? 6 : 7), node));
       result->i_(c10::Symbol::attr("training_mode"), 0);
@@ -447,7 +458,11 @@ class Lowerer final {
       for (std::size_t index = 1; index < node.outputs().size(); ++index) {
         if (!node.output(index)->uses().empty())
           Unsupported(node, "training statistics outputs are used");
-        outputs.push_back(result->output());
+        // The inference-only auxiliary outputs are empty tensors. Give each a
+        // separate dead value so its metadata cannot overwrite the real output
+        // before downstream lowering (for example flatten) inspects its rank.
+        outputs.push_back(Constant(at::empty(
+            {0}, at::TensorOptions().dtype(ScalarType(node.output(index))))));
       }
       return outputs;
     }

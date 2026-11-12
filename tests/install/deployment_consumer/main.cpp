@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "../../test_utils/deployment/onnx_export/arithmetic_cases.hpp"
+#include "../../test_utils/deployment/onnx_export/normalization_cases.hpp"
 #include "../../test_utils/deployment/onnx_export/sequence_cases.hpp"
 #include "../../test_utils/deployment/onnx_export/unary_cases.hpp"
 
@@ -85,6 +86,54 @@ void Compare(const runtime::TensorOutput& actual,
                 std::abs(actual.values[index] - reference[index]) <= tolerance,
             "installed ONNX/native numerical mismatch at element " +
                 std::to_string(index));
+  }
+}
+
+void CheckBatchNormalization() {
+  for (const std::string_view group :
+       {"frontend", "internal", "internal_flatten"}) {
+    torch::nn::Module module;
+    const auto probes =
+        jyppx::liuding::test::OnnxNormalizationCases(module, group);
+    Require(probes.size() == (group == "internal_flatten" ? 8 : 32),
+            "installed normalization fixture count");
+    std::vector<at::Tensor> original_buffers;
+    for (const auto& buffer : module.buffers())
+      original_buffers.push_back(buffer.clone());
+    for (const auto& probe : probes) {
+      const auto label = std::string(group) + "/" + probe.name;
+      const auto input_for = [&](int batch) {
+        return jyppx::liuding::test::OnnxNormalizationTensor(
+            probe.input_values, probe.input_sample_shape, batch);
+      };
+      const auto artifact = exporter::export_module(
+          module, probe.forward, std::vector<at::Tensor>{input_for(2)});
+      runtime::Session session(artifact.onnx, artifact.digest);
+      for (const auto batch : {1, 2, 5}) {
+        const auto input = input_for(batch);
+        const runtime::TensorInput binding{
+            .name = artifact.input_names.front(),
+            .values = std::span(input.const_data_ptr<float>(),
+                                static_cast<std::size_t>(input.numel())),
+            .shape = std::span(input.sizes().data(), input.sizes().size())};
+        const auto expected = jyppx::liuding::test::OnnxNormalizationTensor(
+            probe.expected_values, probe.output_sample_shape, batch);
+        const auto native = probe.forward(std::vector<at::Tensor>{input});
+        Require(native.size() == 1 &&
+                    at::allclose(native.front(), expected, 1e-6, 1e-6),
+                "installed native normalization reference " + label);
+        const auto actual = session.run(std::span(&binding, 1));
+        Require(actual.size() == 1,
+                "installed normalization output count " + label);
+        Compare(actual.front(), expected);
+      }
+    }
+    const auto buffers = module.buffers();
+    Require(buffers.size() == original_buffers.size(),
+            "installed normalization buffer count");
+    for (std::size_t index = 0; index < buffers.size(); ++index)
+      Require(at::equal(buffers[index], original_buffers[index]),
+              "installed normalization must preserve running and affine state");
   }
 }
 
@@ -740,6 +789,7 @@ int main() {
     CheckArithmetic();
     CheckUnaryOperators();
     CheckSequenceOperators();
+    CheckBatchNormalization();
     std::cout
         << "Native deployment consumer: single/multi-I/O dynamic batches "
            "1,2,5 and 40 exact suffix/full flatten cases match on CPU; "
@@ -751,7 +801,9 @@ int main() {
            "with independent references; 150 unary dtype/integer cases "
            "and one Double Erf CPU refusal with independent references "
            "and 151 native forwards; 108 exact cat/stack mixed-type cases "
-           "and 108 native forwards with independent references\n";
+           "and 108 native forwards with independent references; "
+           "216 BatchNorm optional-affine/internal/flatten cases and "
+           "216 native forwards with independent references\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';

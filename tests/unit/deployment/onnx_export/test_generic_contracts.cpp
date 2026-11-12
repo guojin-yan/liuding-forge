@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "../../../test_utils/deployment/onnx_export/arithmetic_cases.hpp"
+#include "../../../test_utils/deployment/onnx_export/normalization_cases.hpp"
 #include "../../../test_utils/deployment/onnx_export/sequence_cases.hpp"
 #include "../../../test_utils/deployment/onnx_export/unary_cases.hpp"
 
@@ -501,6 +502,90 @@ TEST(NativeOnnxArithmeticRuntime,
 }
 
 class NativeOnnxUnaryRuntime : public ::testing::TestWithParam<const char*> {};
+
+void CheckBatchNormalizationGroup(std::string_view group) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  const auto probes =
+      jyppx::liuding::test::OnnxNormalizationCases(module, group);
+  ASSERT_EQ(probes.size(), group == "internal_flatten" ? 8 : 32);
+  std::vector<at::Tensor> original_buffers;
+  for (const auto& buffer : module.buffers())
+    original_buffers.push_back(buffer.clone());
+  for (const auto& probe : probes) {
+    SCOPED_TRACE(std::string(group) + "/" + probe.name);
+    const auto inputs_for = [&](int batch) {
+      return Tensors{jyppx::liuding::test::OnnxNormalizationTensor(
+          probe.input_values, probe.input_sample_shape, batch)};
+    };
+    const auto artifact =
+        exporter::export_module(module, probe.forward, inputs_for(2));
+    for (const auto batch : {1, 2, 5}) {
+      auto inputs = inputs_for(batch);
+      const Tensors expected{jyppx::liuding::test::OnnxNormalizationTensor(
+          probe.expected_values, probe.output_sample_shape, batch)};
+      const auto native = probe.forward(inputs);
+      ASSERT_EQ(native.size(), 1);
+      ASSERT_TRUE(at::allclose(native.front(), expected.front(), 1e-6, 1e-6));
+      CheckOfficialCpu(artifact, inputs, expected);
+    }
+  }
+  const auto buffers = module.buffers();
+  ASSERT_EQ(buffers.size(), original_buffers.size());
+  for (std::size_t index = 0; index < buffers.size(); ++index)
+    ASSERT_TRUE(at::equal(buffers[index], original_buffers[index]));
+}
+
+TEST(NativeOnnxBatchNormalizationRuntime, FrontendOptionalAffine) {
+  CheckBatchNormalizationGroup("frontend");
+}
+TEST(NativeOnnxBatchNormalizationRuntime, InternalOptionalAffine) {
+  CheckBatchNormalizationGroup("internal");
+}
+TEST(NativeOnnxBatchNormalizationRuntime, InternalMetadataAfterFlatten) {
+  CheckBatchNormalizationGroup("internal_flatten");
+}
+
+TEST(NativeOnnxBatchNormalizationContracts, RejectsTrainingMode) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  const auto mean = module.register_buffer("mean", at::zeros({3}));
+  const auto variance = module.register_buffer("variance", at::ones({3}));
+  const exporter::ForwardFunction forward =
+      [mean, variance](std::span<const at::Tensor> inputs) {
+        return Tensors{at::batch_norm(inputs[0], std::nullopt, std::nullopt,
+                                      mean.clone(), variance.clone(), true, 0.1,
+                                      1e-5, false)};
+      };
+  EXPECT_THROW(exporter::export_module(
+                   module, forward,
+                   Tensors{at::arange(12, at::kFloat).reshape({2, 3, 2})}),
+               CompatibilityError);
+}
+
+TEST(NativeOnnxBatchNormalizationContracts,
+     RejectsConsumedAuxiliaryStatistics) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  const auto mean = module.register_buffer("mean", at::zeros({3}));
+  const auto variance = module.register_buffer("variance", at::ones({3}));
+  const auto weight = module.register_buffer("weight", at::ones({3}));
+  const auto bias = module.register_buffer("bias", at::zeros({3}));
+  const exporter::ForwardFunction forward =
+      [mean, variance, weight, bias](std::span<const at::Tensor> inputs) {
+        const auto result = at::_native_batch_norm_legit_no_training(
+            inputs[0], weight, bias, mean, variance, 0.1, 1e-5);
+        return Tensors{std::get<0>(result),
+                       std::get<1>(result).sum().reshape({1})};
+      };
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  EXPECT_THROW(
+      exporter::export_module(
+          module, forward,
+          Tensors{at::arange(12, at::kFloat).reshape({2, 3, 2})}, options),
+      CompatibilityError);
+}
 
 void CheckSequenceGroup(std::string_view group) {
   torch::NoGradGuard no_grad;

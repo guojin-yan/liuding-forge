@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 修复通用 ONNX BatchNorm 推理导出拒绝可选仿射参数，以及内部多输出入口覆盖真实输出形状的问题；补齐缺省权重/偏置、归一化后展平、状态保持及实际 CPU ORT 安装回归。
+
 - 修复通用 ONNX cat/stack 未统一混合类型列表的问题，保留 Tensor 顺序、正负轴及整数精度；补齐多输入拼接的原生参考和真实 CPU ORT 安装回归。
 
 - 修复通用 ONNX 一元数学运算遗漏整数/布尔输入的浮点类型提升，以及整数 floor/ceil/round 生成非法浮点专用算子；保留整数位精度，补齐原生参考和真实 CPU ORT 安装回归。
