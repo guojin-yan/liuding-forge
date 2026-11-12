@@ -13,6 +13,28 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu-gcc114-cu126-97c490c-installed-sdk-paired-training",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CUDA;LibTorch 2.14.1+cu126;CUDA Toolkit 12.6.3;RTX 2060;driver 580.178.04",
+          "build_type": "Release",
+          "commit": "97c490c34e3fa76b297c7fee15473a7d1ebeab32",
+          "tests": "Independent installed C++ experiment consumer completes the full paired-affine CUDA task through public durable SDK APIs: 259-update pause and exact_only continuation for 1021 updates. Four shared CTest contracts and 17 native commands pass without skips. Qualified CLI and continuous reference tasks are not repeated.",
+          "instrumentation": "Fixed rebuilt-cuda-release and rebuilt-cuda-diagnostic-consumer trees; one compile job and one native workload. Original one-hour deadline and cumulative build/native/audit budgets retained. Native outer cgroup peak 1705041920 B; two native attempt cgroups have a 2 GiB limit and no OOM kills. Sampled owned GPU-process peak 239075328 B is not a VRAM hard limit. Temporary install removed after independent archive audit; all four formal SDK identities remain unchanged.",
+          "quality_evidence": {
+            "task": "Unchanged 1024 training and 256 validation synthetic paired-affine samples, seed 20261028, 40 epochs, batch 32, two workers and two prefetched batches, SGD learning rate 0.1. Accuracy 0.9921875 and MSE 1.1709383462843448e-17 meet the original >=0.95 and <=0.005 thresholds. Native C++ prepares data and executes all training and checkpoint operations.",
+            "exact_recovery": "All 14 result fields and model payload bytes match the frozen prior CUDA reference. All 10 participants and 29 checkpoint blobs match byte for byte. Only build.git_commit changes in metadata; independently re-encoding the expected full container yields the exact observed checkpoint SHA-256 6ecfcf64fa9b93d773bda6a97f3503f24741ed554bc23c6835c11d604639768e.",
+            "durable_outputs": "Two unique attempts return 75 and 0, with exact prior-checkpoint lineage and three typed outputs from the final same attempt. All 30 referenced CAS objects, SQLite integrity and foreign keys pass independent checks. Three new show/recover/execute processes replay the same terminal result while training data and workspace are absent; no further training occurs.",
+            "resource_binding": "Both attempt receipts confirm the same physical GPU UUID, logical device zero, CPU affinity, complete effective environment digest, and exact libc10/libc10_cuda/libtorch_cuda file identities. Logical CPU/main-memory/GPU reservations and actual Linux cgroup memory boundaries are distinct; cleanup and reservation release are confirmed for both attempts.",
+            "consumer": "The installed consumer requests and links only the public experiment component and reuses the public C++ local-job example as its worker. It has no CLI link or Python product dependency; the training application remains the existing native C++ CLI recipe. Only this installed-consumer/application combination is qualified; this is not a complete current SDK qualification.",
+            "receipts_archive_sha256": "0a4b08192ef17d2edc59314fd2f28161c154a2b6cb8910dea1ddfe341e116e3c",
+            "local_audit_sha256": "d1de617e8d828779cd5a98df4852af1fd4b856881c7fe8438e3a3ff1a40663d6",
+            "scope": "Ubuntu CUDA complete paired-affine installed-SDK orchestration, exact recovery and the stated resource combination only. Windows, other recipes/models/devices, complete RunSpec and final release remain unqualified. Original missing DINO finetune initial state is not searched, reconstructed or replaced. INT8 deferred; network security work paused; Actions not dispatched."
+          }
+        },
+        {
           "id": "local-ubuntu-gcc114-cpu-63d3b51-complete-dinov2-small-frozen",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",

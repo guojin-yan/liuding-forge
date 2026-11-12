@@ -50,3 +50,5 @@ out/build/YOUR_PROFILE/examples/liuding-forge-example-local-job cancel /absolute
 `environment` 只返回当前有效环境的 `environment_sha256`，可将该值写入规格绑定后再执行，不创建STORE。`execute` 创建或重放相同计划，`recover` 只在持久协议允许时推进剩余attempt；确认终态的重放不再执行应用。其余操作stdout是SDK返回的版本化JSON，进程退出码使用前述0/1/7/130编排状态。应用需要的运行库搜索路径、环境、时限、CPU放置和可选OS内存限额均应在规格中明确固定；Linux内存限额还要求调用者提供可写的委派cgroup父目录。
 
 CPU构建的SDK调用程序也可编排独立CUDA训练程序。调用程序继续使用自己的运行库；将训练程序所需的 `LD_LIBRARY_PATH` 等路径写入规格的 `environment`，由子进程使用。CUDA放置还须同时声明 `cuda_device.uuid`、`resources.capacity.gpus` 和一致的GPU请求，SDK按物理UUID设置子进程的 `CUDA_VISIBLE_DEVICES`，该设备在子进程中映射为逻辑设备0。加入这些设置后重新计算完整环境摘要；GPU内存请求用于准入和预约，不能当作VRAM硬限额。实际应用仍需使用兼容的CUDA运行库并通过任务质量和完整恢复验收。
+
+Ubuntu 22.04.5 / GCC 11.4 / LibTorch 2.14.1+cu126 的独立安装消费者已验证完整 paired-affine CUDA 训练、更新边界暂停与 exact_only 续训，以及物理GPU放置、CPU亲和性和Linux内存边界的组合。数据准备和训练应用使用现有原生C++配方；调用示例只链接公共experiment组件。具体支持范围见[兼容矩阵](../../../compatibility.json)，不据此推导其他模型、设备或完整SDK资格。
