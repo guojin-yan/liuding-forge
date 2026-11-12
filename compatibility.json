@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-42af0a6-sdk-repair-regression",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; current installed SDK and scoped repair regression",
+          "build_type": "Release",
+          "commit": "42af0a641f8a886e225383bec5d46441e48b7b27",
+          "tests": "Actual clean-source SDK refresh:18 framework libraries and 236 installed files. Independent eight-Core and installed generic ONNX/ORT consumers each pass1/1 without skips. Fresh evaluation,ONNX,local-process and sidecar executables plus official ONNX checker and four shared/configuration contracts:130 CTest,125 passes,5 conditional skips. Installed CLI version/CPU doctor and reused run-storage documentation consumer pass. Complete profile and representative training tasks not repeated.",
+          "instrumentation": "Fixed rebuilt-cpu-release/linux-release/linux-sdk-consumer directories reused. Compiler-profile precedence repair changes commands,so selected Release libraries,tools and four test programs are rebuilt with one compiler job. A small CPU deployment consumer stays under out/build because the existing deployment cache is CUDA. No runtime copies,no new framework tree,no full sanitizer rebuild.",
+          "quality_evidence": {
+            "source_identity": "Clean committed 42af0a641f8a886e225383bec5d46441e48b7b27,tree dbe23c94a95edcd719071da8d62a03362ab2445a;1343 tracked files retain SHA/mtime and independently match Git blob bytes. Qualification metadata does not relabel installed binaries.",
+            "installation": "18 installed library archives match the fresh build by raw SHA;both installed programs match complete bytes after reproducing CMake RPATH_CHANGE on disposable build copies. Initial audit failed by incorrectly requiring raw ELF SHA equality across that expected installation transform;failure retained,no successful native test repeated. Current provenance and dependency-lock SHA verified. Installation manifest SHA256 4c93e54a3c5b8401f69b79fc40b0854016f3258ef010e32e5f6a7496bf79934f. Prior c444816 full selected-profile lane remains historical;the current SDK receives only this explicitly tested scope.",
+            "consumers": "Eight-Core aggregate links exactly its public Core set. Independent installed generic C++ user Module and callable export dynamic batch and multiple inputs/outputs;explicit ORT CPU provider matches native numerical references. The complete documentation consumer also runs against the refreshed installation. These checks do not qualify untested providers or tasks.",
+            "selection": "130 contracts bound to the newly built test executables and explicit checker/gates;5 conditional skips remain unqualified. Paused security/transport contracts,full component/model/device matrices and the complete selected profile were not rerun. Old c444816 full-profile evidence and 591 sanitizer failures/skips remain unchanged.",
+            "resources": "Original absolute deadline and cumulative build/native/audit budgets retained;one compiler/CTest job and one native workload across hosts,double shared locks,memory.max6GiB and swap0. Verified stage budgets seconds {'build': 1469.1987175173126, 'native': 45.18490565591492, 'audit': 15.383490817155689};observed build/consumer cgroup peak 2288054272 B. All owned cgroups removed. Observations do not provide universal RSS/VRAM or paired-performance guarantees.",
+            "receipts_archive_sha256": "538f47043363ff1e857a7a84a58bf08932363932fdedbaeff0ddf0194adba46d",
+            "scope": "Only the actual current Ubuntu CPU Release installation and stated repair regression. Complete current profile,conditional skips,Windows/CUDA SDK refresh,other tasks/recipes,full RunSpec/resource matrices and release remain unqualified. High-cost matrices deferred by current scope;INT8 deferred,network security work paused,Actions not dispatched."
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-clean-c444816-selected-release",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",

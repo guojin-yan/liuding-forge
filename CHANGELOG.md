@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 将评估/ONNX与编译配置修复实际编入Ubuntu CPU Release SDK，更新18库/236件安装；八Core和动态多输入输出ONNX/ORT安装消费者通过，相关130项合同为125通过/5条件跳过，完整配置与其他设备分别验收。
+
 - 修正本地运行存储 API 的公共头路径、完整 C++/CMake 示例与原生遥测说明；更新本地执行入口、资源边界和已验证评估任务的中英文说明。
 
 - 编译器配置遵循 CMake 与工具链指定的优化和调试参数，避免覆盖自定义 Debug/插桩配置；新增单配置与多配置的真实生成命令回归。
