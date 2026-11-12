@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cpu-4810958-batch-sampler-install",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;CPU execution only",
+          "build_type": "Release",
+          "commit": "4810958ac135678a146484c3968465529b0a50b9",
+          "tests": "61项采样/数据管线源码合同、3共享检查、4正式安装合同通过，零skip；五项旧失败保留。串行/双worker、保留/丢弃尾批、exact游标及后续epoch、配置冲突/底层身份拒绝均实际执行。",
+          "instrumentation": "复用固定VS17 Release及现有data消费者；原生/编译/CTest1job，3GiB内核Job、4GiB物理准入/2GiB停止，40分钟原截止沿用；未降低完整Windows任务6GiB准入。0训练、0新树/消费者叶/运行库副本。",
+          "quality_evidence": {
+            "source_identity": "dirty dbea353的本次源码构建，11件规范源码逐SHA等于clean 4810958ac135678a146484c3968465529b0a50b9；数据模块/相关测试定向增量编译，其他组件保持原来源。",
+            "installation": "正式Windows SDK只更新data静态库及Sampler/BatchSampler/DataPipeline三头，242/246安装件SHA/mtime保持；基础provenance仍93da49f，ONNX导出库仍60d9b8b。data archive SHA256 2c57c998e6a91cd7379562b3b809d862eb6915025b04500dc9c5edd9aba43996。",
+            "consumer": "公开安装头/正式静态库/导入targets，无源码头覆盖；既有data消费者cache、39共享DLL文件身份/大小/mtime保持。恢复测试使用独立整数参考冻结的seed17、epoch4/9完整向量。",
+            "compatibility": "size()继续返回批次数，新增sample_count()返回扁平样本数；管线批大小/尾批必须匹配，底层长度在截断前验证。转发epoch/能力/状态，身份绑定底层与批策略；无底层身份不授exact。旧无身份管线状态保持不兼容，状态格式仍v5。",
+            "resources": "本批Job提交峰1462853632B，所有自有Job清空；PLAN只留压缩收据，不保存编译对象/DLL/SDK副本。",
+            "receipts_archive_sha256": "d0921fd905d33576c05af3698c79d617f037b7d031055fb5ed5d7acc6888da4f",
+            "scope": "仅本次Windows CPU数据模块与安装消费；不授当前完整SDK、GPU/33变体大矩阵、完整私有workspace/长期性能或正式发布。Ubuntu身份待核，本次未连接/同步；ADR039/040困难项暂缓，INT8延期、安全专项暂停，Actions未派发。"
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cpu-60d9b8b-onnx-activation-install",
           "os": "windows-11",
           "architecture": "x86_64",
