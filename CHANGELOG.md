@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- CLI 遥测命令、原生 OTLP/TensorBoard worker、协议及私有头集中到 telemetry 模块目录，便于按模块浏览和维护。
+
 - CLI 的 ONNX 导出、验证与交付实现集中到 deployment/onnx 模块目录，命令和组件开关保持原有行为。
 
 - CLI 配置迁移与 API 扫描的实现和私有头集中到 migration 模块目录，原有命令与迁移合同保持。

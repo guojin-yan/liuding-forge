@@ -1,7 +1,7 @@
 # Product tools are composed here, outside the library component graph.
 find_package(Threads REQUIRED)
 add_library(jyppx_cli_transport STATIC
-    native_telemetry_protocol.cpp)
+    telemetry/native_telemetry_protocol.cpp)
 set_target_properties(jyppx_cli_transport PROPERTIES
     OUTPUT_NAME liuding-forge-cli-transport)
 target_include_directories(jyppx_cli_transport PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -29,9 +29,9 @@ add_library(jyppx_cli_objects OBJECT
     recipes/paired/paired_recipe.cpp
     recipes/diagnostics/failure_report.cpp
     run_commands.cpp
-    telemetry_commands.cpp
-    native_otlp_worker.cpp
-    native_tensorboard_worker.cpp
+    telemetry/telemetry_commands.cpp
+    telemetry/native_otlp_worker.cpp
+    telemetry/native_tensorboard_worker.cpp
 )
 add_executable(jyppx_cli)
 set_target_properties(jyppx_cli PROPERTIES OUTPUT_NAME liuding-forge)
@@ -46,7 +46,7 @@ if(TARGET jyppx::liuding::telemetry_native)
 endif()
 if(TARGET jyppx::liuding::telemetry_http)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::telemetry_http)
-    set_property(SOURCE native_otlp_worker.cpp APPEND PROPERTY
+    set_property(SOURCE telemetry/native_otlp_worker.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_NATIVE_OTLP_HTTP=1)
 endif()
 if(TARGET jyppx::liuding::bundle_signing)

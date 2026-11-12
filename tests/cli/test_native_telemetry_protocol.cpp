@@ -2,7 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
-#include "native_telemetry_protocol.hpp"
+#include "telemetry/native_telemetry_protocol.hpp"
 
 #include <jyppx/liuding/experiment/telemetry_exporters.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
