@@ -29,6 +29,18 @@ endif()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_test(NAME CompilerConfigurationFlagsContract
+            COMMAND ${CMAKE_COMMAND} -E env
+                "CMAKE_COMMAND=${CMAKE_COMMAND}"
+                "JYPPX_COMPILER_FLAGS_TEST_CXX=${CMAKE_CXX_COMPILER}"
+                "JYPPX_COMPILER_FLAGS_TEST_C=${CMAKE_C_COMPILER}"
+                "JYPPX_COMPILER_FLAGS_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/compiler-flags"
+                ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tests/scripts/cmake/test_compiler_options.py")
+        set_tests_properties(CompilerConfigurationFlagsContract PROPERTIES
+            LABELS "hygiene;build;instrumentation" TIMEOUT 120 RUN_SERIAL TRUE)
+    endif()
     add_test(NAME ComponentMatrixSettingsContract
         COMMAND ${CMAKE_COMMAND} -E env "CMAKE_COMMAND=${CMAKE_COMMAND}"
             ${Python3_EXECUTABLE}

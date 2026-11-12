@@ -1,7 +1,8 @@
 # Compiler Options for JYPPX Training Framework
 #
-# Per-configuration flags use generator expressions so they work with both
-# single-config (Ninja/Make) and multi-config (Visual Studio) generators.
+# Configuration flags belong to CMake and the selected toolchain. Appending
+# target-level -O/-g flags would override explicit sanitizer/debug profiles.
+# Configuration-specific definitions below use generator expressions.
 
 # ============================================
 # Warning Flags
@@ -43,9 +44,6 @@ foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
             -Wextra
             -Wpedantic
             -Wno-unused-parameter
-            $<$<CONFIG:Release>:-O3>
-            $<$<CONFIG:RelWithDebInfo>:-O2>
-            $<$<CONFIG:Debug>:-O0;-g>
         )
     elseif(MSVC)
         target_compile_options(${JYPPX_TARGET} PRIVATE

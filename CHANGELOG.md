@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 编译器配置遵循 CMake 与工具链指定的优化和调试参数，避免覆盖自定义 Debug/插桩配置；新增单配置与多配置的真实生成命令回归。
+
 - 修复评估规则与 ONNX 报告在畸形输入异常解码时的资源释放，并补充嵌套字段与末尾字段拒绝回归。
 
 - ONNX 导出使用 LibTorch 已导出的元数据接口和动态轴序列化，避免依赖预编译库未公开的 JIT RTTI；保持直通和重复输出的名称与动态 batch 契约。
