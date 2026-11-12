@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include "bundle_signing.hpp"
+#include "deployment/artifacts/bundle_signing.hpp"
 #include "cli.hpp"
 
 #if defined(JYPPX_LIUDING_CLI_ONNX_EXPORT) && \

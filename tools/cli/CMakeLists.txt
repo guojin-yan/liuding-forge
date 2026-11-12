@@ -15,8 +15,8 @@ add_library(jyppx_cli_objects OBJECT
     doctor_config.cpp
     experiment/evaluation_data.cpp
     data_preparation.cpp
-    model_checkpoint.cpp
-    bundle_signing.cpp
+    deployment/artifacts/model_checkpoint.cpp
+    deployment/artifacts/bundle_signing.cpp
     deployment/onnx/onnx_delivery.cpp
     deployment/onnx/onnx_verification.cpp
     deployment/onnx/onnx_reconstruction.cpp
@@ -51,7 +51,7 @@ if(TARGET jyppx::liuding::telemetry_http)
 endif()
 if(TARGET jyppx::liuding::bundle_signing)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::bundle_signing)
-    set_property(SOURCE bundle_signing.cpp APPEND PROPERTY
+    set_property(SOURCE deployment/artifacts/bundle_signing.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_BUNDLE_SIGNING=1)
 endif()
 if(TARGET jyppx::liuding::onnx_export)
