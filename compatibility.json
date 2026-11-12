@@ -13,6 +13,26 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-62c55af-current-installed-consumers",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; installed SDK component consumers",
+          "build_type": "Release",
+          "commit": "62c55af428ba0bad05cafca744af8ae30ba6e169",
+          "tests": "26 installed-consumer CTest contracts pass,0 skips. Each selected cache is configured,built with1job,and tested against the actual out/install/linux-release SDK. The SDK/deployment contracts already qualified against this SDK are not repeated;paused HTTP work is excluded.",
+          "instrumentation": "19 existing consumer caches are reused and7 small exact-component leaves are added under the existing fixed matrix consumer directory. Framework products,the18 installed libraries and236 installation files retain SHA and mtime. No SDK/runtime copy,no framework rebuild. SDK provenance remains actual clean42af0a6.",
+          "quality_evidence": {
+            "source_identity": "Clean 62c55af428ba0bad05cafca744af8ae30ba6e169,tree e6e054cbc316c540c595bdb245b718c6d7883856;SDK source 42af0a641f8a886e225383bec5d46441e48b7b27. The validation source differs from SDK source only in3 metadata/documents.",
+            "consumers": "data_image,experiment,interop,component-all,component-core,component-data,component-data_image,component-experiment,component-foundation,component-interop,component-nn,component-optim,component-training,migrated,models,package_component,serving,telemetry_native,vision_render,component-bundle_signing,component-onnx_export,component-onnx_runtime,component-onnx_serving,component-vision_render,component-models,component-serving",
+            "boundary": "Systemd,shared double locks,one native job across hosts,build/CTest1job,6GiB task/command cgroups,zero swap. Task-accounted peak 1605877760 B;max/oom/oom_kill0;owned cgroup removed. Finite model/optimizer fixture updates may occur;these are not representative full training tasks.",
+            "preservation": "1343 source,236 installed files,1388 other SDK/coverage,607 quality native and702 untouched Release files retain SHA/mtime. Selected consumer caches intentionally change;the updated Release manifest is frozen separately. Original absolute deadline and cumulative budgets remain in effect.",
+            "receipts_archive_sha256": "8f204fb88ef09286c94f9d4efcd37f01f6391b2e146a8a43bfa3d2437bedcb69",
+            "scope": "Component installation/link/interface contracts only,including local offline signing. No full current profile,all models/tasks/devices,universal resource guarantees or release qualification. Deferred matrices,INT8 and paused network-security work remain outside this execution."
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-clean-7fda3e1-delegated-process-memory",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",

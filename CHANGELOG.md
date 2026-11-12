@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 补齐当前CPU正式SDK的26组组件安装消费验证，包含模型、渲染、ONNX/ORT、Serving及离线签名接口；26通过/0跳过，安装指纹保持实际构建来源，不替代完整任务与设备资格。
+
 - 补齐Linux原生进程运行器的5项委派cgroup内存限制与子孙清理合同，64MiB上限、预期组OOM和取消清理通过；保留首轮条件跳过，相关130项合同分阶段闭合。
 
 - 将评估/ONNX与编译配置修复实际编入Ubuntu CPU Release SDK，更新18库/236件安装；八Core和动态多输入输出ONNX/ORT安装消费者通过，相关130项合同为125通过/5条件跳过，完整配置与其他设备分别验收。
