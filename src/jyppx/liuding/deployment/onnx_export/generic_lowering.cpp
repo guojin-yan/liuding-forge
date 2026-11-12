@@ -440,15 +440,34 @@ class Lowerer final {
       return {result->output()};
     }
     if (symbol == "aten::flatten") {
-      const auto end = Int(node.input(2), node);
       const auto input_type = node.input(0)->type()->cast<c10::TensorType>();
       const auto rank = input_type ? input_type->dim() : std::nullopt;
-      if (end != -1 && (!rank || end != static_cast<std::int64_t>(*rank) - 1))
+      if (!rank) Unsupported(node, "flatten requires a known tensor rank");
+      const auto dimensions =
+          std::max<std::int64_t>(1, static_cast<std::int64_t>(*rank));
+      auto start = Int(node.input(1), node);
+      auto end = Int(node.input(2), node);
+      if (start < -dimensions || start >= dimensions || end < -dimensions ||
+          end >= dimensions)
+        Unsupported(node, "invalid flatten dimensions");
+      if (start < 0) start += dimensions;
+      if (end < 0) end += dimensions;
+      if (end != dimensions - 1)
         Unsupported(node,
                     "flatten currently requires the last dimension as end_dim");
-      auto* result = Op(node, "Flatten", {Tensor(node.input(0), node)});
-      result->i_(c10::Symbol::attr("axis"), Int(node.input(1), node));
-      return {result->output()};
+      if (start == 1) {
+        auto* result = Op(node, "Flatten", {Tensor(node.input(0), node)});
+        result->i_(c10::Symbol::attr("axis"), 1);
+        return {result->output()};
+      }
+      // ONNX Flatten always returns rank two. ATen keeps every prefix axis
+      // and may return rank one. Reshape zeros copy the runtime prefix sizes,
+      // including a dynamic batch; -1 combines only the remaining suffix.
+      std::vector<std::int64_t> target(static_cast<std::size_t>(start), 0);
+      target.push_back(-1);
+      return {Op(node, "Reshape",
+                 {Tensor(node.input(0), node), IntegerVector(target)})
+                  ->output()};
     }
     if (symbol == "aten::reshape" || symbol == "aten::view") {
       const auto target = Ints(node.input(1), node);

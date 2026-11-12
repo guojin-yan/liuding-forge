@@ -369,7 +369,8 @@ TEST(NativeOnnxGenericContracts, RejectsCustomLoweringArityAndNullValues) {
 // does not rely on the product adapter's initial single-input/output profile.
 void CheckOfficialCpu(const exporter::ExportResult& artifact,
                       std::span<at::Tensor> inputs,
-                      std::span<const at::Tensor> expected) {
+                      std::span<const at::Tensor> expected,
+                      bool dynamic_batch = true, bool exact = false) {
   Ort::Env environment(ORT_LOGGING_LEVEL_ERROR, "liuding-generic-contracts");
   Ort::SessionOptions options;
   options.SetIntraOpNumThreads(1);
@@ -400,10 +401,15 @@ void CheckOfficialCpu(const exporter::ExportResult& artifact,
         static_cast<std::size_t>(input.dim())));
     const auto type = session.GetInputTypeInfo(index);
     const auto shape = type.GetTensorTypeAndShapeInfo();
-    EXPECT_EQ(shape.GetShape().front(), -1);
-    const auto symbols = shape.GetSymbolicDimensions();
-    ASSERT_FALSE(symbols.empty());
-    EXPECT_STREQ(symbols.front(), "batch");
+    if (dynamic_batch) {
+      ASSERT_FALSE(shape.GetShape().empty());
+      EXPECT_EQ(shape.GetShape().front(), -1);
+      const auto symbols = shape.GetSymbolicDimensions();
+      ASSERT_FALSE(symbols.empty());
+      EXPECT_STREQ(symbols.front(), "batch");
+    } else {
+      EXPECT_EQ(shape.GetShape(), artifact.input_shapes[index]);
+    }
   }
   for (std::size_t index = 0; index < expected.size(); ++index) {
     const auto name = session.GetOutputNameAllocated(index, allocator);
@@ -411,10 +417,15 @@ void CheckOfficialCpu(const exporter::ExportResult& artifact,
     output_names.push_back(artifact.output_names[index].c_str());
     const auto type = session.GetOutputTypeInfo(index);
     const auto shape = type.GetTensorTypeAndShapeInfo();
-    EXPECT_EQ(shape.GetShape().front(), -1);
-    const auto symbols = shape.GetSymbolicDimensions();
-    ASSERT_FALSE(symbols.empty());
-    EXPECT_STREQ(symbols.front(), "batch");
+    if (dynamic_batch) {
+      ASSERT_FALSE(shape.GetShape().empty());
+      EXPECT_EQ(shape.GetShape().front(), -1);
+      const auto symbols = shape.GetSymbolicDimensions();
+      ASSERT_FALSE(symbols.empty());
+      EXPECT_STREQ(symbols.front(), "batch");
+    } else {
+      EXPECT_EQ(shape.GetShape(), artifact.output_shapes[index]);
+    }
   }
   const auto actual =
       session.Run(Ort::RunOptions{nullptr}, input_names.data(), values.data(),
@@ -432,9 +443,67 @@ void CheckOfficialCpu(const exporter::ExportResult& artifact,
     const auto* reference = target.const_data_ptr<float>();
     for (std::size_t index = 0; index < signature.GetElementCount(); ++index) {
       ASSERT_TRUE(std::isfinite(result[index]));
-      EXPECT_NEAR(result[index], reference[index],
-                  1e-5F + 1e-4F * std::abs(reference[index]))
-          << "output=" << output << " element=" << index;
+      if (exact) {
+        EXPECT_EQ(result[index], reference[index])
+            << "output=" << output << " element=" << index;
+      } else {
+        EXPECT_NEAR(result[index], reference[index],
+                    1e-5F + 1e-4F * std::abs(reference[index]))
+            << "output=" << output << " element=" << index;
+      }
+    }
+  }
+}
+
+TEST(NativeOnnxGenericRuntime,
+     FlattensSuffixWithoutCollapsingPrefixDimensions) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  for (const auto start : {1, 2, 3, -3, -2, -1}) {
+    for (const auto end : {-1, 3}) {
+      SCOPED_TRACE("start=" + std::to_string(start) +
+                   " end=" + std::to_string(end));
+      const exporter::ForwardFunction forward =
+          [start, end](std::span<const at::Tensor> inputs) {
+            return Tensors{at::flatten(inputs.front(), start, end)};
+          };
+      const Tensors examples{at::arange(48, at::kFloat).reshape({2, 2, 3, 4})};
+      const auto artifact = exporter::export_module(module, forward, examples);
+      const auto axis = start < 0 ? start + 4 : start;
+      for (const auto batch : {1, 2, 5}) {
+        Tensors inputs{
+            at::arange(batch * 24, at::kFloat).reshape({batch, 2, 3, 4})};
+        // The expected dimensions and sequence are independent of flatten.
+        const std::vector<std::int64_t> shape =
+            axis == 1 ? std::vector<std::int64_t>{batch, 24}
+            : axis == 2 ? std::vector<std::int64_t>{batch, 2, 12}
+                        : std::vector<std::int64_t>{batch, 2, 3, 4};
+        const Tensors expected{inputs.front().reshape(shape)};
+        CheckOfficialCpu(artifact, inputs, expected, true, true);
+      }
+    }
+  }
+}
+
+TEST(NativeOnnxGenericRuntime, FlattensAllDimensionsToOneStaticDimension) {
+  torch::NoGradGuard no_grad;
+  torch::nn::Module module;
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  for (const std::vector<std::int64_t> shape :
+       {std::vector<std::int64_t>{24}, {2, 3, 4}}) {
+    for (const auto start : {0, -static_cast<int>(shape.size())}) {
+      SCOPED_TRACE("rank=" + std::to_string(shape.size()) +
+                   " start=" + std::to_string(start));
+      const exporter::ForwardFunction forward =
+          [start](std::span<const at::Tensor> inputs) {
+            return Tensors{at::flatten(inputs.front(), start, -1)};
+          };
+      Tensors inputs{at::arange(24, at::kFloat).reshape(shape)};
+      const auto artifact =
+          exporter::export_module(module, forward, inputs, options);
+      const Tensors expected{at::arange(24, at::kFloat)};
+      CheckOfficialCpu(artifact, inputs, expected, false, true);
     }
   }
 }
