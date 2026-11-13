@@ -41,12 +41,15 @@ enum class ManifestFormat : std::uint8_t {
 enum class ManifestTask : std::uint8_t {
   classification,  ///< A path plus one or more contiguous class indices.
   paired,          ///< An input image path plus an external target file path.
+  images,  ///< Image paths only; object targets are attached separately.
 };
 
 /** @brief Identifies precisely what an index's source digest covers. */
 enum class ManifestDigestScope : std::uint8_t {
   document_bytes,  ///< Exact input bytes, excluding external class maps/files.
-  folder_paths_and_classes,  ///< Versioned sorted class/path/label inventory.
+  folder_paths_and_classes,    ///< Versioned sorted class/path/label inventory.
+  annotation_image_inventory,  ///< Versioned ordered annotation paths and
+                               ///< sizes.
 };
 
 /** @brief One owned source record, suitable for later image decoding. */
@@ -159,7 +162,24 @@ class ManifestIndex final {
   friend ManifestIndex index_image_folder(const std::filesystem::path& root,
                                           const ImageFolderOptions& options,
                                           std::stop_token stop);
+  friend ManifestIndex index_annotation_images(
+      const AnnotationIndex& annotations, std::size_t max_index_bytes,
+      std::stop_token stop);
 };
+
+/** @brief Builds an image-only manifest in annotation record order.
+ * @param annotations Canonical records, including explicitly empty images.
+ * @param max_index_bytes Positive logical path/record storage bound.
+ * @param stop Cooperative cancellation between records.
+ * @return Image-only index with no invented classification labels; its digest
+ * covers ordered paths and extents, excluding image bytes and object targets.
+ * @throws SerializationError Invalid or case-colliding paths or image extents.
+ * @throws ResourceExhausted The logical index storage bound is exceeded.
+ * @throws Cancelled Cancellation was requested.
+ */
+ManifestIndex index_annotation_images(const AnnotationIndex& annotations,
+                                      std::size_t max_index_bytes = 256U << 20U,
+                                      std::stop_token stop = {});
 
 /**
  * @brief Parses an in-memory classification or paired-file manifest.

@@ -46,6 +46,7 @@ Makefile
 !CMakeLists.txt
 !cmake/*.cmake
 !cmake/tests/*.cmake
+!tools/cli/Transport.cmake
 
 # ============================================
 # Testing

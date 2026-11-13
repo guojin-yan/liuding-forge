@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "model": {
+    "architecture": "deeplabv3_resnet50",
+    "task": "semantic_segment",
+    "variant": "p5",
+    "num_classes": 3
+  },
+  "image_size": 512,
+  "batch_size": 4,
+  "workers": 0,
+  "epochs": 100,
+  "seed": 0,
+  "device": "cpu",
+  "precision": "full",
+  "optimizer": {
+    "name": "auto",
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001
+  },
+  "extension": {
+    "training_manifest": "dataset.train.json",
+    "validation_manifest": "dataset.val.json"
+  },
+  "augmentation": {
+    "horizontal_flip": 0.5
+  },
+  "full_validation_metrics": true,
+  "selection_metric": "auto",
+  "verify_image_contents": true,
+  "normalization": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  }
+}

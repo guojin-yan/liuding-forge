@@ -1,0 +1,181 @@
+{
+  "schema": "vision.architecture_sources/v1",
+  "weights_included": false,
+  "sources": [
+    {
+      "revision": "ab21e3b1b5d7af73155b351e2eb4f0db2653432b",
+      "tag": "v8.4.177",
+      "url": "https://codeload.github.com/ultralytics/ultralytics/zip/ab21e3b1b5d7af73155b351e2eb4f0db2653432b",
+      "archive_sha256": "01adc01d1d0c3f65fedd0037bdbdf61f58610b17607b3bcc572556abed15d4d6",
+      "archive_bytes": 3705213,
+      "license_sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+      "files": [
+        {
+          "path": "ultralytics/cfg/models/11/yolo11-cls.yaml",
+          "sha256": "d7b97919d37e56cb782ef69fb0adbeaba2e2f555fd52551c4f90a50ad8a4c1e1"
+        },
+        {
+          "path": "ultralytics/cfg/models/11/yolo11-obb.yaml",
+          "sha256": "147a3bc56ae129d3760419f6c5d674f7d4f635ca9c5098aec90d1aeb376faea6"
+        },
+        {
+          "path": "ultralytics/cfg/models/11/yolo11-pose.yaml",
+          "sha256": "756393f55051c43f21fa39900b4a9610ebc5bf2c750946b4b5e92dd6439dbe69"
+        },
+        {
+          "path": "ultralytics/cfg/models/11/yolo11-seg.yaml",
+          "sha256": "c724d65611684accc5d4b84d108ce7216f1018a535cf410022f929e0ec18b65b"
+        },
+        {
+          "path": "ultralytics/cfg/models/11/yolo11.yaml",
+          "sha256": "43d8a7c86acc77282ddf4966d6526e091e5b064c140ed4a6e4c0b68ecbc3784c"
+        },
+        {
+          "path": "ultralytics/cfg/models/12/yolo12-cls.yaml",
+          "sha256": "c8906e0ce5d160b6be2d08a91a42c14fdeee8ca4b25f1ef9e73b6ceb5d895567"
+        },
+        {
+          "path": "ultralytics/cfg/models/12/yolo12-obb.yaml",
+          "sha256": "d9c3c9295ee4535b616319e736c0893df58da13934976f590f6d94e174d7df04"
+        },
+        {
+          "path": "ultralytics/cfg/models/12/yolo12-pose.yaml",
+          "sha256": "781a3ef5bde8feabf7fa37ed802697d0579d78958e7ca1c32c93cf7c2330bbb3"
+        },
+        {
+          "path": "ultralytics/cfg/models/12/yolo12-seg.yaml",
+          "sha256": "d094ea4a3ca13932cd4c8ac81403aebba17bc90a8c92ad6ca2c70091266db33f"
+        },
+        {
+          "path": "ultralytics/cfg/models/12/yolo12.yaml",
+          "sha256": "65e03c2eeca62573cd8d9e719319191e4724b4368a0f35016f629cde008b0b5c"
+        },
+        {
+          "path": "ultralytics/cfg/models/26/yolo26-cls.yaml",
+          "sha256": "1a668bbe707ad97eabf7f999c29c746f62d3458217cd562a4aa47731ccb7dfa8"
+        },
+        {
+          "path": "ultralytics/cfg/models/26/yolo26-obb.yaml",
+          "sha256": "03d360e6764ea30ef8b5891e8f1a15c86076c33b488bf72e36ac58aea0794f7f"
+        },
+        {
+          "path": "ultralytics/cfg/models/26/yolo26-p2.yaml",
+          "sha256": "0dbc2fa3dfede5edcda2566ab8c7ea150ad066ea29d79e68d6c4da2bab476279"
+        },
+        {
+          "path": "ultralytics/cfg/models/26/yolo26-p6.yaml",
+          "sha256": "78c459986c4482363b5fa3c0c11575bd525c1338c0681deef277c6dbf193925d"
+        },
+        {
+          "path": "ultralytics/cfg/models/26/yolo26-pose.yaml",
+          "sha256": "07ba82d9637023f261e526c38fa9aeb8ab05d911766ffd8cf4f48cd33f27188d"
+        },
+        {
+          "path": "ultralytics/cfg/models/26/yolo26-seg.yaml",
+          "sha256": "53c0348a36a3e19bbc3bd4f695f50cbbfc97a3059f62e9b251f278ad74fdd7cb"
+        },
+        {
+          "path": "ultralytics/cfg/models/26/yolo26.yaml",
+          "sha256": "b1d1fa0c69eced64f9939536038bd8d697c32e72200b34187a767de431af7ef0"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-cls.yaml",
+          "sha256": "1b9d269f0f82d125ab669665e70ce8bf576e81d8d930ceb34f7d2de5c42b7094"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-ghost-p2.yaml",
+          "sha256": "e4c5fc0f7ffc9648fd68a570a40202d4f64068ca1316cfd6abe5d9513567f4f5"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-ghost-p6.yaml",
+          "sha256": "73b6189c43f1dafaf01e36e0af8a3f43d7ff348d97d5dc7632b2e8f7178ebd77"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-ghost.yaml",
+          "sha256": "9f1cc896f9ed15a8c76eee0337cba3131eb93d11209fba340dde9c1e9f291d23"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-obb.yaml",
+          "sha256": "3b0967731e6978a053368df18646d5c73ff5aa5cd5251e19db335ea11fcd0f18"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-p2.yaml",
+          "sha256": "ba54363e9f283e8f60b0fa0843eb37115093338d6f9273ccd4f74f60639754f4"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-p6.yaml",
+          "sha256": "4ea22c6bc80d116d382a674bc710bdaea85decf087954aa4ce8883c673138a8d"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-pose-p6.yaml",
+          "sha256": "b5f81f62b6d5bb96e25825a6753651afb6510bece5033c9cb11c9a25b0ed2358"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-pose.yaml",
+          "sha256": "2ddcdb8885649d940c2d8076c33087aae97736295f2a9e27c7949d68642c17ab"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-seg-p6.yaml",
+          "sha256": "ec594d958fac07c6c2715b72d877ff9d80fc7f1669b2a693806c537da73c0d12"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8-seg.yaml",
+          "sha256": "8457a23855704d5e33bf4f08ae64c8bb325c519998918ed2222da8577db67ba5"
+        },
+        {
+          "path": "ultralytics/cfg/models/v8/yolov8.yaml",
+          "sha256": "405a3c302eb6096103a99af4d82c1d2d8b2bbff469a228c55aac944b2c19672a"
+        }
+      ]
+    },
+    {
+      "revision": "915bbf294bb74c859f0b41f1c23bc395014ea679",
+      "url": "https://codeload.github.com/ultralytics/yolov5/zip/915bbf294bb74c859f0b41f1c23bc395014ea679",
+      "archive_sha256": "5aac5c8c40f89831fee611621b5ef3dbd7a7633278713b4dd0d059e1a631c7b0",
+      "archive_bytes": 1055207,
+      "license_sha256": "7fa7e56c0db71105f4b59a6a0ac40225eb059876f85cd380383f7d7a066e68be",
+      "files": [
+        {
+          "path": "models/yolov5n.yaml",
+          "sha256": "9e5d25e66a8e408b8428cb0cb9b48f45fbd0093566fb0c0114773a8f5fc1baa8"
+        },
+        {
+          "path": "models/hub/yolov5n6.yaml",
+          "sha256": "cc00f8c86f0b0c8309c0994f192a61202f26514b872429ee180298e15cb2f772"
+        },
+        {
+          "path": "models/yolov5s.yaml",
+          "sha256": "d17de90c1a69a54d95b56d710d3688557b1ca7817558931630c6c7052c47f258"
+        },
+        {
+          "path": "models/hub/yolov5s6.yaml",
+          "sha256": "13331cb2319985e7f2004ffca921a0b5c8c1aa600cd47895e78f457f207b5f18"
+        },
+        {
+          "path": "models/yolov5m.yaml",
+          "sha256": "9e0aa9c1a1f4cc6b8bdae69c30dea4885ae650ce2b82bb36937ef18ce716dce0"
+        },
+        {
+          "path": "models/hub/yolov5m6.yaml",
+          "sha256": "23287a049b8bd467a7079d6f99bbb7747905149ef4c09388db3a3c8621cd80fd"
+        },
+        {
+          "path": "models/yolov5l.yaml",
+          "sha256": "4533369c6f575c263961cb70aa6b0b6b09f4c484151512f2941f16fa0e982990"
+        },
+        {
+          "path": "models/hub/yolov5l6.yaml",
+          "sha256": "f20b45c88dd01ddf57610a2d1e68505b048bfbcc256f847c0f6b50263eedd6a8"
+        },
+        {
+          "path": "models/yolov5x.yaml",
+          "sha256": "44423f2b3689f66554e3bb332f7d5b6530dd34f28f229522e44511675d468d72"
+        },
+        {
+          "path": "models/hub/yolov5x6.yaml",
+          "sha256": "0bb6562d496a0c0c34b2638819bac4585950c679b9cffa897b90f1a10e33480f"
+        }
+      ]
+    }
+  ]
+}

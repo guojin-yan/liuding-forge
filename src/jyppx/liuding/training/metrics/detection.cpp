@@ -331,6 +331,7 @@ DetectionSummary DetectionAveragePrecisionMetric::summarize(
     auto& c = result.per_class[cls];
     c.ap_by_iou.resize(o.iou_thresholds.size());
     c.recall_by_iou.resize(o.iou_thresholds.size());
+    c.precision_by_iou.resize(o.iou_thresholds.size());
     std::vector<Ref> refs;
     // Count first so sort storage has exact requested capacity, without growth
     // copies.
@@ -404,6 +405,7 @@ DetectionSummary DetectionAveragePrecisionMetric::summarize(
       const auto ap =
           std::accumulate(precision.begin(), precision.end(), 0.) / 101.;
       c.ap_by_iou[k] = ap;
+      c.precision_by_iou[k] = precision;
       ap_sum += ap;
     }
     c.average_precision = ap_sum / static_cast<double>(o.iou_thresholds.size());

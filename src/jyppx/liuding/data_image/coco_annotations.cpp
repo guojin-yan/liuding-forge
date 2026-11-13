@@ -248,6 +248,11 @@ AnnotationIndex ReadCoco(const Json& document, AnnotationFormat format,
       }
       if (source.contains("segmentation"))
         Segmentation(source.at("segmentation"), object, image, state);
+      if(source.contains("oriented_bbox")) {
+        const auto& corners=source.at("oriented_bbox");Array(corners);if(corners.size()!=8)Malformed("coco.oriented_bbox");state.Points(4);
+        std::array<ImagePoint,4> points;for(std::size_t i=0;i<4;++i){points[i]={Number(corners[2*i]),Number(corners[2*i+1])};Point(points[i],image);}
+        ValidatePolygon(std::vector<ImagePoint>(points.begin(),points.end()),state);object.oriented_box=points;
+      }
       if (format == AnnotationFormat::coco_keypoints) {
         const auto& points = source.at("keypoints");
         Array(points);
@@ -274,7 +279,7 @@ AnnotationIndex ReadCoco(const Json& document, AnnotationFormat format,
           Malformed("coco.num_keypoints");
       }
       if (!object.box && object.polygons.empty() && !object.rle &&
-          object.keypoints.empty() && !panoptic)
+          object.keypoints.empty() && !object.oriented_box && !panoptic)
         Malformed("coco.object_geometry");
       image.objects.push_back(std::move(object));
     };

@@ -15,6 +15,7 @@
 #include <torch/nn/modules/linear.h>
 #include <torch/nn/pimpl.h>
 
+#include <array>
 #include <cstdint>
 #include <vector>
 namespace jyppx::liuding::models {
@@ -30,6 +31,8 @@ enum class ResNetVariant : std::uint8_t {
 struct ResNetOptions {
   std::int64_t num_classes = 1000;  ///< Zero returns the pooled embedding.
   std::int64_t input_channels = 3;  ///< Positive stem input width.
+  std::array<bool,3> replace_stride_with_dilation{false,false,false};
+  ///< Bottleneck stages 2/3/4 can retain resolution with atrous convolution.
   bool zero_init_residual = false;  ///< Zero final residual BN scale.
 };
 /** @brief Trainable torchvision-style ResNet18/34/50/101 and ResNeXt50. */

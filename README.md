@@ -4,7 +4,9 @@
 
 六丁炼算（Liuding Forge）是一个基于 LibTorch 的 C++20 深度学习训练框架，面向需要原生 C++ 训练、可恢复生命周期、本地实验和交付工具的工程团队。
 
-> 当前状态：项目仍处于 v1.0 开发阶段。已有功能和验证结果只代表对应的代码范围与环境，不代表正式 GA 发布或与 PyTorch 全面等价。
+> 当前状态：此独立开发版本为 `2.0.0-preview.1`，在原训练框架上加入多模型训练套件。已有功能和验证结果只代表对应的代码范围与环境，完整质量、设备及发布验收仍待完成。
+
+[视觉训练套件](docs/api/vision/index.md)提供原始 YOLOv5 P5/P6、YOLOv8/11/12/26、Faster/Fast R-CNN、FCOS/RetinaNet/SSD/RT-DETR、YOLO-World/YOLOE、语义分割/深度、SimMIM/ReID 和既有骨干分类的统一 C++ API/CLI，覆盖数据转换与增强、训练/续训、验证/预测、调参、权重转换和 ONNX 导出。模型包均可关闭；配方模板位于 [recipes/vision/suite](recipes/vision/suite/)。当前不附带预训练权重，不以可实例化或编译通过宣称全模型精度和部署资格。
 
 ## 项目定位
 

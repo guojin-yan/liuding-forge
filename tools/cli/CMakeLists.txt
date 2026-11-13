@@ -1,13 +1,5 @@
 # Product tools are composed here, outside the library component graph.
-find_package(Threads REQUIRED)
-add_library(jyppx_cli_transport STATIC
-    sidecar_process.cpp
-    native_telemetry_protocol.cpp)
-set_target_properties(jyppx_cli_transport PROPERTIES
-    OUTPUT_NAME liuding-forge-cli-transport)
-target_include_directories(jyppx_cli_transport PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(jyppx_cli_transport PUBLIC jyppx::liuding::experiment Threads::Threads)
-target_link_libraries(jyppx_cli_transport PRIVATE nlohmann_json::nlohmann_json)
+include("${CMAKE_CURRENT_SOURCE_DIR}/Transport.cmake")
 
 add_library(jyppx_cli_objects OBJECT
     cli_main.cpp

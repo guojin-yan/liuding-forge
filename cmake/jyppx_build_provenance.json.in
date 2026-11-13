@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "project_version": "@PROJECT_VERSION@",
+  "project_version": "@JYPPX_LIUDING_VERSION@",
   "git_commit": "@JYPPX_GIT_COMMIT@",
   "dependency_lock_sha256": "@JYPPX_DEPENDENCY_LOCK_DIGEST@",
   "configuration": "$<CONFIG>"

@@ -1,0 +1,22 @@
+{
+  "schema": "vision.dataset/v1",
+  "image_root": "images",
+  "categories": [
+    "cat",
+    "dog",
+    "bird"
+  ],
+  "label_space_id": "animals/v1",
+  "images": [
+    {
+      "image": "sample.jpg",
+      "width": 640,
+      "height": 480,
+      "labels": [
+        1,
+        0,
+        -1
+      ]
+    }
+  ]
+}

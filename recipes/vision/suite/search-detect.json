@@ -1,0 +1,40 @@
+{
+  "trials": 20,
+  "seed": 17,
+  "evolution": true,
+  "elite_size": 5,
+  "objective": "validation.map",
+  "maximize": true,
+  "space": [
+    {
+      "field": "learning_rate",
+      "distribution": "log_uniform",
+      "lower": 0.0001,
+      "upper": 0.01
+    },
+    {
+      "field": "weight_decay",
+      "distribution": "log_uniform",
+      "lower": 1e-05,
+      "upper": 0.001
+    },
+    {
+      "field": "mosaic",
+      "distribution": "uniform",
+      "lower": 0.0,
+      "upper": 0.8
+    },
+    {
+      "field": "hsv_s",
+      "distribution": "uniform",
+      "lower": 0.2,
+      "upper": 0.8
+    },
+    {
+      "field": "close_epochs",
+      "distribution": "integer",
+      "lower": 0,
+      "upper": 15
+    }
+  ]
+}

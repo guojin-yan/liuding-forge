@@ -66,6 +66,8 @@ struct ImageBatchItem {
       geometry;  ///< Source-to-canvas coordinate trace.
   std::optional<ImageBatchMaskInfo>
       mask;  ///< Discrete mask's source semantics.
+  std::shared_ptr<const VisionTaskPayload> task_payload;
+  ///< Typed tensor targets, transferred with the same ImageBatch value.
 };
 
 /** @brief Per-call tensor payload and host metadata limits, excluding input. */

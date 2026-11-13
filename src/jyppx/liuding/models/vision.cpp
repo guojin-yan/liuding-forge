@@ -63,12 +63,12 @@ class BasicBlock final : public torch::nn::Module {
 class Bottleneck final : public torch::nn::Module {
  public:
   Bottleneck(std::int64_t in, std::int64_t planes, std::int64_t stride,
-             std::int64_t groups, std::int64_t base_width) {
+             std::int64_t groups, std::int64_t base_width, std::int64_t dilation=1) {
     const auto width = planes * base_width / 64 * groups;
     conv1 = register_module("conv1", Conv(in, width, 1));
     bn1 = register_module("bn1", torch::nn::BatchNorm2d(width));
     // torchvision v1.5 puts the downsampling stride in the 3x3 convolution.
-    conv2 = register_module("conv2", Conv(width, width, 3, stride, groups));
+    conv2 = register_module("conv2", torch::nn::Conv2d(torch::nn::Conv2dOptions(width,width,3).stride(stride).padding(dilation).dilation(dilation).groups(groups).bias(false)));
     bn2 = register_module("bn2", torch::nn::BatchNorm2d(width));
     conv3 = register_module("conv3", Conv(width, planes * 4, 1));
     bn3 = register_module("bn3", torch::nn::BatchNorm2d(planes * 4));
@@ -92,13 +92,13 @@ class Bottleneck final : public torch::nn::Module {
 torch::nn::Sequential Stage(bool bottleneck, std::int64_t& input,
                             std::int64_t planes, std::int64_t count,
                             std::int64_t stride, std::int64_t groups = 1,
-                            std::int64_t base_width = 64) {
+                            std::int64_t base_width = 64, std::int64_t dilation=1, std::int64_t previous_dilation=1) {
   torch::nn::Sequential result;
   for (std::int64_t i = 0; i < count; ++i) {
     const auto block_stride = i == 0 ? stride : 1;
     if (bottleneck)
       result->push_back(std::make_shared<Bottleneck>(
-          input, planes, block_stride, groups, base_width));
+          input, planes, block_stride, groups, base_width, i==0?previous_dilation:dilation));
     else
       result->push_back(
           std::make_shared<BasicBlock>(input, planes, block_stride));
@@ -283,15 +283,17 @@ ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
     layer1_ = register_module(
         "layer1",
         Stage(bottleneck, input, 64, schedule[0], 1, groups, base_width));
-    layer2_ = register_module(
-        "layer2",
-        Stage(bottleneck, input, 128, schedule[1], 2, groups, base_width));
-    layer3_ = register_module(
-        "layer3",
-        Stage(bottleneck, input, 256, schedule[2], 2, groups, base_width));
-    layer4_ = register_module(
-        "layer4",
-        Stage(bottleneck, input, 512, schedule[3], 2, groups, base_width));
+    std::int64_t dilation=1;
+    std::array<torch::nn::Sequential*,3> stages{&layer2_,&layer3_,&layer4_};
+    for(std::size_t i=0;i<3;++i) {
+      auto previous=dilation;auto stride=2;
+      if(options_.replace_stride_with_dilation[i]) {
+        if(!bottleneck)throw InvalidArgument("Dilated residual stages require bottleneck blocks");
+        dilation*=stride;stride=1;
+      }
+      *stages[i]=register_module("layer"+std::to_string(i+2),
+        Stage(bottleneck,input,128LL<<i,schedule[i+1],stride,groups,base_width,dilation,previous));
+    }
     embedding_dimension_ = input;
     if (options.num_classes > 0)
       fc_ =

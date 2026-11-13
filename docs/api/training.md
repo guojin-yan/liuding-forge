@@ -21,6 +21,8 @@ jyppx::liuding::training::Trainer trainer({
 
 `FitRequest` 绑定模型、优化器、数据管线、任务函数与执行策略。模型、每个优化器及 RNG 的 checkpoint participant 为必需项；scheduler、callbacks、outbox、诊断与其他任务 participant 可选，启用后一起保存恢复。
 
+`<jyppx/liuding/training/optimizer_update_participant.hpp>` 的 `OptimizerUpdateParticipant` 用于 EMA 等随完整优化器更新推进的派生状态。放入 `FitRequest::optimizer_update_participants` 后自动注册检查点，按 participant ID 排序，在全部优化器成功后、调度器和完成回调前执行一次。累积微批、丢弃的尾窗和 AMP overflow 跳步不调用；`completed_updates()` 在安全边界必须等于 `global_step`，执行角色绑定到 Trainer 拓扑。参与者异常会将运行置为 failed 并禁止保存；已经发生的优化器和派生状态写入不回滚。
+
 - `ModelAdapter` 校验模型输入输出 schema；`BatchMapper`、可选 `TargetMapper` 与 `StepFunction` 定义任务语义。
 - `BatchPipeline` 接受 map-style `DataPipeline` 或流式 `IterableDataPipeline`；训练与验证使用独立游标。
 - `TrainingStrategy` 负责设备、反向传播、清梯度、更新与 barrier。准备前优化器应无历史更新和原生状态；准备后不得改变参数 dtype/device。

@@ -9,8 +9,10 @@
 #include "panoptic_detail.hpp"
 
 #include <jyppx/liuding/data_image/image_dataset.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <algorithm>
+#include <span>
 #include <string_view>
 #include <system_error>
 #include <unordered_map>
@@ -222,8 +224,10 @@ std::filesystem::path ValidateRoot(const std::filesystem::path& root) {
 
 void ValidateIndex(const ManifestIndex& index) {
   if (index.task() != ManifestTask::classification &&
-      index.task() != ManifestTask::paired) {
-    Invalid("index.task", "a classification or paired-file manifest");
+      index.task() != ManifestTask::paired &&
+      index.task() != ManifestTask::images) {
+    Invalid("index.task",
+            "a classification, paired-file or image-only manifest");
   }
   const auto& categories = index.categories();
   for (const auto& record : index.records()) {
@@ -234,6 +238,9 @@ void ValidateIndex(const ManifestIndex& index) {
       for (const auto label : record.labels) {
         if (label >= categories.size()) Malformed("index.label", record.path);
       }
+    } else if (index.task() == ManifestTask::images) {
+      if (record.target_path || !record.labels.empty())
+        Malformed("index.images", record.path);
     } else if (!record.target_path || !record.labels.empty()) {
       Malformed("index.paired", record.path);
     }
@@ -241,6 +248,55 @@ void ValidateIndex(const ManifestIndex& index) {
 }
 
 }  // namespace
+
+ManifestIndex index_annotation_images(const AnnotationIndex& annotations,
+                                      std::size_t max_index_bytes,
+                                      std::stop_token stop) {
+  if (max_index_bytes == 0)
+    throw InvalidArgument("Image index byte bound must be positive");
+  ManifestIndex result;
+  result.task_ = ManifestTask::images;
+  result.digest_scope_ = ManifestDigestScope::annotation_image_inventory;
+  const AnnotationLimits limits;
+  detail::ValidateCategories(annotations.categories, limits);
+  if (annotations.images.size() > limits.max_images)
+    throw ResourceExhausted("Image-only index record bound exceeded");
+  std::unordered_set<std::string> paths;
+  std::size_t charged = 0;
+  std::string identity = "liuding.annotation-images/v1\n";
+  for (const auto& image : annotations.images) {
+    CheckStop(stop);
+    detail::Path(image.image_path, limits);
+    detail::Dimensions(image.width, image.height, limits);
+    detail::Add(charged, sizeof(ManifestRecord), max_index_bytes,
+                "image_index.bytes");
+    detail::Add(charged, image.image_path.size(), max_index_bytes,
+                "image_index.bytes");
+    if (!paths.insert(FoldAscii(image.image_path)).second)
+      Malformed("image_index.path_collision", image.image_path);
+    result.records_.push_back({.path = image.image_path});
+    identity += std::to_string(image.image_path.size()) + ":" +
+                image.image_path + ":" + std::to_string(image.width) + ":" +
+                std::to_string(image.height) + "\n";
+  }
+  result.source_sha256_ = sha256_hex(std::as_bytes(std::span(identity)));
+  CheckStop(stop);
+  return result;
+}
+
+ImageDataset::ImageDataset(std::filesystem::path root,
+                           AnnotationIndex annotations,
+                           ImageDatasetOptions options)
+    : ImageDataset(
+          std::move(root),
+          std::make_shared<const AnnotationIndex>(std::move(annotations)),
+          options) {}
+
+ImageDataset::ImageDataset(std::filesystem::path root,
+                           std::shared_ptr<const AnnotationIndex> annotations,
+                           ImageDatasetOptions options)
+    : ImageDataset(std::move(root), index_annotation_images(*annotations),
+                   annotations, options) {}
 
 ImageDataset::ImageDataset(std::filesystem::path root, ManifestIndex index,
                            ImageDatasetOptions options)
@@ -275,7 +331,9 @@ ImageDataset::ImageDataset(std::filesystem::path root, ManifestIndex index,
   if (options_.mask_target && index_.task() != ManifestTask::paired)
     Invalid("mask.task", "a paired manifest when mask_target is configured");
   if (options_.panoptic_target &&
-      (options_.mask_target || index_.task() != ManifestTask::classification ||
+      (options_.mask_target ||
+       (index_.task() != ManifestTask::classification &&
+        index_.task() != ManifestTask::images) ||
        !annotations_ ||
        annotations_->format != AnnotationFormat::coco_panoptic ||
        options_.panoptic_target->encoding != MaskEncoding::panoptic_rgb ||
@@ -287,10 +345,12 @@ ImageDataset::ImageDataset(std::filesystem::path root, ManifestIndex index,
       std::make_shared<const std::vector<VisionCategory>>(index_.categories());
 
   if (annotations_ == nullptr) return;
-  if (index_.task() != ManifestTask::classification ||
+  if ((index_.task() != ManifestTask::classification &&
+       index_.task() != ManifestTask::images) ||
       annotations_->categories.empty()) {
     Invalid("annotations.task",
-            "classification samples and a non-empty category map");
+            "classification/image-only samples and a non-empty object category "
+            "map");
   }
 
   categories_ = std::shared_ptr<const std::vector<VisionCategory>>(
@@ -356,7 +416,7 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
 
   const auto& record = index_.records()[index];
   const auto image_path = ResolveDatasetFile(root_, record.path);
-  auto decoded = read_image_file(image_path, options_.image, stop);
+  auto decoded = options_.image_reader?options_.image_reader(image_path,options_.image,stop):read_image_file(image_path, options_.image, stop);
 
   VisionSample sample;
   sample.image = std::move(decoded.tensor);
@@ -371,6 +431,9 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
   sample.categories = categories_;
   if (index < sample_annotations_.size()) {
     sample.annotation = sample_annotations_[index];
+  }
+  if(options_.decoded_sample_transform)sample=options_.decoded_sample_transform(std::move(sample),image_path,stop);
+  {
     if (sample.annotation != nullptr && sample.annotation->width != 0U &&
         sample.annotation->height != 0U &&
         (sample.annotation->width != sample.width ||

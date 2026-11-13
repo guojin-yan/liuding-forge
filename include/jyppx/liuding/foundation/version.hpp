@@ -22,8 +22,8 @@ namespace jyppx::liuding {
 
 /**
  * @brief Returns the complete semantic framework version.
- * @return A null-terminated process-lifetime string in `major.minor.patch`
- * format.
+ * @return A null-terminated process-lifetime semantic version string, including
+ * a prerelease suffix for development previews.
  */
 inline const char* version() noexcept { return JYPPX_VERSION; }
 

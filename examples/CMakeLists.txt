@@ -407,3 +407,34 @@ if(TARGET jyppx_cifar10_model_reload AND TARGET jyppx::liuding::experiment
     jyppx_apply_instrumentation(jyppx_cifar10_output_pipeline)
     jyppx_add_torch_runtime_dependency(jyppx_cifar10_output_pipeline)
 endif()
+if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo)
+    add_executable(jyppx_liuding_vision_catalog vision/catalog.cpp)
+    set_target_properties(jyppx_liuding_vision_catalog PROPERTIES OUTPUT_NAME liuding-forge-example-vision-catalog)
+    target_link_libraries(jyppx_liuding_vision_catalog PRIVATE jyppx::liuding::vision_tasks jyppx::liuding::models_yolo)
+    jyppx_apply_instrumentation(jyppx_liuding_vision_catalog)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_vision_catalog)
+    add_executable(jyppx_liuding_yolo_training vision/yolo_training.cpp)
+    set_target_properties(jyppx_liuding_yolo_training PROPERTIES
+        OUTPUT_NAME liuding-forge-example-yolo-training)
+    target_link_libraries(jyppx_liuding_yolo_training PRIVATE
+        jyppx::liuding::vision_tasks jyppx::liuding::models_yolo
+        jyppx::liuding::data_image jyppx::liuding::core jyppx::liuding::foundation
+        jyppx::liuding::data jyppx::liuding::nn jyppx::liuding::optim
+        jyppx::liuding::training jyppx::liuding::interop nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_liuding_yolo_training)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_yolo_training)
+endif()
+
+if(TARGET jyppx::liuding::models_vision AND TARGET jyppx::liuding::vision_tasks)
+    add_executable(jyppx_liuding_vision_extension_smoke EXCLUDE_FROM_ALL vision/extension_smoke.cpp)
+    target_link_libraries(jyppx_liuding_vision_extension_smoke PRIVATE
+        jyppx::liuding::vision_tasks jyppx::liuding::models_vision jyppx::liuding::vision_ops
+        jyppx::liuding::interop nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_liuding_vision_extension_smoke)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_vision_extension_smoke)
+    if(TARGET jyppx_liuding_onnx_runtime)
+        target_compile_definitions(jyppx_liuding_vision_extension_smoke PRIVATE JYPPX_VISION_SMOKE_ONNX=1)
+        target_link_libraries(jyppx_liuding_vision_extension_smoke PRIVATE jyppx::liuding::onnx_runtime)
+        jyppx_add_onnx_runtime_dependency(jyppx_liuding_vision_extension_smoke)
+    endif()
+endif()

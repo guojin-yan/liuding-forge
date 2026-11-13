@@ -24,6 +24,7 @@ namespace jyppx::liuding::models {
 
 /** @brief Construction settings; pretrained weights are loaded separately. */
 struct SwinOptions {
+  bool activation_recomputation = false;  ///< Pure attention blocks in training.
   std::int64_t num_classes = 1000;  ///< Classes in [0, 1000000]; zero embeds.
   std::int64_t input_channels = 3;  ///< Input channels in [1, 1024].
   bool dynamic_image_size = false;  ///< Accept patch-aligned images.
@@ -65,6 +66,12 @@ class SwinTinyImpl final : public torch::nn::Module {
    * @throws BackendError Underlying LibTorch computation failure.
    */
   Tensor forward(const Tensor& input);
+  /** @brief Injects a trainable mask token after patch embedding; mask is
+   * bool [B,H/4,W/4], token [1,1,1,96]. Undefined mask selects normal features. */
+  std::vector<Tensor> forward_masked_features(const Tensor& input,
+      const Tensor& mask, const Tensor& mask_token);
+  /** @brief Normalized final NCHW feature map for a SimMIM decoder. */
+  Tensor forward_masked_grid(const Tensor& input,const Tensor& mask,const Tensor& mask_token);
   /** @brief Replaces the Linear classifier; zero keeps only feature pooling.
    * @param num_classes Classes in [0, 1000000].
    * @note New weights are random and retain device, dtype and mode. Rebuild

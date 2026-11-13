@@ -23,9 +23,11 @@
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
 #include <jyppx/liuding/data_image/panoptic.hpp>
+#include <jyppx/liuding/data_image/task_payload.hpp>
 
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <stop_token>
@@ -70,6 +72,7 @@ struct VisionSample {
     swap(a.pixels, b.pixels);
     swap(a.paired_target_pixels, b.paired_target_pixels);
     swap(a.geometry, b.geometry);
+    swap(a.task_payload, b.task_payload);
   }
   /** @brief Replaces a sample only after its entire copy succeeds.
    * @param other Source sample; self-assignment preserves existing owners.
@@ -98,6 +101,8 @@ struct VisionSample {
   std::shared_ptr<ImageResourceLeaseSet> image_resource_leases;
   ///< Keeps the decoded input charged while this sample retains it.
   Tensor image;  ///< Owning decoded pixels or a shared source Tensor handle.
+  std::shared_ptr<const VisionTaskPayload> task_payload;
+  ///< Optional typed task targets, sharing the canonical sample lifetime.
   std::shared_ptr<ImageResourceLeaseSet> paired_target_resource_leases;
   ///< Keeps a decoded paired image charged while this sample retains it.
   std::optional<Tensor>
@@ -126,6 +131,10 @@ struct VisionSample {
 
 /** @brief Decode policies and alignment requirements for a dataset source. */
 struct ImageDatasetOptions {
+  std::function<VisionSample(VisionSample,const std::filesystem::path&,std::stop_token)> decoded_sample_transform;
+  ///< Optional per-read transform after annotations attach and before extent validation.
+  std::function<DecodedImage(const std::filesystem::path&,const ImageDecodeOptions&,std::stop_token)> image_reader;
+  ///< Optional deterministic decoder/cache; same source-pixel contract as read_image_file.
   std::shared_ptr<ImageResourceBudget> resource_budget;
   ///< Shared default for all image and mask decoder options in this source.
   ImageDecodeOptions
@@ -180,6 +189,18 @@ class ImageDataset final : public Dataset<VisionSample> {
   ImageDataset(std::filesystem::path root, ManifestIndex index,
                AnnotationIndex annotations, ImageDatasetOptions options = {});
 
+  /** @brief Creates an image-only source directly from canonical annotations.
+   * @param root Existing root for annotation-relative image paths.
+   * @param annotations Canonical class map and records defining sample order.
+   * @param options Existing image and optional panoptic decoding policies.
+   * @note Images are decoded lazily. Empty object lists remain valid negatives;
+   * classification labels are empty. No source format is required downstream.
+   * @throws InvalidArgument, IoError, SerializationError, ResourceExhausted
+   * Invalid root, annotation index, resource policy or task combination.
+   */
+  ImageDataset(std::filesystem::path root, AnnotationIndex annotations,
+               ImageDatasetOptions options = {});
+
   /** @brief Returns one decoded image sample.
    * @param index Zero-based index less than size().
    * @return Owned pixels and immutable indexed labels/annotations.
@@ -211,6 +232,11 @@ class ImageDataset final : public Dataset<VisionSample> {
   const ManifestIndex& index() const noexcept;
 
  private:
+  /** @brief Shares one canonical index while constructing its image manifest.
+   */
+  ImageDataset(std::filesystem::path root,
+               std::shared_ptr<const AnnotationIndex> annotations,
+               ImageDatasetOptions options);
   /** @brief Adopts validated source metadata shared by public constructors.
    * @param root Existing local dataset root.
    * @param index Immutable source order and class mapping.

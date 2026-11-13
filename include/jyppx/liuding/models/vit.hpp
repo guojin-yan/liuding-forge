@@ -31,6 +31,7 @@ enum class ViTVariant : std::uint8_t {
 
 /** @brief Construction settings; pretrained weights are loaded separately. */
 struct ViTOptions {
+  bool activation_recomputation = false;  ///< Pure attention blocks in training.
   std::int64_t num_classes = 1000;  ///< Classes in [0, 1000000]; zero embeds.
   std::int64_t input_channels = 3;  ///< Input channels in [1, 1024].
   bool dynamic_image_size =
@@ -62,6 +63,13 @@ class ViTImpl final : public torch::nn::Module {
    * @throws BackendError Underlying LibTorch computation failure.
    */
   Tensor forward_features(const Tensor& input);
+  /** @brief Patch tokens with interpolated positions, excluding CLS; for interleaved adapters. */
+  Tensor patch_tokens(const Tensor& input);
+  /** @brief Applies existing blocks [first,last), without final normalization or CLS. */
+  Tensor forward_block_range(const Tensor& tokens,std::int64_t first,std::int64_t last);
+  /** @brief Replaces patch embeddings before positions/attention. Mask bool
+   * [B,H/16,W/16], trainable token [1,1,D]; CLS is retained and unmasked. */
+  Tensor forward_masked_features(const Tensor& input,const Tensor& mask,const Tensor& mask_token);
 
   /** @brief Returns normalized patch tokens as an NCHW feature grid.
    * @param input Image batch satisfying the forward_features() contract.

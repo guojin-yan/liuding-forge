@@ -42,6 +42,8 @@ struct Budget {
 // annotation coordinates, source IDs, extents, offsets or geometry state.
 struct Writer {
   Budget budget;
+  bool extended_objects = false;
+  bool task_payloads = false;
   I Int(std::int64_t v) {
     budget.Node(8);
     return I(v);
@@ -139,13 +141,22 @@ struct Writer {
     for (const auto& p : o.keypoints)
       keypoints.push_back(
           Tuple({Real(p.point.x), Real(p.point.y), Int(p.visibility)}));
-    return Tuple({Int(o.source_id), Size(o.category), Box(o.box),
+    Values fields{Int(o.source_id), Size(o.category), Box(o.box),
                   List(std::move(polygons)), std::move(obb), std::move(rle),
                   List(std::move(keypoints)), o.area ? Real(*o.area) : None(),
                   o.mask_pixel_area ? Unsigned(*o.mask_pixel_area) : None(),
                   Bool(o.oriented_box_to_polygon), Bool(o.polygon_partitioned),
                   OptionalInt(o.group_id), Bool(o.crowd), Bool(o.ignore),
-                  Bool(o.difficult), Bool(o.truncated)});
+                  Bool(o.difficult), Bool(o.truncated)};
+    if(extended_objects) {
+      Values sources;
+      for(const auto& s:o.augmentation_sources) {
+        Values matrix;for(auto v:s.matrix)matrix.push_back(Real(v));
+        sources.push_back(Tuple({String(s.image_path),Int(s.object_id),Real(s.weight),Tuple(std::move(matrix))}));
+      }
+      fields.push_back(List(std::move(sources)));
+    }
+    return Tuple(std::move(fields));
   }
   I Annotation(const std::shared_ptr<const VisionAnnotationRecord>& r) {
     if (!r) return None();
@@ -180,13 +191,15 @@ struct Writer {
   I Item(const ImageBatchItem& item) {
     if (item.key.id.empty() || item.key.id.size() > 4096)
       InvalidBatch("batch.sample_id");
-    return Tuple({String(item.key.id), Unsigned(item.key.occurrence),
+    Values fields{String(item.key.id), Unsigned(item.key.occurrence),
                   Unsigned(item.key.view), Int(item.valid_extent.width),
                   Int(item.valid_extent.height), String(item.image_path),
                   OptionalString(item.target_path),
                   Categories(item.label_categories),
                   Categories(item.categories), Annotation(item.annotation),
-                  Trace(item.geometry), Mask(item.mask)});
+                  Trace(item.geometry), Mask(item.mask)};
+    if (task_payloads) fields.push_back(item.task_payload ? task_payload_value(*item.task_payload) : None());
+    return Tuple(std::move(fields));
   }
 };
 
@@ -207,7 +220,7 @@ ValueSchema List(ValueSchema entry) {
   return ValueSchema::list(std::move(entry));
 }
 
-ValueSchema ItemSchema() {
+ValueSchema ItemSchema(bool extended_objects = false, bool task_payloads = false) {
   const auto integer = Kind(ValueKind::integer),
              real = Kind(ValueKind::floating),
              boolean = Kind(ValueKind::boolean),
@@ -217,13 +230,19 @@ ValueSchema ItemSchema() {
   const auto category = Tuple({integer, string, boolean, List(string),
                                List(Tuple({integer, integer}))});
   const auto categories = Optional(List(category));
-  const auto object =
+  auto object =
       Tuple({integer, integer, box, List(List(point)),
              Optional(Tuple({point, point, point, point})),
              Optional(Tuple({integer, integer, List(integer)})),
              List(Tuple({real, real, integer})), Optional(real),
              Optional(integer), boolean, boolean, Optional(integer), boolean,
              boolean, boolean, boolean});
+  if(extended_objects) {
+    const auto matrix=Tuple({real,real,real,real,real,real,real,real,real});
+    object=Tuple({integer,integer,box,List(List(point)),Optional(Tuple({point,point,point,point})),
+      Optional(Tuple({integer,integer,List(integer)})),List(Tuple({real,real,integer})),Optional(real),Optional(integer),boolean,boolean,
+      Optional(integer),boolean,boolean,boolean,boolean,List(Tuple({string,integer,real,matrix}))});
+  }
   const auto annotation =
       Optional(Tuple({integer, string, integer, integer, List(object),
                       Optional(string), boolean}));
@@ -234,9 +253,11 @@ ValueSchema ItemSchema() {
       Optional(Tuple({integer, integer, boolean,
                       List(Tuple({integer, integer, integer, integer})),
                       Optional(integer), Optional(integer)}));
-  return Tuple({string, integer, integer, integer, integer, string,
+  std::vector<ValueSchema> fields{string, integer, integer, integer, integer, string,
                 Optional(string), categories, categories, annotation, trace,
-                mask});
+                mask};
+  if (task_payloads) fields.push_back(Optional(task_payload_schema()));
+  return Tuple(std::move(fields));
 }
 
 // Accessors are used only after the complete ValueSchema has accepted types
@@ -355,6 +376,10 @@ VisionObject Object(const I& v) {
   o.ignore = a[13].toBool();
   o.difficult = a[14].toBool();
   o.truncated = a[15].toBool();
+  if(a.size()==17)for(const auto& entry:a[16].toListRef()) {
+    const auto& s=Fields(entry);ObjectSourceMapping mapping;mapping.image_path=s[0].toStringRef();mapping.object_id=s[1].toInt();mapping.weight=s[2].toDouble();
+    const auto& matrix=Fields(s[3]);for(std::size_t i=0;i<9;++i)mapping.matrix[i]=matrix[i].toDouble();o.augmentation_sources.push_back(std::move(mapping));
+  }
   return o;
 }
 std::shared_ptr<const VisionAnnotationRecord> Annotation(const I& v) {
@@ -415,6 +440,7 @@ ImageBatchItem Item(const I& v) {
   item.annotation = Annotation(a[9]);
   item.geometry = Trace(a[10]);
   item.mask = Mask(a[11]);
+  if (a.size() == 13 && !a[12].isNone()) item.task_payload = task_payload_from_value(a[12]);
   return item;
 }
 
@@ -462,7 +488,7 @@ std::vector<Tensor> Tensors(const I& v) {
 
 data::BatchSchema Schema(ImageBatchLayout layout, const PixelSpec& pixels,
                          const std::optional<PixelSpec>& paired, bool masks,
-                         Device device) {
+                         Device device,bool extended_objects = false, bool task_payloads = false) {
   const bool ragged = layout == ImageBatchLayout::ragged;
   const auto tensor = [&](Dtype dtype, int rank, bool photo = false,
                           int channels = 0) {
@@ -499,7 +525,7 @@ data::BatchSchema Schema(ImageBatchLayout layout, const PixelSpec& pixels,
        {"valid", tensor(torch::kBool, ragged ? 2 : 3)},
        {"labels", labels},
        {"label_offsets", List(Kind(ValueKind::integer))},
-       {"items", List(ItemSchema())}},
+       {"items", List(ItemSchema(extended_objects, task_payloads))}},
       false);
   const auto semantics = [](const PixelSpec& p) {
     return std::to_string(static_cast<int>(p.color)) + ":" +
@@ -511,7 +537,16 @@ data::BatchSchema Schema(ImageBatchLayout layout, const PixelSpec& pixels,
       ":" + semantics(pixels) +
       ":paired=" + (paired ? semantics(*paired) : "none") +
       ":mask=" + (masks ? "int64" : "none");
-  return {"liuding.image-batch", 1, std::move(root)};
+  if(extended_objects)root.semantic_tag+=";object-provenance-v1";
+  if(task_payloads)root.semantic_tag+=";task-payload-v1";
+  return {"liuding.image-batch", task_payloads?3U:extended_objects?2U:1U, std::move(root)};
+}
+bool Extended(const ImageBatch& batch) {
+  for(const auto& item:batch.items)if(item.annotation)for(const auto& object:item.annotation->objects)if(!object.augmentation_sources.empty())return true;
+  return false;
+}
+bool TaskPayloads(const ImageBatch& batch) {
+  return std::any_of(batch.items.begin(),batch.items.end(),[](const auto& item){return bool(item.task_payload);});
 }
 }  // namespace
 
@@ -520,13 +555,15 @@ c10::IValue image_batch_value(const ImageBatch& batch,
   try {
     detail::CheckImageBatch(batch, limits);
     Writer w{{limits}};
+    w.task_payloads=TaskPayloads(batch);
+    w.extended_objects=Extended(batch)||w.task_payloads;
     Values items, offsets;
     for (const auto& item : batch.items) items.push_back(w.Item(item));
     for (const auto offset : batch.label_offsets)
       offsets.push_back(w.Int(offset));
     const bool ragged = batch.layout == ImageBatchLayout::ragged;
     c10::impl::GenericDict value(c10::StringType::get(), c10::AnyType::get());
-    value.insert("format", w.Int(1));
+    value.insert("format", w.Int(w.task_payloads?3:w.extended_objects?2:1));
     value.insert("layout", w.Int(static_cast<std::int64_t>(batch.layout)));
     value.insert("pixels", w.Pixels(batch.pixels));
     value.insert("paired_pixels", batch.paired_pixels
@@ -568,7 +605,7 @@ ImageBatch image_batch_from_value(const c10::IValue& value,
       if (!dict.contains(key)) InvalidBatch("batch.value_field");
       return dict.at(key);
     };
-    if (!get("format").isInt() || get("format").toInt() != 1 ||
+    if (!get("format").isInt() || (get("format").toInt() < 1 || get("format").toInt() > 3) ||
         !get("layout").isInt())
       InvalidBatch("batch.value_version");
     const auto mode = get("layout").toInt();
@@ -601,7 +638,7 @@ ImageBatch image_batch_from_value(const c10::IValue& value,
     }
     validate_batch_value(value,
                          Schema(b.layout, b.pixels, b.paired_pixels,
-                                !get("masks").isNone(), device),
+                                !get("masks").isNone(), device,get("format").toInt()>=2,get("format").toInt()==3),
                          schema_limits);
     if (b.layout == ImageBatchLayout::ragged) {
       b.image_list = Tensors(images);
@@ -677,6 +714,8 @@ data::BatchStageResourceFactory make_image_batch_stage_resource_factory(
                                 &batch.mask_list, &batch.valid_list})
       for (const auto& tensor : *tensors)
         allocates = allocates || changes(tensor);
+    for (const auto& item : batch.items) if (item.task_payload)
+      for (const auto& tensor : item.task_payload->tensors()) allocates = allocates || changes(tensor);
     if (!allocates) return {};
     const detail::BatchResourceProjection projection{
         .pin_host =
@@ -724,7 +763,7 @@ data::BatchSchema image_batch_schema(const ImageBatch& batch, Device device) {
       batch.layout != ImageBatchLayout::ragged)
     InvalidBatch("batch.layout");
   return Schema(batch.layout, batch.pixels, batch.paired_pixels,
-                batch.masks.has_value() || !batch.mask_list.empty(), device);
+                batch.masks.has_value() || !batch.mask_list.empty(), device,Extended(batch)||TaskPayloads(batch),TaskPayloads(batch));
 }
 
 ImageBatch prepare_image_batch(const ImageBatch& batch,

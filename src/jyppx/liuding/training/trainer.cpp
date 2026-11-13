@@ -18,6 +18,7 @@
 #include <jyppx/liuding/training/checkpoint_coordinator.hpp>
 #include <jyppx/liuding/training/diagnostics.hpp>
 #include <jyppx/liuding/training/event_sink.hpp>
+#include <jyppx/liuding/training/optimizer_update_participant.hpp>
 #include <jyppx/liuding/training/scheduler_adapter.hpp>
 #include <jyppx/liuding/training/strategy.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
@@ -569,6 +570,15 @@ std::vector<std::byte> encode_topology(
   for (const auto& participant_id : participant_ids) {
     append_string(output, participant_id);
   }
+  // Preserve the existing no-hook topology byte for byte. Domains with hooks
+  // additionally bind their execution role, not just their registry presence.
+  if (!request.optimizer_update_participants.empty()) {
+    append_string(output, "optimizer-update-participants/v1");
+    append_u64(output, request.optimizer_update_participants.size());
+    for (const auto& participant : request.optimizer_update_participants) {
+      append_string(output, participant->participant_id());
+    }
+  }
   return output;
 }
 
@@ -688,7 +698,13 @@ struct Trainer::Impl {
     return prepared && state.pending_micro_steps == 0U &&
            !state.validation_active && state.phase != TrainerPhase::created &&
            state.phase != TrainerPhase::failed &&
-           state.phase != TrainerPhase::closed;
+           state.phase != TrainerPhase::closed &&
+           std::all_of(request.optimizer_update_participants.begin(),
+                       request.optimizer_update_participants.end(),
+                       [this](const auto& participant) {
+                         return participant->completed_updates() ==
+                                state.global_step;
+                       });
   }
 
   void accept_command(const CallbackDispatchResult& result,
@@ -1017,6 +1033,15 @@ struct Trainer::Impl {
       request.gradient_scaler->update();
     }
     checked_increment(state.global_step, "trainer.global_step");
+    for (const auto& participant : request.optimizer_update_participants) {
+      participant->on_optimizer_update(state.global_step);
+      if (participant->completed_updates() != state.global_step) {
+        throw_incompatible("optimizer.update_participant",
+                           std::to_string(state.global_step),
+                           participant->participant_id(),
+                           "Advance task state exactly once per update.");
+      }
+    }
     state.pending_micro_steps = 0;
     zero_grad_all();
     step_schedulers(optim::SchedulerStepMode::batch);
@@ -1060,6 +1085,14 @@ struct Trainer::Impl {
              std::move(batch_metrics), stop);
       }
       auto values = finish_metrics(aggregate);
+      if (!stop.stop_requested() && request.validation_summary) {
+        const auto summary = request.validation_summary(stop);
+        validate_metric_map(summary, options, "validation.summary");
+        for (const auto& [name, value] : summary) {
+          if (!values.emplace(name, value).second)
+            throw InvalidArgument("Full-split validation metric duplicates a batch metric: " + name);
+        }
+      }
       values = request.strategy->reduce_metrics(values);
       validate_metric_map(values, options, "validation.metrics");
       emit(CallbackEventKind::validation_finished, CallbackPhase::validation,
@@ -1262,6 +1295,35 @@ void Trainer::prepare(FitRequest request) {
   if (!request.callbacks) {
     request.callbacks = std::make_shared<CallbackDispatcher>();
   }
+  if (request.optimizer_update_participants.size() >
+      impl_->options.checkpoint.max_participants) {
+    throw_exhausted(
+        "prepare.update_participants", "bounded participant count",
+        std::to_string(request.optimizer_update_participants.size()),
+        "Reduce successful-update participants.");
+  }
+  std::set<std::string> update_ids;
+  for (const auto& participant : request.optimizer_update_participants) {
+    if (!participant) {
+      throw_invalid("prepare.update_participant", "a non-null participant",
+                    "null", "Bind complete successful-update participants.");
+    }
+    const auto id = participant->participant_id();
+    if (!is_identifier(id) || id.size() > impl_->options.max_identifier_bytes ||
+        !update_ids.insert(id).second) {
+      throw_invalid("prepare.update_participant_id", "unique bounded identity",
+                    id, "Assign each update participant a distinct identity.");
+    }
+    if (participant->completed_updates() != 0) {
+      throw_not_ready("prepare.update_participant", "a fresh zero-step state",
+                      id, "Restore state only through the coordinator.");
+    }
+  }
+  std::sort(request.optimizer_update_participants.begin(),
+            request.optimizer_update_participants.end(),
+            [](const auto& left, const auto& right) {
+              return left->participant_id() < right->participant_id();
+            });
 
   impl_->request = std::move(request);
   try {
@@ -1293,6 +1355,10 @@ void Trainer::prepare(FitRequest request) {
                                               impl_->request.callbacks);
     if (!impl_->request.additional_participants.empty()) {
       registry->register_participants(impl_->request.additional_participants);
+    }
+    for (const auto& participant :
+         impl_->request.optimizer_update_participants) {
+      registry->register_participant(participant);
     }
     std::vector<optim::OptimizerAdapter*> optimizers;
     optimizers.reserve(impl_->request.optimizers.size());
@@ -1355,6 +1421,16 @@ FitResult Trainer::fit_until(std::uint64_t absolute_step,
             std::to_string(binding.scheduler->scheduler().completed_steps()),
             "Restore Trainer and every scheduler state together.");
       }
+    }
+  }
+
+  for (const auto& participant : impl_->request.optimizer_update_participants) {
+    if (participant->completed_updates() != impl_->state.global_step) {
+      throw_incompatible(
+          "fit.update_participant." + participant->participant_id(),
+          std::to_string(impl_->state.global_step),
+          std::to_string(participant->completed_updates()),
+          "Restore Trainer and update participants together.");
     }
   }
 

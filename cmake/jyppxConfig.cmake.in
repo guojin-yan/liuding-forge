@@ -1,4 +1,6 @@
 @PACKAGE_INIT@
+set(jyppx_VERSION "@JYPPX_LIUDING_VERSION@")
+set(jyppx_VERSION_PRERELEASE "@JYPPX_LIUDING_VERSION_PRERELEASE@")
 
 include(CMakeFindDependencyMacro)
 find_dependency(Torch REQUIRED)
@@ -31,6 +33,11 @@ set(_jyppx_known_components
     data
     data_image
     vision_render
+    vision_ops
+    models_yolo
+    models_rcnn
+    models_vision
+    vision_tasks
     nn
     onnx_export
     onnx_runtime
@@ -72,7 +79,9 @@ foreach(_jyppx_exported_target IN ITEMS
         jyppx::liuding::models jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime
         jyppx::liuding::onnx_serving jyppx::liuding::bundle_signing
         jyppx::liuding::serving
-        jyppx::liuding::vision_render jyppx::liuding::all jyppx::liuding::sdk)
+        jyppx::liuding::vision_render jyppx::liuding::vision_ops
+        jyppx::liuding::models_yolo jyppx::liuding::models_rcnn jyppx::liuding::models_vision jyppx::liuding::vision_tasks
+        jyppx::liuding::all jyppx::liuding::sdk)
     if(TARGET ${_jyppx_exported_target})
         set_property(TARGET ${_jyppx_exported_target} APPEND
             PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")

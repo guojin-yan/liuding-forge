@@ -1,0 +1,369 @@
+{
+  "schema": "liuding.vision-extension-provenance/v1",
+  "references": [
+    {
+      "reference": "REF-TORCHVISION",
+      "repository": "https://github.com/pytorch/vision",
+      "revision": "7a9db90e9aadea3e3e1fec35969601167e9efd4f",
+      "declared_license": "BSD-3-Clause",
+      "licenses": [
+        {
+          "file": "vision-extensions/ref-torchvision-LICENSE",
+          "sha256": "6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d",
+          "size_bytes": 1517,
+          "url": "https://raw.githubusercontent.com/pytorch/vision/7a9db90e9aadea3e3e1fec35969601167e9efd4f/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "torchvision/models/detection/retinanet.py",
+          "sha256": "abe2588436b078d4e95b41cedddef0032591af343e4bdcda7eff54aae00ce817",
+          "size_bytes": 37281
+        },
+        {
+          "path": "torchvision/models/detection/fcos.py",
+          "sha256": "b316db1ea0dd0848ec828fa82028707197ac8f4bb7473ad287eba28feb693e28",
+          "size_bytes": 34216
+        },
+        {
+          "path": "torchvision/models/detection/ssd.py",
+          "sha256": "997913443d1742e549279140b7f38335c2d3cb1857f8e78367a2317660638979",
+          "size_bytes": 28960
+        },
+        {
+          "path": "torchvision/models/detection/roi_heads.py",
+          "sha256": "5a1d39d4a363bbbd4f798ede765f39b5b1d73e59af83d9e8c50e381a9ab974ec",
+          "size_bytes": 33821
+        },
+        {
+          "path": "torchvision/models/segmentation/fcn.py",
+          "sha256": "23516a6996553dcdc56e0ffb1362f9aa9ba69eea7105873b298b16d37106fc2b",
+          "size_bytes": 8973
+        },
+        {
+          "path": "torchvision/models/segmentation/deeplabv3.py",
+          "sha256": "5bddc3d66990bb055e43afd6ed3667f021142390f418a67fd9ab912a106207e4",
+          "size_bytes": 15042
+        }
+      ]
+    },
+    {
+      "reference": "REF-SIMMIM",
+      "repository": "https://github.com/microsoft/SimMIM",
+      "revision": "d3e29bcac950b83edc34ca33fe4404f38309052c",
+      "declared_license": "MIT",
+      "licenses": [
+        {
+          "file": "vision-extensions/ref-simmim-LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "size_bytes": 1141,
+          "url": "https://raw.githubusercontent.com/microsoft/SimMIM/d3e29bcac950b83edc34ca33fe4404f38309052c/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "README.md",
+          "sha256": "621c4195c618655839667854faa0d220295b79b0eb7b34c4cbd6c8596a0aa661",
+          "size_bytes": 9180
+        },
+        {
+          "path": "models/simmim.py",
+          "sha256": "585e4eb0760b12d20f6785e1ce7d6148e5ad16911b65eddf622aac5d123168fb",
+          "size_bytes": 6189
+        },
+        {
+          "path": "data/data_simmim.py",
+          "sha256": "78624b7b0cb2a60d83134bd7d337cbd4a50103eb53fb3a780adef750faadecba",
+          "size_bytes": 3858
+        }
+      ]
+    },
+    {
+      "reference": "REF-RTDETR",
+      "repository": "https://github.com/lyuwenyu/RT-DETR",
+      "revision": "df2a96c8c3a098567a1149bf0248da6efe6d495d",
+      "declared_license": "Apache-2.0",
+      "licenses": [
+        {
+          "file": "vision-extensions/ref-rtdetr-LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "size_bytes": 11357,
+          "url": "https://raw.githubusercontent.com/lyuwenyu/RT-DETR/df2a96c8c3a098567a1149bf0248da6efe6d495d/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "README.md",
+          "sha256": "599e90b38354c7c5cb7f7f1679454fd0537a608b5feab5703210ba79353f30c9",
+          "size_bytes": 8247
+        },
+        {
+          "path": "rtdetr_pytorch/src/zoo/rtdetr/rtdetr_decoder.py",
+          "sha256": "c2837740cb66f128b72e802463db57ee3653e15d964baa3b9cf58cc27a817588",
+          "size_bytes": 22727
+        },
+        {
+          "path": "rtdetr_pytorch/src/zoo/rtdetr/rtdetr_criterion.py",
+          "sha256": "54e0f25364bf5c52ae60f8f9363dd2df7d9274657d97a881a2757b7805b739df",
+          "size_bytes": 15622
+        },
+        {
+          "path": "rtdetr_pytorch/src/zoo/rtdetr/matcher.py",
+          "sha256": "7e364fbba500b0ab23e3e33b7430780cd8dcf4738bd3b961118a3b1f8acd020e",
+          "size_bytes": 4870
+        },
+        {
+          "path": "rtdetr_pytorch/configs/rtdetr/include/rtdetr_r50vd.yml",
+          "sha256": "1c771ee60ea276813c2745cd2f776004be7bdeaae6c022bb194ca8ea6a2e2786",
+          "size_bytes": 1324
+        },
+        {
+          "path": "rtdetr_pytorch/src/zoo/rtdetr/utils.py",
+          "sha256": "dc7f50339c308651b24a236718789e1575e7fc6a4c9f2915b15470bfc393c1ad",
+          "size_bytes": 3005
+        },
+        {
+          "path": "rtdetr_pytorch/src/zoo/rtdetr/hybrid_encoder.py",
+          "sha256": "54fcc5ffa03d52ea563a3487027e4afc0937886f4ded60b2de88beeff2a74ac4",
+          "size_bytes": 12183
+        },
+        {
+          "path": "rtdetr_pytorch/src/nn/backbone/presnet.py",
+          "sha256": "1faef37155a38d504e2ce3d569e09d8fbbf737c549d1fbb125cee9111fc7bc28",
+          "size_bytes": 6717
+        }
+      ]
+    },
+    {
+      "reference": "REF-FAST-RCNN",
+      "repository": "https://github.com/rbgirshick/fast-rcnn",
+      "revision": "b612190f279da3c11dd8b1396dd5e72779f8e463",
+      "declared_license": "MIT",
+      "licenses": [
+        {
+          "file": "vision-extensions/ref-fast-rcnn-LICENSE",
+          "sha256": "dbfe88113cb11c3ae7ec02f7d344e2f2745574eb96a18afcdc4580ede3c8dd3f",
+          "size_bytes": 1107,
+          "url": "https://raw.githubusercontent.com/rbgirshick/fast-rcnn/b612190f279da3c11dd8b1396dd5e72779f8e463/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "README.md",
+          "sha256": "8433804da0c3586a0f22340969e1422bf208278ed91d9133ee54cf30205ab1a8",
+          "size_bytes": 11451
+        },
+        {
+          "path": "lib/fast_rcnn/config.py",
+          "sha256": "943dbe815e9ce8d5ece2e46762c4d77a406347ea8d0634489bda209d92107a23",
+          "size_bytes": 6177
+        }
+      ]
+    },
+    {
+      "reference": "REF-TRACKEVAL",
+      "repository": "https://github.com/JonathonLuiten/TrackEval",
+      "revision": "12c8791b303e0a0b50f753af204249e622d0281a",
+      "declared_license": "MIT",
+      "licenses": [
+        {
+          "file": "vision-extensions/ref-trackeval-LICENSE",
+          "sha256": "f7e548c5729e464d878dd4abf691e323bbea028a756d08395d88b83e43dd2d86",
+          "size_bytes": 1072,
+          "url": "https://raw.githubusercontent.com/JonathonLuiten/TrackEval/12c8791b303e0a0b50f753af204249e622d0281a/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "Readme.md",
+          "sha256": "6b2e2bb28ff908a7de7add633d4f6b4b7a8587a9db6a9e8cfeb3cdc387d1f2f0",
+          "size_bytes": 13299
+        },
+        {
+          "path": "trackeval/metrics/hota.py",
+          "sha256": "c582255c3d36bdb49c3ceeb2a5bd912cee009190dfcfe465b4173d03aaa97d6a",
+          "size_bytes": 10504
+        },
+        {
+          "path": "trackeval/metrics/identity.py",
+          "sha256": "e76b1bdcbf5b193662431596a984cf70a5be32e903eb5f2a3d9921b4762f93ba",
+          "size_bytes": 6214
+        }
+      ]
+    },
+    {
+      "reference": "REF-VIT-ADAPTER",
+      "repository": "https://github.com/czczup/ViT-Adapter",
+      "revision": "fd64a5190f9f4530e8e5961cc87b2a3ad591190b",
+      "declared_license": "Apache-2.0",
+      "licenses": [
+        {
+          "file": "vision-extensions/ref-vit-adapter-LICENSE.md",
+          "sha256": "975bf0101f2ebeed2ff7c96438080f6df0cfaf4d17c456f64ddcf2d9fe6db56c",
+          "size_bytes": 10778,
+          "url": "https://raw.githubusercontent.com/czczup/ViT-Adapter/fd64a5190f9f4530e8e5961cc87b2a3ad591190b/LICENSE.md"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "README.md",
+          "sha256": "098b616f980a396dd71bf425b58ad5a024f2a2210849aa690469a2d1b95db0bc",
+          "size_bytes": 10644
+        },
+        {
+          "path": "detection/mmdet_custom/models/backbones/vit_adapter.py",
+          "sha256": "afab1b820315e0d30444ca0bb8dcc19aa9221398ac634431ef9ff29f4d629f99",
+          "size_bytes": 5574
+        },
+        {
+          "path": "detection/mmdet_custom/models/backbones/adapter_modules.py",
+          "sha256": "110ddd6b70616b8c6152ce1c86545eee5fa8d8b3df8ba303782e85b96359e266",
+          "size_bytes": 10721
+        }
+      ]
+    },
+    {
+      "reference": "REF-BYTETRACK",
+      "repository": "https://github.com/ifzhang/ByteTrack",
+      "revision": "d1bf0191adff59bc8fcfeaa0b33d3d1642552a99",
+      "declared_license": "MIT",
+      "licenses": [
+        {
+          "file": "vision-extensions/ref-bytetrack-LICENSE",
+          "sha256": "e9d83751678cbaba6dfba902ea39215c423d93425e58f8450d6001f7261696f9",
+          "size_bytes": 1067,
+          "url": "https://raw.githubusercontent.com/ifzhang/ByteTrack/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "README.md",
+          "sha256": "126d307a421e4421aa9d3917e7849d1cf63c95f7b36864e1ca92a9d1a451c247",
+          "size_bytes": 15448
+        },
+        {
+          "path": "yolox/tracker/byte_tracker.py",
+          "sha256": "7cecdcdd7998103969a4ba1772f4c9fb5560fd5eef05ca03e0d2df28346ca50b",
+          "size_bytes": 11940
+        },
+        {
+          "path": "yolox/tracker/kalman_filter.py",
+          "sha256": "9842d0dd9957c97e312d42e5789441add55082066d87cc051ac768143a46eb39",
+          "size_bytes": 9547
+        },
+        {
+          "path": "yolox/tracker/matching.py",
+          "sha256": "2f54bf0c183f577087391901562ae2bcd3c01633a3e077bd5d4168fafbd899a6",
+          "size_bytes": 6200
+        }
+      ]
+    },
+    {
+      "reference": "REF-EFFICIENTDET",
+      "repository": "https://github.com/rwightman/efficientdet-pytorch",
+      "revision": "c6dff775a36cea0bf9b76c58e59f936411c5ce01",
+      "declared_license": "Apache-2.0",
+      "licenses": [
+        {
+          "file": "vision-extensions/ref-efficientdet-LICENSE",
+          "sha256": "ba244c317dc30521173e28448092859e0bc65e5f8f230677ea3a51b8e0876d8f",
+          "size_bytes": 11343,
+          "url": "https://raw.githubusercontent.com/rwightman/efficientdet-pytorch/c6dff775a36cea0bf9b76c58e59f936411c5ce01/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "effdet/efficientdet.py",
+          "sha256": "1bf9ecc379ba4567f3f0f0e5cd8a9d94c17c7e8f4da70ed7596bdf8986a99d16",
+          "size_bytes": 28412
+        },
+        {
+          "path": "effdet/config/fpn_config.py",
+          "sha256": "7a09bb53b3b2366fa85705a1eb147c07e46ca6e7d0efbb562b3bcc34933464a4",
+          "size_bytes": 6758
+        }
+      ]
+    },
+    {
+      "reference": "REF-BOT_SORT",
+      "repository": "https://github.com/NirAharon/BoT-SORT",
+      "revision": "251985436d6712aaf682aaaf5f71edb4987224bd",
+      "declared_license": "MIT",
+      "licenses": [
+        {
+          "file": "vision-extensions/bot_sort-LICENSE",
+          "sha256": "12a15474ca15cec568da311e6cd89e593e3cd2bb5b790e75b90e1608306a3a5f",
+          "size_bytes": 1067,
+          "url": "https://raw.githubusercontent.com/NirAharon/BoT-SORT/251985436d6712aaf682aaaf5f71edb4987224bd/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "LICENSE",
+          "sha256": "12a15474ca15cec568da311e6cd89e593e3cd2bb5b790e75b90e1608306a3a5f",
+          "size_bytes": 1067,
+          "url": "https://raw.githubusercontent.com/NirAharon/BoT-SORT/251985436d6712aaf682aaaf5f71edb4987224bd/LICENSE"
+        },
+        {
+          "path": "tracker/bot_sort.py",
+          "sha256": "ba6dd32ad4b96ee49d6f70654159269bd45ce15fd0fe5007f3a1b81bc257edf0",
+          "size_bytes": 16778,
+          "url": "https://raw.githubusercontent.com/NirAharon/BoT-SORT/251985436d6712aaf682aaaf5f71edb4987224bd/tracker/bot_sort.py"
+        },
+        {
+          "path": "tracker/kalman_filter.py",
+          "sha256": "c1a4c0acc71b9a91c0cdbe7b689f88712d68e7e8be4d7e54fb437f33fdbc9e5a",
+          "size_bytes": 9671,
+          "url": "https://raw.githubusercontent.com/NirAharon/BoT-SORT/251985436d6712aaf682aaaf5f71edb4987224bd/tracker/kalman_filter.py"
+        },
+        {
+          "path": "tracker/gmc.py",
+          "sha256": "508c3a4ea0e9a72478ce2d1d29aa1eb8892b3804c76b524a16a34dca23dba9ba",
+          "size_bytes": 11753,
+          "url": "https://raw.githubusercontent.com/NirAharon/BoT-SORT/251985436d6712aaf682aaaf5f71edb4987224bd/tracker/gmc.py"
+        }
+      ]
+    },
+    {
+      "reference": "REF-CLIP",
+      "repository": "https://github.com/openai/CLIP",
+      "revision": "a1d071733d7111c9c014f024669f959182114e33",
+      "declared_license": "MIT",
+      "licenses": [
+        {
+          "file": "vision-extensions/clip-LICENSE",
+          "sha256": "987e63b32f6c89ff5160e429458a872ff048e6860b590a3912e938f9da8f14db",
+          "size_bytes": 1064,
+          "url": "https://raw.githubusercontent.com/openai/CLIP/a1d071733d7111c9c014f024669f959182114e33/LICENSE"
+        }
+      ],
+      "selected_sources": [
+        {
+          "path": "LICENSE",
+          "sha256": "987e63b32f6c89ff5160e429458a872ff048e6860b590a3912e938f9da8f14db",
+          "size_bytes": 1064,
+          "url": "https://raw.githubusercontent.com/openai/CLIP/a1d071733d7111c9c014f024669f959182114e33/LICENSE"
+        },
+        {
+          "path": "clip/model.py",
+          "sha256": "9902cbe5ee90a1da2aa3e6f043e8a23dc1f8831193b963785c9af03d5c7bef2c",
+          "size_bytes": 17374,
+          "url": "https://raw.githubusercontent.com/openai/CLIP/a1d071733d7111c9c014f024669f959182114e33/clip/model.py"
+        }
+      ]
+    }
+  ],
+  "qualification": {
+    "official_weights": "not_run",
+    "architecture_reference": "not_run",
+    "task_quality": "not_run",
+    "derivative_scope_review": "pending"
+  },
+  "native_profiles": {
+    "token_pyramid": "Independent token-grid bridge; not paper ViT-Adapter",
+    "depth_resnet50_fpn": "Supervised native baseline; not DPT/MiDaS",
+    "bot_sort": "XYWH/ReID association with native affine patch matching; differs from official optical flow GMC",
+    "clip_tokenizer": "Valid normalized UTF-8, Unicode lower and CLIP byte BPE; no ftfy repair",
+    "open_vocabulary": "Native profiles with separate identities; no official checkpoint compatibility claim"
+  }
+}

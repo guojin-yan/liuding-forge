@@ -33,6 +33,9 @@ function(jyppx_write_component_graph output_path)
         foundation
         interop
         models
+        models_yolo
+        models_rcnn
+        models_vision
         nn
         onnx_export
         onnx_runtime
@@ -42,7 +45,9 @@ function(jyppx_write_component_graph output_path)
         telemetry_http
         telemetry_native
         training
+        vision_ops
         vision_render
+        vision_tasks
     )
     set(aggregate_targets all sdk)
 
@@ -61,6 +66,16 @@ function(jyppx_write_component_graph output_path)
             list(APPEND header_roots utils)
         elseif(component STREQUAL "vision_render")
             set(header_roots visualization)
+        elseif(component STREQUAL "vision_ops")
+            set(header_roots vision/ops)
+        elseif(component STREQUAL "models_yolo")
+            set(header_roots vision/models/yolo)
+        elseif(component STREQUAL "models_rcnn")
+            set(header_roots vision/models/rcnn)
+        elseif(component STREQUAL "models_vision")
+            set(header_roots vision/models/extended)
+        elseif(component STREQUAL "vision_tasks")
+            set(header_roots vision/tasks)
         elseif(component STREQUAL "onnx_export" OR component STREQUAL "onnx_runtime"
                OR component STREQUAL "onnx_serving" OR component STREQUAL "bundle_signing")
             set(header_roots "deployment/${component}")

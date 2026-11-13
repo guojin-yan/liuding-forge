@@ -4,7 +4,9 @@
 
 Liuding Forge is a C++20 deep-learning training framework built on LibTorch for engineering teams that need native C++ training, durable lifecycle state, local experimentation, and delivery tooling.
 
-> Status: the project is under active v1.0 development. Existing features and validation results apply only to their declared code scope and environment; they do not claim GA release readiness or full parity with PyTorch.
+> Status: this independent development version is `2.0.0-preview.1`, adding a multi-model training suite to the existing framework. Features and validation apply to their declared scope and environment; complete quality, device, and release qualification remains pending.
+
+The [vision training suite](docs/api/vision/index.md) offers a shared C++ API/CLI for original YOLOv5 P5/P6, YOLOv8/11/12/26, Faster/Fast R-CNN, FCOS/RetinaNet/SSD/RT-DETR, YOLO-World/YOLOE, semantic segmentation/depth, SimMIM/ReID, and classification with existing backbones. It covers data conversion and augmentation, training/resume, validation/prediction, tuning, weight conversion, and ONNX export. Model packs remain optional; starter recipes are in [recipes/vision/suite](recipes/vision/suite/). Pretrained weights are not bundled, and compilation or model construction does not establish accuracy or deployment qualification for every model.
 
 ## Product scope
 

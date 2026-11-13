@@ -2,6 +2,8 @@
 
 图像组件提供本地图片解码、数据集索引和标注读取。构建时开启 `JYPPX_LIUDING_BUILD_DATA_IMAGE`，安装后使用 `find_package(jyppx CONFIG REQUIRED COMPONENTS data_image)`，并链接 `jyppx::liuding::data_image`。
 
+目标检测等对象任务可直接调用 `ImageDataset(root, annotations)`，以现有 `AnnotationIndex` 的图片顺序建立 image-only 清单；样本保留统一对象标注，分类标签为空，不需要额外分类 manifest。`index_annotation_images()` 也可单独生成该清单，其摘要仅覆盖有序图片路径和尺寸。外部布局的整批导入和模型训练接入见[视觉训练](vision/index.md)。
+
 ## 像素语义
 
 `read_image_file` 和 `decode_image` 返回拥有像素存储的 `DecodedImage`，其中 `pixels` 明确记录 dtype、CHW/HWC 布局、灰度/RGB/带 alpha 的通道含义以及数值编码范围。16 位 PNG 保留 uint16；选择 `float32_normalized` 时，输出 float32，范围语义为 `[0,1]`。解码器不执行 EXIF 定向或 ICC 色彩管理，RGB 只表示通道顺序。Apple CgBI PNG 尚未支持，会明确报错。

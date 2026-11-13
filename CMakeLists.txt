@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
-project(jyppx VERSION 0.3.0 LANGUAGES CXX)
+project(jyppx VERSION 2.0.0 LANGUAGES CXX)
+set(JYPPX_LIUDING_VERSION_PRERELEASE "preview.1")
+set(JYPPX_LIUDING_VERSION "${PROJECT_VERSION}-${JYPPX_LIUDING_VERSION_PRERELEASE}")
 
 # Public brand metadata is deliberately separate from the stable jyppx::liuding
 # namespace, jyppx package configuration, target names, and protocol identifiers.
@@ -22,6 +24,11 @@ option(JYPPX_LIUDING_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(JYPPX_LIUDING_BUILD_FUZZERS "Build libFuzzer targets" OFF)
 option(JYPPX_LIUDING_BUILD_DOCS "Build documentation" OFF)
 option(JYPPX_LIUDING_BUILD_CORE "Build the LibTorch value and tensor core" ON)
+option(JYPPX_LIUDING_BUILD_VISION_OPS "Build optional native visual tensor operators" OFF)
+option(JYPPX_LIUDING_BUILD_MODELS_YOLO "Build optional native YOLO architectures" OFF)
+option(JYPPX_LIUDING_BUILD_MODELS_VISION "Build optional extended native vision models" OFF)
+option(JYPPX_LIUDING_BUILD_MODELS_RCNN "Build optional native Faster R-CNN architectures" OFF)
+option(JYPPX_LIUDING_BUILD_VISION_TASKS "Build optional native vision training tasks" OFF)
 option(JYPPX_LIUDING_BUILD_INTEROP "Build interoperability formats and manifests" ON)
 option(JYPPX_LIUDING_BUILD_DATA "Build data pipelines, datasets, and samplers" ON)
 option(JYPPX_LIUDING_BUILD_DATA_IMAGE "Build the optional built-in image/annotation adapters" OFF)
@@ -47,6 +54,7 @@ if(JYPPX_LIUDING_BUILD_CORE AND JYPPX_LIUDING_BUILD_INTEROP AND JYPPX_LIUDING_BU
     set(JYPPX_TOOLS_DEFAULT ON)
 endif()
 option(JYPPX_LIUDING_BUILD_TOOLS "Build the user-facing Liuding Forge command-line tool" ${JYPPX_TOOLS_DEFAULT})
+option(JYPPX_LIUDING_BUILD_VISION_CLI "Build the native vision suite CLI" OFF)
 if(JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR)
     message(FATAL_ERROR "Python telemetry runtime installation is retired; use the native TensorBoard/OTLP workers")
 endif()
@@ -70,7 +78,7 @@ if(JYPPX_LIUDING_BUILD_FUZZERS AND NOT JYPPX_LIUDING_BUILD_TESTS)
     message(FATAL_ERROR "JYPPX_LIUDING_BUILD_FUZZERS=ON requires JYPPX_LIUDING_BUILD_TESTS=ON")
 endif()
 
-foreach(JYPPX_CORE_DEPENDENT IN ITEMS DATA NN OPTIM EXPERIMENT)
+foreach(JYPPX_CORE_DEPENDENT IN ITEMS DATA NN OPTIM EXPERIMENT VISION_OPS)
     if(JYPPX_LIUDING_BUILD_${JYPPX_CORE_DEPENDENT} AND NOT JYPPX_LIUDING_BUILD_CORE)
         message(FATAL_ERROR
             "JYPPX_LIUDING_BUILD_${JYPPX_CORE_DEPENDENT}=ON requires JYPPX_LIUDING_BUILD_CORE=ON")
@@ -86,6 +94,25 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE AND NOT JYPPX_LIUDING_BUILD_DATA)
 endif()
 if(JYPPX_LIUDING_BUILD_VISION_RENDER AND NOT JYPPX_LIUDING_BUILD_DATA_IMAGE)
     message(FATAL_ERROR "JYPPX_LIUDING_BUILD_VISION_RENDER=ON requires JYPPX_LIUDING_BUILD_DATA_IMAGE=ON")
+endif()
+if(JYPPX_LIUDING_BUILD_MODELS_YOLO AND
+   (NOT JYPPX_LIUDING_BUILD_CORE OR NOT JYPPX_LIUDING_BUILD_NN OR NOT JYPPX_LIUDING_BUILD_INTEROP))
+    message(FATAL_ERROR "MODELS_YOLO requires CORE, NN and INTEROP")
+endif()
+if(JYPPX_LIUDING_BUILD_VISION_TASKS)
+    foreach(vision_dependency IN ITEMS CORE DATA NN OPTIM TRAINING EXPERIMENT INTEROP DATA_IMAGE VISION_OPS)
+        if(NOT JYPPX_LIUDING_BUILD_${vision_dependency})
+            message(FATAL_ERROR "VISION_TASKS requires ${vision_dependency}")
+        endif()
+    endforeach()
+endif()
+if(JYPPX_LIUDING_BUILD_MODELS_VISION AND
+   (NOT JYPPX_LIUDING_BUILD_MODELS OR NOT JYPPX_LIUDING_BUILD_VISION_OPS))
+    message(FATAL_ERROR "MODELS_VISION requires MODELS and VISION_OPS")
+endif()
+if(JYPPX_LIUDING_BUILD_MODELS_RCNN AND
+   (NOT JYPPX_LIUDING_BUILD_MODELS OR NOT JYPPX_LIUDING_BUILD_VISION_OPS))
+    message(FATAL_ERROR "MODELS_RCNN requires MODELS and VISION_OPS")
 endif()
 
 # Preview model/serving adapters require the explicit lower component closure.
@@ -326,6 +353,11 @@ set(JYPPX_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(JYPPX_GENERATED_PRIVATE_INCLUDE_DIR
     "${CMAKE_CURRENT_BINARY_DIR}/generated-private")
 set(JYPPX_LIUDING_COMPONENT_CORE_ENABLED ${JYPPX_LIUDING_BUILD_CORE})
+set(JYPPX_LIUDING_COMPONENT_VISION_OPS_ENABLED ${JYPPX_LIUDING_BUILD_VISION_OPS})
+set(JYPPX_LIUDING_COMPONENT_MODELS_YOLO_ENABLED ${JYPPX_LIUDING_BUILD_MODELS_YOLO})
+set(JYPPX_LIUDING_COMPONENT_MODELS_VISION_ENABLED ${JYPPX_LIUDING_BUILD_MODELS_VISION})
+set(JYPPX_LIUDING_COMPONENT_MODELS_RCNN_ENABLED ${JYPPX_LIUDING_BUILD_MODELS_RCNN})
+set(JYPPX_LIUDING_COMPONENT_VISION_TASKS_ENABLED ${JYPPX_LIUDING_BUILD_VISION_TASKS})
 set(JYPPX_LIUDING_COMPONENT_INTEROP_ENABLED ${JYPPX_LIUDING_BUILD_INTEROP})
 set(JYPPX_LIUDING_COMPONENT_DATA_ENABLED ${JYPPX_LIUDING_BUILD_DATA})
 set(JYPPX_LIUDING_COMPONENT_DATA_IMAGE_ENABLED ${JYPPX_LIUDING_BUILD_DATA_IMAGE})
@@ -513,6 +545,8 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         src/jyppx/liuding/data_image/mask_decoder.cpp
         src/jyppx/liuding/data_image/panoptic.cpp
         src/jyppx/liuding/data_image/image_dataset.cpp
+        src/jyppx/liuding/data_image/task_payload.cpp
+        src/jyppx/liuding/data_image/task_geometry.cpp
         src/jyppx/liuding/data_image/pixel_spec.cpp
         src/jyppx/liuding/data_image/geometry_trace.cpp
         src/jyppx/liuding/data_image/sample_random.cpp
@@ -566,6 +600,7 @@ endif()
 
 if(JYPPX_LIUDING_BUILD_NN)
 add_library(jyppx_liuding_nn STATIC
+    src/jyppx/liuding/nn/recompute.cpp
     src/jyppx/liuding/nn/invocation.cpp
     src/jyppx/liuding/nn/model_adapter.cpp
     src/jyppx/liuding/nn/model_checkpoint_participant.cpp
@@ -781,6 +816,7 @@ endif()
 if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     add_library(jyppx_liuding_onnx_runtime STATIC
         src/jyppx/liuding/deployment/onnx_runtime/session.cpp
+        src/jyppx/liuding/deployment/onnx_runtime/typed_session.cpp
         src/jyppx/liuding/deployment/onnx_runtime/environment.cpp
         src/jyppx/liuding/deployment/onnx_runtime/verification.cpp)
     add_library(jyppx::liuding::onnx_runtime ALIAS jyppx_liuding_onnx_runtime)
@@ -891,6 +927,8 @@ if(JYPPX_LIUDING_BUILD_TELEMETRY_HTTP)
     include(cmake/TelemetryHttp.cmake)
 endif()
 
+include(cmake/Vision.cmake)
+
 add_library(jyppx_liuding_all INTERFACE)
 add_library(jyppx::liuding::all ALIAS jyppx_liuding_all)
 set_target_properties(jyppx_liuding_all PROPERTIES EXPORT_NAME all)
@@ -993,6 +1031,12 @@ message(STATUS "${JYPPX_LIUDING_COMPONENT_GRAPH_OUTPUT}")
 # Compiler options must be applied after the target has been created.
 if(JYPPX_LIUDING_BUILD_TOOLS OR JYPPX_LIUDING_BUILD_EXAMPLES)
     add_subdirectory(tools/datasets)
+endif()
+if(JYPPX_LIUDING_BUILD_VISION_CLI)
+    if(NOT TARGET jyppx_liuding_vision_tasks)
+        message(FATAL_ERROR "VISION_CLI requires VISION_TASKS")
+    endif()
+    add_subdirectory(tools/vision)
 endif()
 if(JYPPX_LIUDING_BUILD_TOOLS)
     if(NOT TARGET jyppx::liuding::sdk)
@@ -1140,7 +1184,7 @@ if(WIN32 AND Torch_VERSION VERSION_EQUAL "2.14.1" AND
         third_party/licenses/minizip-1.01e-crypt-SOURCE-NOTICE.txt
         DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
 endif()
-if(JYPPX_LIUDING_BUILD_MODELS)
+if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_MODELS_YOLO OR JYPPX_LIUDING_BUILD_MODELS_VISION)
     install(FILES
         third_party/licenses/MODEL_PROVENANCE.md
         third_party/licenses/timm-af97f99e-LICENSE
@@ -1156,6 +1200,17 @@ if(JYPPX_LIUDING_BUILD_MODELS)
         third_party/licenses/models-dinov3-vision_transformer-SOURCE-NOTICE.txt
         third_party/licenses/models-dinov3-convnext-SOURCE-NOTICE.txt
         DESTINATION share/doc/jyppx/licenses/models COMPONENT licenses)
+endif()
+if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_MODELS_YOLO OR JYPPX_LIUDING_BUILD_MODELS_VISION)
+    install(FILES third_party/licenses/ultralytics-AGPL-3.0.txt
+        third_party/licenses/yolov5-GPL-3.0.txt
+        third_party/licenses/YOLO_SOURCE_INVENTORY.json
+        DESTINATION share/doc/jyppx/licenses/models COMPONENT licenses)
+endif()
+if(JYPPX_LIUDING_BUILD_VISION_TASKS)
+    install(DIRECTORY recipes/vision/suite/
+        DESTINATION share/jyppx/recipes/vision COMPONENT development
+        FILES_MATCHING PATTERN "*.json")
 endif()
 if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR
    JYPPX_LIUDING_BUILD_DATA_IMAGE OR JYPPX_LIUDING_BUILD_ONNX_EXPORT OR
@@ -1187,7 +1242,7 @@ message(STATUS "")
 message(STATUS "${LIUDING_FORGE_DISPLAY_NAME_ZH} (${LIUDING_FORGE_DISPLAY_NAME_EN}) Configuration:")
 message(STATUS "  Internal project alias: ${LIUDING_FORGE_PROJECT_ALIAS}")
 message(STATUS "  Artifact prefix: ${LIUDING_FORGE_ARTIFACT_PREFIX}")
-message(STATUS "  Version: ${PROJECT_VERSION}")
+message(STATUS "  Version: ${JYPPX_LIUDING_VERSION}")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Build tests: ${JYPPX_LIUDING_BUILD_TESTS}")
 message(STATUS "  Build examples: ${JYPPX_LIUDING_BUILD_EXAMPLES}")
@@ -1209,6 +1264,11 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "Liuding Forge")
 set(CPACK_NSIS_DISPLAY_NAME "六丁炼算 (Liuding Forge)")
 set(CPACK_PACKAGE_VENDOR "Liuding Forge")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION "${JYPPX_LIUDING_VERSION}")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 include(CPack)
+
+if(JYPPX_LIUDING_BUILD_MODELS_VISION OR JYPPX_LIUDING_BUILD_VISION_TASKS)
+    install(DIRECTORY third_party/licenses/vision-extensions DESTINATION share/jyppx/licenses)
+    install(FILES third_party/licenses/EXTENSION_SOURCE_INVENTORY.json DESTINATION share/jyppx/licenses)
+endif()

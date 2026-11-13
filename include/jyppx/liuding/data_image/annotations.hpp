@@ -86,6 +86,16 @@ struct ImageMaskRle {
   std::vector<std::uint64_t> counts;  ///< Runs summing exactly to width*height.
 };
 
+/** @brief One source object's contribution to synthetic training geometry.
+ * Matrix maps source boundary coordinates to the current canvas. It is never
+ * interpreted as a global inverse mapping for a multi-source image.
+ */
+struct ObjectSourceMapping {
+  std::string image_path;
+  std::int64_t object_id = 0;
+  double weight = 1;
+  std::array<double,9> matrix{1,0,0,0,1,0,0,0,1};
+};
 /** @brief One object or segment in the common annotation representation. */
 struct VisionObject {
   std::int64_t source_id =
@@ -109,6 +119,8 @@ struct VisionObject {
   bool ignore = false;                   ///< Explicit ignore region marker.
   bool difficult = false;  ///< VOC difficult marker retained for evaluation.
   bool truncated = false;  ///< Source marks a truncated object.
+  std::vector<ObjectSourceMapping> augmentation_sources;
+  ///< Optional training provenance; absent in unchanged source annotations.
 };
 
 /** @brief One image and its annotations; an empty object list is valid. */

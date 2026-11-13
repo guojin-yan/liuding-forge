@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### 2.0.0-preview.1：多模型训练套件
+
+- 扩展原生视觉模型包，增加多标签、蒸馏、激活重计算、SimMIM、FCOS/BiFPN/ViT-Adapter、RetinaNet、SSD、外部候选框 Fast R-CNN、语义分割、RT-DETR、开放词汇、深度与 ReID/跟踪接口；新增 schema2、typed payload 和多输入 bundle v3。官方权重、精度及设备矩阵独立登记。
+- 增加集中在 `vision/` 下的可选视觉算子、YOLO、Faster R-CNN 和任务工作流组件；统一 catalog、严格 JSON 配方及原生 CLI，提供 24 份训练模板和两份搜索模板。
+- 增加原始 YOLOv5 P5/P6、YOLOv8/11/12/26 的参考实际变体、ResNet50-FPN Faster R-CNN，以及检测/分类/实例分割/姿态/旋转框的任务绑定、loss、解码和指标。
+- 增加 LabelMe/COCO/VOC/YOLO 统一对象入口、EXIF 坐标政策、图片内容与 split 身份、缓存/rect 组批、联合与多样本增强、分类软标签、训练预检、MuSGD、迁移初始化/冻结/差分学习率和连续/进化搜索；训练和搜索产物复用实验存储。
+- 增加数据预览、诊断/PR 与混淆报告、可选原生 TensorBoard、结构化预测/绘图/裁剪、分阶段计时；增加受限原生 PyTorch ZIP 权重转换与明确名称的映射建议。
+- 增加固定尺寸多任务 ONNX bundle、YOLO Conv/BN 融合、RCNN 图内 proposal/ROI 路线和 CPU TypedSession 的 FP32/int32/int64 I/O；新包记录完整前后处理并原子发布。
+- 以上为开发预览，不附带预训练权重；完整官方权重映射、任务精度、CPU/CUDA/AMP、恢复和导出矩阵及正式发布验收另行完成。
+
+- 视觉训练增加成功更新驱动的模型 EMA 及完整检查点、独立验证集/类别冻结/路径隔离、验证损失选优、周期 best/last 保存和早停；最终检测 AP 复用既有全数据集评估器。
+
+- 视觉训练增加原生 HSV、灰度、高斯/中值模糊和联合缩放/平移，增强身份绑定数据管线；增加统一关闭随机增强的评估配置入口。
+- 视觉训练增加 SGD decay/no-decay/bias 分组、显式有效 batch 的 decay 缩放、成功更新驱动的预热/余弦调度；示例接入梯度累积、裁剪和配方身份记录。
+
+- 增加可选视觉训练预览：YOLOv8 P5 n/s/m/l/x 原生结构、检测解码/分配/损失、LetterBox 与样本身份驱动的随机翻转、有界分类 NMS 和原图坐标还原；训练示例复用现有 Trainer 和完整检查点。
+- 增加直接从统一对象标注构造 ImageDataset 的入口，以及 COCO/VOC/YOLO 检测数据集组装；外部格式统一为现有 AnnotationIndex，缺失标签和类别冻结策略显式配置。
+
 - 图像解码将布局、scalar 转换和归一化直接写入最终连续 Tensor，可直接分配 pinned 输出，减少中间像素存储；提供固定输入的耗时、RSS 和 codec 工作峰值基准。
 
 - 图像解码新增独立的单次工作内存上限，在底层分配前限制格式探测、私有解码缓冲、扩容重叠及已知转换暂存；无需共享预算即可生效，超限后释放资源。

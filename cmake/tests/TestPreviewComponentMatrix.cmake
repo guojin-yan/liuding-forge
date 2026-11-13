@@ -61,7 +61,8 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
 endif()
 
 set(optional_components core interop data nn optim training experiment
-    models serving data_image vision_render onnx_export onnx_runtime onnx_serving bundle_signing)
+    models serving data_image vision_render onnx_export onnx_runtime onnx_serving bundle_signing
+    vision_ops models_yolo models_rcnn models_vision vision_tasks)
 set(preview_components models serving vision_render)
 set(common_options
     -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF

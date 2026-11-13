@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "model": {
+    "architecture": "yolov8n",
+    "task": "classify",
+    "variant": "p5",
+    "num_classes": 80
+  },
+  "image_size": 224,
+  "batch_size": 4,
+  "workers": 0,
+  "epochs": 100,
+  "seed": 0,
+  "device": "cpu",
+  "precision": "full",
+  "optimizer": {
+    "name": "auto",
+    "learning_rate": 0.001,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
+    "nominal_batch": 64,
+    "scale_weight_decay": true
+  },
+  "scheduler": {
+    "warmup_updates": 10,
+    "warmup_start_factor": 0.1,
+    "final_factor": 0.01
+  },
+  "ema": {
+    "enabled": true
+  },
+  "full_validation_metrics": true,
+  "selection_metric": "auto",
+  "early_stopping_patience": 30,
+  "save_interval_epochs": 5,
+  "verify_image_contents": true,
+  "exif_policy": "reject",
+  "classification_root": "data/train",
+  "classification_validation_root": "data/val",
+  "classification_augmentation": {
+    "crop_min_area": 0.08,
+    "brightness": 0.2,
+    "contrast": 0.2,
+    "saturation": 0.2,
+    "randaugment_operations": 2,
+    "randaugment_magnitude": 0.5,
+    "erasing": 0.1,
+    "mixup": 0.1,
+    "cutmix": 0.1
+  }
+}

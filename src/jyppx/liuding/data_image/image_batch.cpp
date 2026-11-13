@@ -146,6 +146,14 @@ std::size_t CheckBatchMetadata(const ImageBatch& b,
     m.Add(32);
     m.String(item.key.id);
     m.String(item.image_path);
+    if (item.task_payload) {
+      item.task_payload->validate(l.max_output_bytes, l.max_metadata_nodes, l.max_string_bytes);
+      m.Add(64);
+      for (const auto& text : item.task_payload->text_prompts) m.String(text);
+      for (const auto* text : {&item.task_payload->label_space_id, &item.task_payload->text_encoder_id,
+                              &item.task_payload->proposal_generator, &item.task_payload->proposal_inventory,
+                              &item.task_payload->sequence_id, &item.task_payload->camera_id}) m.String(*text);
+    }
     if (item.target_path) m.String(*item.target_path);
     m.Categories(item.categories);
     m.Categories(item.label_categories);
@@ -190,6 +198,12 @@ std::size_t CheckBatchMetadata(const ImageBatch& b,
     for (const auto& o : r.objects) {
       CheckStop(stop);
       m.Add(20);
+      if(o.augmentation_sources.size()>16)InvalidBatch("batch.object_sources");
+      for(const auto& source:o.augmentation_sources) {
+        m.Add(14);m.String(source.image_path);
+        if(source.image_path.empty()||!std::isfinite(source.weight)||source.weight<=0||source.weight>1)InvalidBatch("batch.source_weight");
+        for(auto v:source.matrix)if(!std::isfinite(v))InvalidBatch("batch.source_matrix");
+      }
       if (o.category >= item.categories->size())
         InvalidBatch("batch.category_index");
       if (o.area && (!std::isfinite(*o.area) || *o.area < 0))
@@ -295,6 +309,8 @@ std::uint64_t BatchTensorBytes(const ImageBatch& b) {
   for (const auto* list :
        {&b.image_list, &b.paired_image_list, &b.mask_list, &b.valid_list})
     for (const auto& t : *list) add(t);
+  for (const auto& item : b.items) if (item.task_payload)
+    for (const auto& t : item.task_payload->tensors()) add(t);
   return result;
 }
 
@@ -349,6 +365,7 @@ void RetainBatchSourceResources(const ImageBatch& source, ImageBatch& result) {
     const auto& a = source.items[i];
     const auto& b = result.items[i];
     shared = (a.annotation && a.annotation == b.annotation) ||
+             (a.task_payload && b.task_payload) ||
              (a.categories && a.categories == b.categories) ||
              (a.label_categories && a.label_categories == b.label_categories);
   }
@@ -433,6 +450,8 @@ std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
     inspect(b.valid);
   }
   inspect(b.labels);
+  for (const auto& item : b.items) if (item.task_payload)
+    for (const auto& tensor : item.task_payload->tensors()) if (tensor.defined()) inspect(tensor);
 
   std::vector<ImageExtent> canvases;
   canvases.reserve(b.items.size());
@@ -728,6 +747,7 @@ ImageBatch collate_images(std::span<const VisionSample> samples,
                           s.geometry,
                           {}};
       if (!item.geometry) item.geometry.emplace(e);
+      item.task_payload = s.task_payload;
       if (masks) item.mask = MaskInfo(*s.mask_target);
       b.items.push_back(std::move(item));
       canvases.push_back(e);

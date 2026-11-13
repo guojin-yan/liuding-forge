@@ -786,6 +786,340 @@
       ],
       "linkage": "development-reference-with-cpp-source-provenance-review-pending",
       "support_status": "reference-only-not-a-pretrained-weight-or-redistribution-qualification"
+    },
+    {
+      "id": "models-yolo-ultralytics",
+      "scope": "optional-models-yolo-native-architecture-and-configuration",
+      "version": "8.4.177@ab21e3b1b5d7af73155b351e2eb4f0db2653432b",
+      "source": {
+        "type": "pinned-upstream-source-archive",
+        "url": "https://codeload.github.com/ultralytics/ultralytics/zip/ab21e3b1b5d7af73155b351e2eb4f0db2653432b",
+        "cache_file": "out/vision-provenance/ultralytics-ab21e3b1.zip"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "01adc01d1d0c3f65fedd0037bdbdf61f58610b17607b3bcc572556abed15d4d6",
+        "size_bytes": 3705213
+      },
+      "license": {
+        "spdx": [
+          "AGPL-3.0-only"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "configuration-data-and-native-model-adaptations",
+      "support_status": "implementation-preview-not-weights-or-task-quality-qualification"
+    },
+    {
+      "id": "models-yolo-original-v5",
+      "scope": "optional-models-yolo-native-architecture-and-configuration",
+      "version": "7.0@915bbf294bb74c859f0b41f1c23bc395014ea679",
+      "source": {
+        "type": "pinned-upstream-source-archive",
+        "url": "https://codeload.github.com/ultralytics/yolov5/zip/915bbf294bb74c859f0b41f1c23bc395014ea679",
+        "cache_file": "out/vision-provenance/yolov5-915bbf29.zip"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "5aac5c8c40f89831fee611621b5ef3dbd7a7633278713b4dd0d059e1a631c7b0",
+        "size_bytes": 1055207
+      },
+      "license": {
+        "spdx": [
+          "GPL-3.0-only"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "configuration-data-and-native-model-adaptations",
+      "support_status": "implementation-preview-not-weights-or-task-quality-qualification"
+    },
+    {
+      "id": "vision-extension-torchvision",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "7a9db90e9aadea3e3e1fec35969601167e9efd4f",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/pytorch/vision/7a9db90e9aadea3e3e1fec35969601167e9efd4f/LICENSE",
+        "revision": "7a9db90e9aadea3e3e1fec35969601167e9efd4f",
+        "path": "third_party/licenses/vision-extensions/ref-torchvision-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d",
+        "size_bytes": 1517
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-simmim",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "d3e29bcac950b83edc34ca33fe4404f38309052c",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/microsoft/SimMIM/d3e29bcac950b83edc34ca33fe4404f38309052c/LICENSE",
+        "revision": "d3e29bcac950b83edc34ca33fe4404f38309052c",
+        "path": "third_party/licenses/vision-extensions/ref-simmim-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+        "size_bytes": 1141
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-rtdetr",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "df2a96c8c3a098567a1149bf0248da6efe6d495d",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/lyuwenyu/RT-DETR/df2a96c8c3a098567a1149bf0248da6efe6d495d/LICENSE",
+        "revision": "df2a96c8c3a098567a1149bf0248da6efe6d495d",
+        "path": "third_party/licenses/vision-extensions/ref-rtdetr-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "size_bytes": 11357
+      },
+      "license": {
+        "spdx": [
+          "Apache-2.0"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-fast-rcnn",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "b612190f279da3c11dd8b1396dd5e72779f8e463",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/rbgirshick/fast-rcnn/b612190f279da3c11dd8b1396dd5e72779f8e463/LICENSE",
+        "revision": "b612190f279da3c11dd8b1396dd5e72779f8e463",
+        "path": "third_party/licenses/vision-extensions/ref-fast-rcnn-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "dbfe88113cb11c3ae7ec02f7d344e2f2745574eb96a18afcdc4580ede3c8dd3f",
+        "size_bytes": 1107
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-trackeval",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "12c8791b303e0a0b50f753af204249e622d0281a",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/JonathonLuiten/TrackEval/12c8791b303e0a0b50f753af204249e622d0281a/LICENSE",
+        "revision": "12c8791b303e0a0b50f753af204249e622d0281a",
+        "path": "third_party/licenses/vision-extensions/ref-trackeval-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "f7e548c5729e464d878dd4abf691e323bbea028a756d08395d88b83e43dd2d86",
+        "size_bytes": 1072
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-vit-adapter",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "fd64a5190f9f4530e8e5961cc87b2a3ad591190b",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/czczup/ViT-Adapter/fd64a5190f9f4530e8e5961cc87b2a3ad591190b/LICENSE.md",
+        "revision": "fd64a5190f9f4530e8e5961cc87b2a3ad591190b",
+        "path": "third_party/licenses/vision-extensions/ref-vit-adapter-LICENSE.md"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "975bf0101f2ebeed2ff7c96438080f6df0cfaf4d17c456f64ddcf2d9fe6db56c",
+        "size_bytes": 10778
+      },
+      "license": {
+        "spdx": [
+          "Apache-2.0"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-bytetrack",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "d1bf0191adff59bc8fcfeaa0b33d3d1642552a99",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/ifzhang/ByteTrack/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/LICENSE",
+        "revision": "d1bf0191adff59bc8fcfeaa0b33d3d1642552a99",
+        "path": "third_party/licenses/vision-extensions/ref-bytetrack-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "e9d83751678cbaba6dfba902ea39215c423d93425e58f8450d6001f7261696f9",
+        "size_bytes": 1067
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-efficientdet",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "c6dff775a36cea0bf9b76c58e59f936411c5ce01",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/rwightman/efficientdet-pytorch/c6dff775a36cea0bf9b76c58e59f936411c5ce01/LICENSE",
+        "revision": "c6dff775a36cea0bf9b76c58e59f936411c5ce01",
+        "path": "third_party/licenses/vision-extensions/ref-efficientdet-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "ba244c317dc30521173e28448092859e0bc65e5f8f230677ea3a51b8e0876d8f",
+        "size_bytes": 11343
+      },
+      "license": {
+        "spdx": [
+          "Apache-2.0"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-bot-sort",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "251985436d6712aaf682aaaf5f71edb4987224bd",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/NirAharon/BoT-SORT/251985436d6712aaf682aaaf5f71edb4987224bd/LICENSE",
+        "revision": "251985436d6712aaf682aaaf5f71edb4987224bd",
+        "path": "third_party/licenses/vision-extensions/bot_sort-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "12a15474ca15cec568da311e6cd89e593e3cd2bb5b790e75b90e1608306a3a5f",
+        "size_bytes": 1067
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "vision-extension-clip",
+      "scope": "optional-vision-extensions-pinned-design-reference",
+      "version": "a1d071733d7111c9c014f024669f959182114e33",
+      "source": {
+        "type": "pinned-upstream-license-document-with-selected-source-inventory",
+        "url": "https://raw.githubusercontent.com/openai/CLIP/a1d071733d7111c9c014f024669f959182114e33/LICENSE",
+        "revision": "a1d071733d7111c9c014f024669f959182114e33",
+        "path": "third_party/licenses/vision-extensions/clip-LICENSE"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "987e63b32f6c89ff5160e429458a872ff048e6860b590a3912e938f9da8f14db",
+        "size_bytes": 1064
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "selected-source-reference-native-cpp-implementation",
+      "support_status": "development-preview-not-official-weights-or-numerical-qualification"
     }
   ]
 }

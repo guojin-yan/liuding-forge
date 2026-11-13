@@ -8,6 +8,7 @@
 #include "joint_annotation_detail.hpp"
 
 #include <jyppx/liuding/data_image/joint_transform.hpp>
+#include "task_geometry.hpp"
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <torch/nn/functional/upsampling.h>
@@ -510,6 +511,20 @@ VisionSample transform_sample(const VisionSample& sample,
     }
     detail::MapJointAnnotations(sample, result, steps, canvases, options, local,
                                 annotation_budget, stop);
+    if(result.annotation) {
+      bool has_sources=false;for(const auto& o:result.annotation->objects)has_sources|=!o.augmentation_sources.empty();
+      if(has_sources) {
+        auto updated=std::make_shared<VisionAnnotationRecord>(*result.annotation);const auto affine=local.matrix();
+        for(auto& object:updated->objects)for(auto& source:object.augmentation_sources) {
+          const auto old=source.matrix;
+          for(std::size_t row=0;row<3;++row)for(std::size_t col=0;col<3;++col) {
+            source.matrix[3*row+col]=0;for(std::size_t k=0;k<3;++k)source.matrix[3*row+col]+=affine[3*row+k]*old[3*k+col];
+          }
+        }
+        result.annotation=std::move(updated);
+      }
+    }
+    detail::MapTaskPayload(sample, result, steps, options, local, stop);
     result.geometry = composed;
     CheckStop(stop);
     return result;

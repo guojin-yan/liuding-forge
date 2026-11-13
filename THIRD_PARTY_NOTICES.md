@@ -4,6 +4,10 @@
 
 ## Runtime Dependency
 
+### 可选 YOLO 训练套件
+
+现代 YOLO 的配置数据来自 Ultralytics `ab21e3b1b5d7af73155b351e2eb4f0db2653432b`（AGPL-3.0），原始 YOLOv5 的拓扑与 anchor 常量来自 `915bbf294bb74c859f0b41f1c23bc395014ea679`（GPL-3.0）。采用的配置与官方固定归档已核对；原文和逐文件身份见[模型来源与许可](third_party/licenses/MODEL_PROVENANCE.md#yolo-训练套件)。相关材料保留上游条款，不被项目 Apache-2.0 重新许可；完整源码衍生和制品分发审查仍为 pending。预训练权重另行核对，源码仓库不附带权重。
+
 ### LibTorch / PyTorch
 
 上游为 <https://github.com/pytorch/pytorch>，提供 Tensor、autograd、设备和运行后端。PyTorch 主体使用 BSD 风格许可，随包组件分别适用其自身条款。
@@ -218,3 +222,5 @@ Linux 使用调用者显式选择的共享系统 libcurl >= 7.81.0 SDK，适用 
 锁定 Ubuntu `7.81.0-1ubuntu1.30` 的 [runtime copyright](third_party/licenses/curl-7.81.0-1ubuntu1.30-otlp-runtime-copyright) 和 [headers copyright](third_party/licenses/curl-7.81.0-1ubuntu1.30-otlp-headers-copyright) 按本组件单独登记，均来自精确 `.deb` 内部完整原文。notice 留存不代替 curl 许可政策、传递依赖或安全审计；其他选择仍需匹配实际包的证据。
 
 当前 Linux OTLP 发送路径显式设置 `CURLAUTH_NONE`、忽略 netrc、关闭代理和重定向，每次请求独立创建并释放 easy/multi 句柄，不提供凭据输入或连接共享接口。对 [CVE-2026-19931](https://curl.se/docs/CVE-2026-19931.html) 的审查须限定这个调用路径；无认证和请求隔离不能推导所选系统 libcurl、MNIST 下载路径或其他调用者已完成安全资格。
+
+视觉扩展模型、任务和序列算法的参考 revision、选读源码摘要与原始许可证见 [EXTENSION_SOURCE_INVENTORY.json](third_party/licenses/EXTENSION_SOURCE_INVENTORY.json) 和 [MODEL_PROVENANCE.md](third_party/licenses/MODEL_PROVENANCE.md)。这些是原生开发预览的来源记录；官方权重、数值对应和再分发适用性分别登记。

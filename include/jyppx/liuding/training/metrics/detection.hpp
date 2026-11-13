@@ -121,6 +121,7 @@ struct DetectionClassResult {
       ap_by_iou;  ///< 101-point interpolated precision.
   std::vector<std::optional<double>>
       recall_by_iou;  ///< Maximum attained recall.
+  std::vector<std::array<double,101>> precision_by_iou;  ///< Precision at recall grid 0..1.
 };
 /** @brief Complete dataset or explicit-source aggregate. */
 struct DetectionSummary {

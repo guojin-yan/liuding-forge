@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include "detail.hpp"
+#include <jyppx/liuding/nn/recompute.hpp>
 
 #include <jyppx/liuding/models/swin.hpp>
 
@@ -64,21 +65,20 @@ Tensor ReverseWindows(const Tensor& windows, std::int64_t batch,
 
 Tensor ShiftMask(std::int64_t height, std::int64_t width,
                  const Tensor& reference) {
-  auto regions = torch::zeros({1, height, width, 1}, reference.options());
-  const std::array<std::int64_t, 4> rows{0, height - kWindow, height - 3,
-                                         height};
-  const std::array<std::int64_t, 4> columns{0, width - kWindow, width - 3,
-                                            width};
-  std::int64_t region = 0;
-  for (std::int64_t row = 0; row < 3; ++row)
-    for (std::int64_t column = 0; column < 3; ++column)
-      regions.slice(1, rows[row], rows[row + 1])
-          .slice(2, columns[column], columns[column + 1])
-          .fill_(region++);
+  // Build region labels with tensor operations so tracing retains every value.
+  auto rows = torch::arange(height, reference.options());
+  auto columns = torch::arange(width, reference.options());
+  auto row_labels = (rows >= height - kWindow).to(reference.scalar_type()) +
+                    (rows >= height - 3).to(reference.scalar_type());
+  auto column_labels =
+      (columns >= width - kWindow).to(reference.scalar_type()) +
+      (columns >= width - 3).to(reference.scalar_type());
+  auto regions = (row_labels.view({height, 1}) * 3 +
+                  column_labels.view({1, width})).view({1, height, width, 1});
   auto labels = PartitionWindows(regions).squeeze(-1);
   auto differences = labels.unsqueeze(1) - labels.unsqueeze(2);
   return differences.masked_fill(differences.ne(0), -100.0)
-      .masked_fill_(differences.eq(0), 0.0);
+      .masked_fill(differences.eq(0), 0.0);
 }
 
 class WindowAttention final : public torch::nn::Module {
@@ -247,7 +247,7 @@ class SwinStage final : public torch::nn::Module {
  public:
   SwinStage(std::int64_t index, std::int64_t input_channels,
             std::int64_t output_channels, std::int64_t depth,
-            std::int64_t heads, std::int64_t& block_index) {
+            std::int64_t heads, std::int64_t& block_index, bool recomputation=false):recomputation_(recomputation) {
     if (index > 0)
       downsample_ = register_module(
           "downsample",
@@ -263,12 +263,15 @@ class SwinStage final : public torch::nn::Module {
 
   Tensor forward(Tensor input) {
     if (downsample_) input = downsample_->forward(input);
-    for (std::size_t index = 0; index < blocks_->size(); ++index)
-      input = blocks_[index]->as<SwinBlock>()->forward(input);
+    for (std::size_t index = 0; index < blocks_->size(); ++index) {
+      auto block=blocks_[index];
+      input=nn::recompute(input,block,[](torch::nn::Module& m,const Tensor& x){return dynamic_cast<SwinBlock&>(m).forward(x);},recomputation_&&is_training());
+    }
     return input;
   }
 
  private:
+  bool recomputation_=false;
   std::shared_ptr<PatchMerging> downsample_;
   torch::nn::ModuleList blocks_{nullptr};
 };
@@ -342,7 +345,7 @@ SwinTinyImpl::SwinTinyImpl(SwinOptions options) : options_(options) {
     for (std::int64_t index = 0; index < 4; ++index)
       layers_->push_back(std::make_shared<SwinStage>(
           index, index == 0 ? channels[0] : channels[index - 1],
-          channels[index], depths[index], heads[index], block_index));
+          channels[index], depths[index], heads[index], block_index, options_.activation_recomputation));
     norm_ = register_module(
         "norm", torch::nn::LayerNorm(torch::nn::LayerNormOptions({768})));
     head_ = register_module("head",
@@ -351,6 +354,10 @@ SwinTinyImpl::SwinTinyImpl(SwinOptions options) : options_(options) {
 }
 
 std::vector<Tensor> SwinTinyImpl::forward_features(const Tensor& input) {
+  return forward_masked_features(input,{},{});
+}
+std::vector<Tensor> SwinTinyImpl::forward_masked_features(const Tensor& input,
+    const Tensor& mask,const Tensor& mask_token) {
   return detail::Backend("swin.forward_features", [&] {
     detail::FloatingInput(input, patch_embed_->weight(), 4);
     if (input.size(1) != options_.input_channels ||
@@ -363,6 +370,13 @@ std::vector<Tensor> SwinTinyImpl::forward_features(const Tensor& input) {
                           ? "NCHW images with positive H/W divisible by 4"
                           : "NCHW images of exactly 224x224");
     auto output = patch_embed_->forward(input);
+    if(mask.defined()) {
+      if(mask.scalar_type()!=torch::kBool || mask.device()!=input.device() ||
+         mask.sizes()!=torch::IntArrayRef({input.size(0),output.size(1),output.size(2)}) ||
+         !mask_token.defined() || mask_token.sizes()!=torch::IntArrayRef({1,1,1,96}) || mask_token.device()!=input.device())
+        throw InvalidArgument("Invalid Swin patch mask/token");
+      output=torch::where(mask.unsqueeze(-1),mask_token.to(output.scalar_type()),output);
+    }
     std::vector<Tensor> stages;
     stages.reserve(4);
     for (std::size_t index = 0; index < layers_->size(); ++index) {
@@ -371,6 +385,11 @@ std::vector<Tensor> SwinTinyImpl::forward_features(const Tensor& input) {
     }
     return stages;
   });
+}
+
+Tensor SwinTinyImpl::forward_masked_grid(const Tensor& input,const Tensor& mask,const Tensor& token) {
+  auto stages=forward_masked_features(input,mask,token);
+  return norm_->forward(stages.back().permute({0,2,3,1})).permute({0,3,1,2}).contiguous();
 }
 
 Tensor SwinTinyImpl::forward(const Tensor& input) {

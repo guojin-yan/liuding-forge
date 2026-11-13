@@ -1,0 +1,66 @@
+{
+  "dataset": {
+    "format": "yolo",
+    "source": "dataset.yaml",
+    "allow_missing_labels": false
+  },
+  "validation": {
+    "dataset": {
+      "format": "yolo",
+      "source": "dataset.yaml",
+      "split": "validation",
+      "allow_missing_labels": false
+    },
+    "evaluate_ap": true,
+    "confidence": 0.001,
+    "nms_iou": 0.7,
+    "max_candidates": 4096,
+    "max_detections": 300,
+    "ignore_difficult": true,
+    "early_stopping_patience": 20,
+    "min_delta": 0.0,
+    "save_interval_epochs": 1
+  },
+  "ema": {
+    "enabled": true,
+    "decay": 0.9999,
+    "ramp_updates": 2000.0
+  },
+  "capacity": "n",
+  "image_size": 640,
+  "batch_size": 4,
+  "accumulate_steps": 1,
+  "epochs": 100,
+  "workers": 0,
+  "device": "cpu",
+  "seed": 0,
+  "learning_rate": 0.01,
+  "momentum": 0.9,
+  "weight_decay": 0.0005,
+  "scale_weight_decay": true,
+  "nominal_batch_size": 64,
+  "nesterov": false,
+  "gradient_clip_norm": 10.0,
+  "schedule": "cosine",
+  "warmup_updates": 10,
+  "warmup_start_factor": 0.1,
+  "final_lr_factor": 0.01,
+  "horizontal_flip": 0.5,
+  "vertical_flip": 0.0,
+  "augmentation": {
+    "hsv_h": 0.015,
+    "hsv_s": 0.7,
+    "hsv_v": 0.4,
+    "scale": 0.5,
+    "translate": 0.1,
+    "min_box_area": 4.0,
+    "min_box_visibility": 0.1,
+    "grayscale": 0.0,
+    "blur": 0.0,
+    "blur_kernel": 3,
+    "blur_sigma": 1.0,
+    "median_blur": 0.0,
+    "median_kernel": 3
+  },
+  "prediction_confidence": 0.25
+}

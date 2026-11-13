@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include "detail.hpp"
+#include <jyppx/liuding/nn/recompute.hpp>
 
 #include <jyppx/liuding/models/vit.hpp>
 
@@ -229,6 +230,9 @@ ViTImpl::ViTImpl(ViTVariant variant, ViTOptions options)
 }
 
 Tensor ViTImpl::forward_features(const Tensor& input) {
+  return forward_masked_features(input,{},{});
+}
+Tensor ViTImpl::forward_masked_features(const Tensor& input,const Tensor& mask,const Tensor& mask_token) {
   return detail::Backend("vit.forward_features", [&] {
     detail::FloatingInput(input, Patch(patch_embed_).weight(), 4);
     if (input.size(1) != options_.input_channels ||
@@ -244,11 +248,40 @@ Tensor ViTImpl::forward_features(const Tensor& input) {
     const auto height = patches.size(2);
     const auto width = patches.size(3);
     auto tokens = patches.flatten(2).transpose(1, 2);
+    if(mask.defined()) {
+      if(mask.scalar_type()!=torch::kBool || mask.device()!=input.device() ||
+         mask.sizes()!=torch::IntArrayRef({input.size(0),height,width}) || !mask_token.defined() ||
+         mask_token.sizes()!=torch::IntArrayRef({1,1,dimension_}) || mask_token.device()!=input.device())
+        throw InvalidArgument("Invalid ViT patch mask/token");
+      tokens=torch::where(mask.flatten(1).unsqueeze(-1),mask_token.to(tokens.scalar_type()),tokens);
+    }
     tokens =
         torch::cat({cls_token_.expand({input.size(0), -1, -1}), tokens}, 1);
     tokens = tokens + PositionForGrid(pos_embed_, height, width, dimension_);
-    return norm_->forward(blocks_->forward(tokens));
+    if(options_.activation_recomputation && is_training()) {
+      for(auto& block:*blocks_)tokens=nn::recompute(tokens,block.ptr(),
+        [](torch::nn::Module& m,const Tensor& x){return dynamic_cast<Block&>(m).forward(x);});
+    }else tokens=blocks_->forward(tokens);
+    return norm_->forward(tokens);
   });
+}
+
+Tensor ViTImpl::patch_tokens(const Tensor& input) {
+  detail::FloatingInput(input,Patch(patch_embed_).weight(),4);
+  if(input.size(1)!=options_.input_channels||input.size(2)<16||input.size(3)<16||input.size(2)%16||input.size(3)%16)
+    throw InvalidArgument("ViT patch tokens require patch-aligned images");
+  auto patches=Patch(patch_embed_).forward(input);
+  return patches.flatten(2).transpose(1,2)+PositionForGrid(pos_embed_,patches.size(2),patches.size(3),dimension_).slice(1,1);
+}
+Tensor ViTImpl::forward_block_range(const Tensor& input,std::int64_t first,std::int64_t last) {
+  if(first<0||last>12||first>=last||input.dim()!=3||input.size(2)!=dimension_||input.size(1)>16384)
+    throw InvalidArgument("Invalid ViT block range/token layout");
+  auto x=input;
+  for(auto i=first;i<last;++i) {
+    auto block=blocks_->ptr<Block>(i);
+    x=nn::recompute(x,block,[](torch::nn::Module& m,const Tensor& y){return dynamic_cast<Block&>(m).forward(y);},options_.activation_recomputation&&is_training());
+  }
+  return x;
 }
 
 Tensor ViTImpl::forward_patch_grid(const Tensor& input) {

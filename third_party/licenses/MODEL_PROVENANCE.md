@@ -15,6 +15,16 @@
 
 PyTorch 的 Tensor、autograd、Transformer 和其他运行接口另适用对应 LibTorch/PyTorch 许可。参考环境中的 Transformers、safetensors 等工具及实际加载的模型权重，也需要按各自版本和制品核对；上表不声称已经穷尽全部开发环境依赖。
 
+## YOLO 训练套件
+
+`models_yolo` 的现代模型拓扑来自 Ultralytics `v8.4.177`，固定提交为 `ab21e3b1b5d7af73155b351e2eb4f0db2653432b`。29 份采用的 YAML 与固定提交的官方归档逐字节相符，展开为 145 个模型/任务/变体组合；配置被转换为 `src/jyppx/liuding/vision/models/yolo/definitions.inc` 中的数值数据，该文件明确保留 [AGPL-3.0 原文](ultralytics-AGPL-3.0.txt)及上游归属。
+
+原始 YOLOv5 的 P5/P6 拓扑和 anchor 常量来自 v7.0 提交 `915bbf294bb74c859f0b41f1c23bc395014ea679`，10 份采用的模型 YAML 与官方归档逐字节相符，保留 [GPL-3.0 原文](yolov5-GPL-3.0.txt)。它们不使用 Ultralytics v5u/v6 的适配结构。两个归档、全部配置和许可证的 SHA-256 见 [YOLO 来源清单](YOLO_SOURCE_INVENTORY.json)，下载源同时登记在依赖清单中。
+
+C++ 模块、head、损失、匹配、增强和解码在对照上游模块顺序、状态键和数学公式后实现。该说明不将这些适配整体认定为纯 Apache-2.0，也不以语言转换或文件头消除上游条款；最终源码衍生范围和二进制分发审查仍为 pending。实际复制、翻译或实质改写的上游材料及其衍生作品须遵守对应 AGPL/GPL 条款，包括适用的源码和告知义务。开启 `models_yolo` 时单独安装上述原文、清单和本说明。
+
+套件不附带上游预训练权重。原生 `.pt` 到 safetensors 转换只处理格式，调用者须提供源摘要并保留具体权重的来源和许可；转换成功和自动提出的键映射报告均不代表预训练模型、数值等价或任务精度资格。
+
 ## 文件声明与原始署名
 
 除根许可证外，保留了固定 timm 源码中的 [ConvNeXt 声明](models-timm-convnext-SOURCE-NOTICE.txt)、[Swin Transformer 声明](models-timm-swin_transformer-SOURCE-NOTICE.txt)、[ViT 声明](models-timm-vision_transformer-SOURCE-NOTICE.txt)和 [EfficientNet 声明](models-timm-efficientnet-SOURCE-NOTICE.txt)。这些原文包含 Ross Wightman 的对应修改署名，以及 Meta、Microsoft 等原始来源；不能只用 timm 的根许可证替代。
@@ -42,3 +52,9 @@ PyTorch 的 Tensor、autograd、Transformer 和其他运行接口另适用对应
 源码中的 `dependency-manifest.json` 和本目录 `manifest.json` 记录参考源归档及保留原文的 URL、SHA-256、字节数和归档成员；文件头摘录另外记录原始字节区间。上游原文不修改换行或措辞。启用 `models` 时，本说明与所列模型许可和声明一起安装到 `share/doc/jyppx/licenses/models/`，本说明中的原文链接在安装后仍可使用。
 
 框架代码、具体权重和数据集分别适用各自授权。随机初始化参考、形状或数值测试只证明相应测试行为，不授予权重、数据集或源码的使用和分发权；微调、量化或格式转换也不会自动消除原始条款。
+
+## 扩展视觉参考
+
+[扩展来源清单](EXTENSION_SOURCE_INVENTORY.json)登记 torchvision、SimMIM、RT-DETR、Fast R-CNN、TrackEval、ByteTrack、ViT-Adapter、EfficientDet、CLIP 和 BoT-SORT 的选定提交与文件摘要，原始许可证分别保留在 `vision-extensions/`。原生模型、公式与状态接口参考这些源码；官方权重、上游数值与完整训练质量没有由来源留存自动获得资格。
+
+YOLO-World/YOLOE 还参考已固定 Ultralytics 的模块与配置，并复用本项目的 YOLO 基础块，适用范围须与上文 AGPL/GPL 材料一起审查。原生 affine GMC、token pyramid、监督 depth 和 UTF-8 tokenizer 的差异由清单单独声明，不冒用对应官方实现或权重兼容身份。

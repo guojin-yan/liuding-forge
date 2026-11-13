@@ -1,0 +1,22 @@
+{
+  "trials": 20,
+  "seed": 17,
+  "evolution": true,
+  "elite_size": 5,
+  "objective": "validation.top1",
+  "maximize": true,
+  "space": [
+    {
+      "field": "learning_rate",
+      "distribution": "log_uniform",
+      "lower": 0.0001,
+      "upper": 0.01
+    },
+    {
+      "field": "classification.erasing",
+      "distribution": "uniform",
+      "lower": 0.0,
+      "upper": 0.3
+    }
+  ]
+}

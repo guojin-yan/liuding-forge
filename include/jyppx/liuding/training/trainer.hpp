@@ -56,6 +56,7 @@ class EventOutbox;
 class SchedulerAdapter;
 class TrainingStrategy;
 class TrainingDiagnostics;
+class OptimizerUpdateParticipant;
 
 /**
  * @brief Selects how an incomplete gradient-accumulation tail is handled.
@@ -253,6 +254,9 @@ struct FitRequest {
   TargetMapper
       validation_target_mapper;  ///< Optional validation target mapper.
   StepFunction validation_step;  ///< Required when validation is set.
+  std::function<std::map<std::string, double>(std::stop_token)>
+      validation_summary;  ///< Optional full-split metrics after loss aggregation;
+                           ///< rejects duplicate keys and never averages batch AP.
   std::shared_ptr<TrainingStrategy>
       strategy;  ///< Required device/backward/update execution owner.
   std::shared_ptr<amp::GradScaler>
@@ -273,6 +277,9 @@ struct FitRequest {
       additional_participants;  ///< Metric/scaler or task state participants.
   CheckpointAction
       checkpoint_action;  ///< Optional callback-command publication action.
+  std::vector<std::shared_ptr<OptimizerUpdateParticipant>>
+      optimizer_update_participants;  ///< Auto-registered successful-update
+                                      ///< state.
 };
 
 /** @brief Summarizes one completed, stopped, cancelled, or paused fit call. */

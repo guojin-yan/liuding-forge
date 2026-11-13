@@ -5,6 +5,9 @@
 // you may not use this file except in compliance with the License.
 
 #include "generic_lowering.hpp"
+#include <torch/csrc/jit/passes/dead_code_elimination.h>
+#include <torch/csrc/jit/passes/constant_propagation.h>
+#include <torch/csrc/jit/passes/remove_mutation.h>
 
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -475,7 +478,7 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
       },
       [](const auto&) { return std::string(); }, true, false);
   ValidateOutputs(traced.second, options);
-  const auto graph = traced.first->graph;
+  auto graph = traced.first->graph;
   if (!graph ||
       graph->inputs().size() != examples.size() + state_names.size() ||
       graph->outputs().size() != result.output_shapes.size())
@@ -569,6 +572,24 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
     graph->inputs()[index]->setDebugName(result.input_names[index]);
   for (std::size_t index = 0; index < state_names.size(); ++index)
     graph->inputs()[examples.size() + index]->setDebugName(state_names[index]);
+  // Fixed inference profiles serialize registered state as constants. Fold
+  // state-only geometry (e.g. antialiased ViT position grids) before lowering.
+  if(!options.dynamic_batch&&options.dynamic_axes.empty()){
+    torch::jit::WithInsertPoint point(*graph->nodes().begin());
+    for(std::size_t i=0;i<state_tensors.size();++i){auto* value=graph->insertConstant(state_tensors[i].detach());graph->inputs()[examples.size()+i]->replaceAllUsesWith(value);}
+  }
+  torch::jit::RemoveTensorMutation(graph);
+  // Functionalization can express scalar arithmetic through full_like.
+  // In a fixed profile its shape/dtype and scalar value are already known.
+  if(!options.dynamic_batch&&options.dynamic_axes.empty()){
+    std::vector<torch::jit::Node*> factories;
+    for(auto* n:graph->nodes())if(n->kind()==c10::Symbol::fromQualString("aten::full_like"))factories.push_back(n);
+    for(auto* n:factories){auto type=n->output()->type()->cast<c10::TensorType>();auto shape=type?type->sizes().concrete_sizes():std::nullopt;auto fill=torch::jit::toIValue(n->input(1));
+      if(shape&&type->scalarType()&&fill&&(fill->isInt()||fill->isDouble()||fill->isBool())){torch::jit::WithInsertPoint point(n);c10::Scalar scalar=fill->isBool()?c10::Scalar(fill->toBool()):fill->isInt()?c10::Scalar(fill->toInt()):c10::Scalar(fill->toDouble());auto* value=graph->insertConstant(at::full(*shape,scalar,at::TensorOptions().dtype(*type->scalarType())));n->output()->replaceAllUsesWith(value);n->destroy();}}
+  }
+  torch::jit::EliminateDeadCode(graph);
+  torch::jit::ConstantPropagation(graph);
+  torch::jit::EliminateDeadCode(graph);
   std::set<torch::jit::Value*> public_outputs;
   for (std::size_t index = 0; index < result.output_names.size(); ++index) {
     auto* old = graph->outputs()[index];
@@ -601,8 +622,12 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
                     Details("trace"));
   }
   detail::lower_to_onnx(graph, options, initializers);
-  for (std::size_t index = 0; index < result.output_names.size(); ++index)
-    graph->outputs()[index]->setDebugName(result.output_names[index]);
+  for (std::size_t index = 0; index < result.output_names.size(); ++index){
+    auto* output=graph->outputs()[index];
+    if(std::find(graph->inputs().begin(),graph->inputs().end(),output)!=graph->inputs().end()){
+      auto* identity=graph->create(c10::Symbol::onnx("Identity"),{output},1);identity->output()->setType(output->type());graph->appendNode(identity);graph->return_node()->replaceInput(index,identity->output());output=identity->output();}
+    output->setDebugName(result.output_names[index]);
+  }
   for (std::size_t index = graph->inputs().size(); index-- > examples.size();) {
     if (graph->inputs()[index]->uses().empty()) {
       initializers.erase(graph->inputs()[index]->debugName());

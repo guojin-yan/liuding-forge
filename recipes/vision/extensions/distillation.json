@@ -1,0 +1,39 @@
+{
+  "schema_version": 2,
+  "model": {
+    "architecture": "resnet18",
+    "task": "classify",
+    "variant": "p5",
+    "num_classes": 3
+  },
+  "image_size": 224,
+  "batch_size": 4,
+  "workers": 0,
+  "epochs": 100,
+  "seed": 0,
+  "device": "cpu",
+  "precision": "full",
+  "optimizer": {
+    "name": "auto",
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001
+  },
+  "extension": {
+    "training_manifest": "dataset.train.json",
+    "validation_manifest": "dataset.val.json",
+    "teacher_architecture": "resnet50",
+    "teacher_weights": "teacher.safetensors",
+    "teacher_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "distillation_temperature": 2.0,
+    "logits_distillation_weight": 1.0,
+    "feature_outputs": true,
+    "feature_projection": 2048,
+    "feature_distillation_weight": 1.0
+  },
+  "augmentation": {
+    "horizontal_flip": 0.5
+  },
+  "full_validation_metrics": true,
+  "selection_metric": "auto",
+  "verify_image_contents": true
+}

@@ -378,6 +378,11 @@ ModelRegistry default_model_registry() {
       [](const ModelOptions& o) { return adapt(resnet18(o.resnet)); },
       [](const ModelOptions& o) {
         return detail::AdaptFeatures(resnet18(o.resnet));
+      }, [](const ModelOptions& o) {
+        auto outputs=detail::StageFeatureInfo({64,128,256,512});
+        std::int64_t stride=4;
+        for(std::size_t i=1;i<4;++i){if(!o.resnet.replace_stride_with_dilation[i-1])stride*=2;outputs[i].reduction=stride;}
+        return FeatureSpec{std::move(outputs),FeatureInputSpec{}};
       });
   registry.add(
       {.name = "resnet34",
@@ -391,6 +396,11 @@ ModelRegistry default_model_registry() {
       [](const ModelOptions& o) { return adapt(resnet34(o.resnet)); },
       [](const ModelOptions& o) {
         return detail::AdaptFeatures(resnet34(o.resnet));
+      }, [](const ModelOptions& o) {
+        auto outputs=detail::StageFeatureInfo({64,128,256,512});
+        std::int64_t stride=4;
+        for(std::size_t i=1;i<4;++i){if(!o.resnet.replace_stride_with_dilation[i-1])stride*=2;outputs[i].reduction=stride;}
+        return FeatureSpec{std::move(outputs),FeatureInputSpec{}};
       });
   registry.add(
       {.name = "resnet50",
@@ -404,6 +414,11 @@ ModelRegistry default_model_registry() {
       [](const ModelOptions& o) { return adapt(resnet50(o.resnet)); },
       [](const ModelOptions& o) {
         return detail::AdaptFeatures(resnet50(o.resnet));
+      }, [](const ModelOptions& o) {
+        auto outputs=detail::StageFeatureInfo({256,512,1024,2048});
+        std::int64_t stride=4;
+        for(std::size_t i=1;i<4;++i){if(!o.resnet.replace_stride_with_dilation[i-1])stride*=2;outputs[i].reduction=stride;}
+        return FeatureSpec{std::move(outputs),FeatureInputSpec{}};
       });
   registry.add(
       {.name = "resnet101",
@@ -417,6 +432,11 @@ ModelRegistry default_model_registry() {
       [](const ModelOptions& o) { return adapt(resnet101(o.resnet)); },
       [](const ModelOptions& o) {
         return detail::AdaptFeatures(resnet101(o.resnet));
+      }, [](const ModelOptions& o) {
+        auto outputs=detail::StageFeatureInfo({256,512,1024,2048});
+        std::int64_t stride=4;
+        for(std::size_t i=1;i<4;++i){if(!o.resnet.replace_stride_with_dilation[i-1])stride*=2;outputs[i].reduction=stride;}
+        return FeatureSpec{std::move(outputs),FeatureInputSpec{}};
       });
   registry.add(
       {.name = "resnext50_32x4d",
@@ -430,6 +450,11 @@ ModelRegistry default_model_registry() {
       [](const ModelOptions& o) { return adapt(resnext50_32x4d(o.resnet)); },
       [](const ModelOptions& o) {
         return detail::AdaptFeatures(resnext50_32x4d(o.resnet));
+      }, [](const ModelOptions& o) {
+        auto outputs=detail::StageFeatureInfo({256,512,1024,2048});
+        std::int64_t stride=4;
+        for(std::size_t i=1;i<4;++i){if(!o.resnet.replace_stride_with_dilation[i-1])stride*=2;outputs[i].reduction=stride;}
+        return FeatureSpec{std::move(outputs),FeatureInputSpec{}};
       });
   registry.add(
       {.name = "mobilenet_v3_small",

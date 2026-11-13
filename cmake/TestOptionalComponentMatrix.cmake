@@ -63,7 +63,7 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
     set(ENV{PATH} "${JYPPX_TORCH_RUNTIME_DIR};$ENV{PATH}")
 endif()
 
-set(optional_components core interop data data_image vision_render nn optim training experiment models onnx_export onnx_runtime onnx_serving bundle_signing serving)
+set(optional_components core interop data data_image vision_render nn optim training experiment models onnx_export onnx_runtime onnx_serving bundle_signing serving vision_ops models_yolo models_rcnn models_vision vision_tasks)
 set(profiles foundation core interop data data_image vision_render nn optim training experiment)
 if(JYPPX_MATRIX_PROFILES)
     foreach(profile IN LISTS JYPPX_MATRIX_PROFILES)

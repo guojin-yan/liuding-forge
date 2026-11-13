@@ -5,10 +5,20 @@
   ],
   "components": {
     "bundle_signing": {
-      "header_roots": ["deployment/bundle_signing"],
-      "source_roots": ["deployment/bundle_signing"],
-      "required_dependencies": ["foundation", "interop"],
-      "required_public_dependencies": ["foundation", "interop"],
+      "header_roots": [
+        "deployment/bundle_signing"
+      ],
+      "source_roots": [
+        "deployment/bundle_signing"
+      ],
+      "required_dependencies": [
+        "foundation",
+        "interop"
+      ],
+      "required_public_dependencies": [
+        "foundation",
+        "interop"
+      ],
       "optional_dependencies": []
     },
     "core": {
@@ -129,6 +139,65 @@
       ],
       "optional_dependencies": []
     },
+    "models_rcnn": {
+      "header_roots": [
+        "vision/models/rcnn"
+      ],
+      "source_roots": [
+        "vision/models/rcnn"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation",
+        "models",
+        "nn",
+        "vision_ops"
+      ],
+      "required_public_dependencies": [
+        "models",
+        "nn"
+      ],
+      "optional_dependencies": []
+    },
+    "models_vision": {
+      "header_roots": [
+        "vision/models/extended"
+      ],
+      "source_roots": [
+        "vision/models/extended"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation",
+        "models",
+        "nn",
+        "vision_ops"
+      ],
+      "required_public_dependencies": [
+        "models",
+        "nn"
+      ],
+      "optional_dependencies": []
+    },
+    "models_yolo": {
+      "header_roots": [
+        "vision/models/yolo"
+      ],
+      "source_roots": [
+        "vision/models/yolo"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation",
+        "interop",
+        "nn"
+      ],
+      "required_public_dependencies": [
+        "core",
+        "nn"
+      ],
+      "optional_dependencies": []
+    },
     "nn": {
       "header_roots": [
         "nn"
@@ -147,24 +216,54 @@
       "optional_dependencies": []
     },
     "onnx_export": {
-      "header_roots": ["deployment/onnx_export"],
-      "source_roots": ["deployment/onnx_export"],
-      "required_dependencies": ["foundation"],
-      "required_public_dependencies": ["foundation"],
+      "header_roots": [
+        "deployment/onnx_export"
+      ],
+      "source_roots": [
+        "deployment/onnx_export"
+      ],
+      "required_dependencies": [
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "foundation"
+      ],
       "optional_dependencies": []
     },
     "onnx_runtime": {
-      "header_roots": ["deployment/onnx_runtime"],
-      "source_roots": ["deployment/onnx_runtime"],
-      "required_dependencies": ["foundation"],
-      "required_public_dependencies": ["foundation"],
+      "header_roots": [
+        "deployment/onnx_runtime"
+      ],
+      "source_roots": [
+        "deployment/onnx_runtime"
+      ],
+      "required_dependencies": [
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "foundation"
+      ],
       "optional_dependencies": []
     },
     "onnx_serving": {
-      "header_roots": ["deployment/onnx_serving"],
-      "source_roots": ["deployment/onnx_serving"],
-      "required_dependencies": ["core", "foundation", "interop", "nn", "onnx_runtime", "serving"],
-      "required_public_dependencies": ["onnx_runtime", "serving"],
+      "header_roots": [
+        "deployment/onnx_serving"
+      ],
+      "source_roots": [
+        "deployment/onnx_serving"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation",
+        "interop",
+        "nn",
+        "onnx_runtime",
+        "serving"
+      ],
+      "required_public_dependencies": [
+        "onnx_runtime",
+        "serving"
+      ],
       "optional_dependencies": []
     },
     "optim": {
@@ -205,17 +304,36 @@
       "optional_dependencies": []
     },
     "telemetry_http": {
-      "header_roots": ["telemetry_http"],
-      "source_roots": ["telemetry_http"],
-      "required_dependencies": ["foundation", "telemetry_native"],
-      "required_public_dependencies": ["foundation", "telemetry_native"],
+      "header_roots": [
+        "telemetry_http"
+      ],
+      "source_roots": [
+        "telemetry_http"
+      ],
+      "required_dependencies": [
+        "foundation",
+        "telemetry_native"
+      ],
+      "required_public_dependencies": [
+        "foundation",
+        "telemetry_native"
+      ],
       "optional_dependencies": []
     },
     "telemetry_native": {
-      "header_roots": ["telemetry_native"],
-      "source_roots": ["telemetry_native"],
-      "required_dependencies": ["experiment", "foundation"],
-      "required_public_dependencies": ["foundation"],
+      "header_roots": [
+        "telemetry_native"
+      ],
+      "source_roots": [
+        "telemetry_native"
+      ],
+      "required_dependencies": [
+        "experiment",
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "foundation"
+      ],
       "optional_dependencies": []
     },
     "training": {
@@ -244,6 +362,22 @@
         "interop"
       ]
     },
+    "vision_ops": {
+      "header_roots": [
+        "vision/ops"
+      ],
+      "source_roots": [
+        "vision/ops"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "core"
+      ],
+      "optional_dependencies": []
+    },
     "vision_render": {
       "header_roots": [
         "visualization"
@@ -259,6 +393,44 @@
         "data_image"
       ],
       "optional_dependencies": []
+    },
+    "vision_tasks": {
+      "header_roots": [
+        "vision/tasks"
+      ],
+      "source_roots": [
+        "vision/tasks"
+      ],
+      "required_dependencies": [
+        "core",
+        "data",
+        "data_image",
+        "experiment",
+        "foundation",
+        "interop",
+        "nn",
+        "optim",
+        "training",
+        "vision_ops"
+      ],
+      "required_public_dependencies": [
+        "core",
+        "data_image",
+        "nn",
+        "optim",
+        "training"
+      ],
+      "optional_dependencies": [
+        "models",
+        "models_rcnn",
+        "models_vision",
+        "models_yolo",
+        "onnx_export",
+        "onnx_runtime",
+        "serving",
+        "telemetry_native",
+        "vision_render"
+      ]
     }
   },
   "ownership_assertions": {

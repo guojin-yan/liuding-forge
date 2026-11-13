@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "model": {
+    "architecture": "yolo26n",
+    "task": "pose",
+    "variant": "p5",
+    "num_classes": 1,
+    "keypoints": 17,
+    "keypoint_dimensions": 3
+  },
+  "keypoint_sigmas": [0.026, 0.025, 0.025, 0.035, 0.035, 0.079, 0.079, 0.072, 0.072, 0.062, 0.062, 0.107, 0.107, 0.087, 0.087, 0.089, 0.089],
+  "image_size": 640,
+  "batch_size": 4,
+  "workers": 0,
+  "epochs": 100,
+  "seed": 0,
+  "device": "cpu",
+  "precision": "full",
+  "optimizer": {
+    "name": "auto",
+    "learning_rate": 0.001,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
+    "nominal_batch": 64,
+    "scale_weight_decay": true
+  },
+  "scheduler": {
+    "warmup_updates": 10,
+    "warmup_start_factor": 0.1,
+    "final_factor": 0.01
+  },
+  "ema": {
+    "enabled": true
+  },
+  "full_validation_metrics": true,
+  "selection_metric": "auto",
+  "early_stopping_patience": 30,
+  "save_interval_epochs": 5,
+  "verify_image_contents": true,
+  "exif_policy": "reject",
+  "dataset": {
+    "format": "yolo",
+    "source": "dataset.yaml"
+  },
+  "validation": {
+    "format": "yolo",
+    "source": "dataset.yaml",
+    "split": "validation"
+  },
+  "augmentation": {
+    "horizontal_flip": 0.0,
+    "hsv_h": 0.015,
+    "hsv_s": 0.7,
+    "hsv_v": 0.4,
+    "scale": 0.3,
+    "translate": 0.1,
+    "mosaic": 0.5,
+    "mixup": 0.1,
+    "cutmix": 0.0,
+    "copypaste": 0.0,
+    "close_epochs": 10
+  }
+}

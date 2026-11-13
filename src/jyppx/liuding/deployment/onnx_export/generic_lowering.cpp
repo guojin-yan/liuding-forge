@@ -140,7 +140,8 @@ class Lowerer final {
       std::vector<Value*> outputs;
       if (const auto custom = options_.custom_lowerings.find(symbol);
           custom != options_.custom_lowerings.end()) {
-        outputs = custom->second(*node, *graph_);
+        try { outputs = custom->second(*node, *graph_); }
+        catch(const c10::Error& e){Unsupported(*node,e.what_without_backtrace());}
       } else {
         outputs = Convert(*node, symbol);
       }
@@ -155,6 +156,9 @@ class Lowerer final {
       }
       node->destroy();
     }
+    std::vector<Node*> constants;
+    for(auto* n:graph_->nodes())if(n->kind()==torch::jit::prim::Constant&&!n->output()->uses().empty())constants.push_back(n);
+    for(auto* n:constants){auto value=torch::jit::toIValue(n->output());if(!value||!value->isTensor())Unsupported(*n,"a used non-tensor constant survived lowering");auto* replacement=Constant(value->toTensor());replacement->setType(n->output()->type());n->output()->replaceAllUsesWith(replacement);n->destroy();}
     // All executable nodes have been converted or rejected above. Remove dead
     // pure ONNX operations and metadata, including transposes folded into Gemm.
     bool changed = true;

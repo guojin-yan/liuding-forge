@@ -1,5 +1,5 @@
 {
-  "audit_date": "2026-11-05",
+  "audit_date": "2026-11-12",
   "dependency_notice_states": {
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
@@ -29,7 +29,19 @@
     "models-reference-timm": "pending",
     "models-reference-dinov3": "pending",
     "models-reference-torchvision-0.24.1": "pending",
-    "models-reference-torchvision-0.29.1": "pending"
+    "models-reference-torchvision-0.29.1": "pending",
+    "models-yolo-ultralytics": "pending",
+    "models-yolo-original-v5": "pending",
+    "vision-extension-torchvision": "pending",
+    "vision-extension-simmim": "pending",
+    "vision-extension-rtdetr": "pending",
+    "vision-extension-fast-rcnn": "pending",
+    "vision-extension-trackeval": "pending",
+    "vision-extension-vit-adapter": "pending",
+    "vision-extension-bytetrack": "pending",
+    "vision-extension-efficientdet": "pending",
+    "vision-extension-bot-sort": "pending",
+    "vision-extension-clip": "pending"
   },
   "files": [
     {
@@ -1234,6 +1246,140 @@
         "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/a3253c88425835d5b339d6998a1110a66ccd8b44/COPYING.RUNTIME",
         "artifact_sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
       }
+    },
+    {
+      "dependency_id": "models-yolo-ultralytics",
+      "path": "ultralytics-AGPL-3.0.txt",
+      "size_bytes": 34523,
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/ultralytics/ultralytics/zip/ab21e3b1b5d7af73155b351e2eb4f0db2653432b",
+        "artifact_sha256": "01adc01d1d0c3f65fedd0037bdbdf61f58610b17607b3bcc572556abed15d4d6",
+        "entry": "ultralytics-ab21e3b1b5d7af73155b351e2eb4f0db2653432b/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "models-yolo-original-v5",
+      "path": "yolov5-GPL-3.0.txt",
+      "size_bytes": 35127,
+      "sha256": "7fa7e56c0db71105f4b59a6a0ac40225eb059876f85cd380383f7d7a066e68be",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/ultralytics/yolov5/zip/915bbf294bb74c859f0b41f1c23bc395014ea679",
+        "artifact_sha256": "5aac5c8c40f89831fee611621b5ef3dbd7a7633278713b4dd0d059e1a631c7b0",
+        "entry": "yolov5-915bbf294bb74c859f0b41f1c23bc395014ea679/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-torchvision",
+      "path": "vision-extensions/ref-torchvision-LICENSE",
+      "size_bytes": 1517,
+      "sha256": "6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/vision/7a9db90e9aadea3e3e1fec35969601167e9efd4f/LICENSE",
+        "artifact_sha256": "6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-simmim",
+      "path": "vision-extensions/ref-simmim-LICENSE",
+      "size_bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/microsoft/SimMIM/d3e29bcac950b83edc34ca33fe4404f38309052c/LICENSE",
+        "artifact_sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-rtdetr",
+      "path": "vision-extensions/ref-rtdetr-LICENSE",
+      "size_bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/lyuwenyu/RT-DETR/df2a96c8c3a098567a1149bf0248da6efe6d495d/LICENSE",
+        "artifact_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-fast-rcnn",
+      "path": "vision-extensions/ref-fast-rcnn-LICENSE",
+      "size_bytes": 1107,
+      "sha256": "dbfe88113cb11c3ae7ec02f7d344e2f2745574eb96a18afcdc4580ede3c8dd3f",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/rbgirshick/fast-rcnn/b612190f279da3c11dd8b1396dd5e72779f8e463/LICENSE",
+        "artifact_sha256": "dbfe88113cb11c3ae7ec02f7d344e2f2745574eb96a18afcdc4580ede3c8dd3f"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-trackeval",
+      "path": "vision-extensions/ref-trackeval-LICENSE",
+      "size_bytes": 1072,
+      "sha256": "f7e548c5729e464d878dd4abf691e323bbea028a756d08395d88b83e43dd2d86",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/JonathonLuiten/TrackEval/12c8791b303e0a0b50f753af204249e622d0281a/LICENSE",
+        "artifact_sha256": "f7e548c5729e464d878dd4abf691e323bbea028a756d08395d88b83e43dd2d86"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-vit-adapter",
+      "path": "vision-extensions/ref-vit-adapter-LICENSE.md",
+      "size_bytes": 10778,
+      "sha256": "975bf0101f2ebeed2ff7c96438080f6df0cfaf4d17c456f64ddcf2d9fe6db56c",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/czczup/ViT-Adapter/fd64a5190f9f4530e8e5961cc87b2a3ad591190b/LICENSE.md",
+        "artifact_sha256": "975bf0101f2ebeed2ff7c96438080f6df0cfaf4d17c456f64ddcf2d9fe6db56c"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-bytetrack",
+      "path": "vision-extensions/ref-bytetrack-LICENSE",
+      "size_bytes": 1067,
+      "sha256": "e9d83751678cbaba6dfba902ea39215c423d93425e58f8450d6001f7261696f9",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/ifzhang/ByteTrack/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/LICENSE",
+        "artifact_sha256": "e9d83751678cbaba6dfba902ea39215c423d93425e58f8450d6001f7261696f9"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-efficientdet",
+      "path": "vision-extensions/ref-efficientdet-LICENSE",
+      "size_bytes": 11343,
+      "sha256": "ba244c317dc30521173e28448092859e0bc65e5f8f230677ea3a51b8e0876d8f",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/rwightman/efficientdet-pytorch/c6dff775a36cea0bf9b76c58e59f936411c5ce01/LICENSE",
+        "artifact_sha256": "ba244c317dc30521173e28448092859e0bc65e5f8f230677ea3a51b8e0876d8f"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-bot-sort",
+      "path": "vision-extensions/bot_sort-LICENSE",
+      "size_bytes": 1067,
+      "sha256": "12a15474ca15cec568da311e6cd89e593e3cd2bb5b790e75b90e1608306a3a5f",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/NirAharon/BoT-SORT/251985436d6712aaf682aaaf5f71edb4987224bd/LICENSE",
+        "artifact_sha256": "12a15474ca15cec568da311e6cd89e593e3cd2bb5b790e75b90e1608306a3a5f"
+      }
+    },
+    {
+      "dependency_id": "vision-extension-clip",
+      "path": "vision-extensions/clip-LICENSE",
+      "size_bytes": 1064,
+      "sha256": "987e63b32f6c89ff5160e429458a872ff048e6860b590a3912e938f9da8f14db",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/openai/CLIP/a1d071733d7111c9c014f024669f959182114e33/LICENSE",
+        "artifact_sha256": "987e63b32f6c89ff5160e429458a872ff048e6860b590a3912e938f9da8f14db"
+      }
     }
   ],
   "hash_algorithm": "sha256",
@@ -1251,7 +1397,8 @@
     "ConvNeXt and Swin MIT license originals are retained at the exact upstream document commits named in their origin URLs as context for the inherited notices in the pinned timm source. These document commits are not asserted to be the original source revisions from which timm or this project was derived.",
     "CUDA 12.6.0 and cuDNN 9.10.2 EULA HTML snapshots identify terms relevant to the selected Windows cu126 baseline. They are upstream licensing documents, not the complete selected-binary third-party notice set, a redistribution allowlist, or evidence that all 37 staged LibTorch DLLs may be shipped. All LibTorch notice audits remain pending.",
     "The pinned timm source retains MIT notices for inherited ConvNeXt/Swin code in addition to its Apache-2.0 root license. The two torchvision source archives also contain the separately retained TensorFlow Apache-2.0 notice for damaged-JPEG test assets. These are observed source-archive license identities, not an assertion that test assets, weights or all upstream files are included in the SDK. All four model-reference notice states and C++ provenance/redistribution boundaries remain pending.",
-    "The actual Linux CPU 2.14.1 archive has pinned third-party header/oneDNN notices and now retains exact GCC GPLv3 and Runtime Library Exception 3.1 texts. libgomp code/data and loader semantics are traced to the official AlmaLinux 8.5.0-28.el8_10.alma.1 package and its exact source packaging revision; whole ELF bytes differ by downstream loader metadata. Actual Corresponding Source conveyance, packaging-modification material, exact static numerical library composition, full transitive notices, CVE and redistribution qualification remain pending. CPU notice state is unchanged."
+    "The actual Linux CPU 2.14.1 archive has pinned third-party header/oneDNN notices and now retains exact GCC GPLv3 and Runtime Library Exception 3.1 texts. libgomp code/data and loader semantics are traced to the official AlmaLinux 8.5.0-28.el8_10.alma.1 package and its exact source packaging revision; whole ELF bytes differ by downstream loader metadata. Actual Corresponding Source conveyance, packaging-modification material, exact static numerical library composition, full transitive notices, CVE and redistribution qualification remain pending. CPU notice state is unchanged.",
+    "Vision extension references retain exact upstream license documents and selected-source hashes in EXTENSION_SOURCE_INVENTORY.json. These native implementation profiles do not imply official checkpoint compatibility, numerical parity, pretrained weight availability, full transitive notice review or release qualification."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"
