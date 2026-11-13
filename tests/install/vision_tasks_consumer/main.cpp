@@ -48,8 +48,9 @@ int main() try {
                                        std::filesystem::current_path());
   if (tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
     throw std::runtime_error("installed recipe roundtrip mismatch");
-  if (std::string_view(jyppx::liuding::version()) != "2.0.0-preview.1")
-    throw std::runtime_error("installed preview version mismatch");
+  if (std::string_view(jyppx::liuding::version()) !=
+      jyppx::liuding::build_info().framework_version)
+    throw std::runtime_error("installed library and header version mismatch");
 #ifdef VISION_CONSUMER_ONNX_RUNTIME
   try {
     jyppx::liuding::onnx_runtime::TypedSession session(

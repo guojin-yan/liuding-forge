@@ -5,9 +5,6 @@
 # Install only the provenance of the foundation archive that was actually built.
 # Configure-time candidates and successful-build stamps must stay separate.
 function(jyppx_install_build_provenance target)
-    if(NOT DEFINED JYPPX_LIUDING_VERSION)
-        set(JYPPX_LIUDING_VERSION "${PROJECT_VERSION}")
-    endif()
     set(provenance_root "${CMAKE_CURRENT_BINARY_DIR}/build-provenance")
     configure_file(
         "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/jyppx_build_provenance.json.in"

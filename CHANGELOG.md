@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-### 2.0.0-preview.1：多模型训练套件
+### 多模型训练套件
 
 - 扩展原生视觉模型包，增加多标签、蒸馏、激活重计算、SimMIM、FCOS/BiFPN/ViT-Adapter、RetinaNet、SSD、外部候选框 Fast R-CNN、语义分割、RT-DETR、开放词汇、深度与 ReID/跟踪接口；新增 schema2、typed payload 和多输入 bundle v3。官方权重、精度及设备矩阵独立登记。
 - 增加集中在 `vision/` 下的可选视觉算子、YOLO、Faster R-CNN 和任务工作流组件；统一 catalog、严格 JSON 配方及原生 CLI，提供 24 份训练模板和两份搜索模板。

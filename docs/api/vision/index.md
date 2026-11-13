@@ -1,6 +1,6 @@
 # 视觉模型训练套件
 
-视觉套件在同一个 C++ SDK 下提供模型选择、数据导入、训练与续训、验证、预测、参数搜索、权重转换及 ONNX 交付。当前版本为 `2.0.0-preview.1`，是多模型开发预览；架构实现、权重可用性、任务精度、恢复一致性与设备资格分别记录，`catalog` 中的资格字段不能用编译通过替代。仓库不附带预训练权重。
+视觉套件在同一个 C++ SDK 下提供模型选择、数据导入、训练与续训、验证、预测、参数搜索、权重转换及 ONNX 交付。当前功能处于开发阶段，尚未发布，产品版本配置沿用 `0.3.0`；架构实现、权重可用性、任务精度、恢复一致性与设备资格分别记录，`catalog` 中的资格字段不能用编译通过替代。仓库不附带预训练权重。
 
 ## 模型和组件
 
@@ -39,7 +39,7 @@ liuding-forge-vision train --recipe train.json --output runs/train-1
 liuding-forge-vision resume --recipe runs/train-1/recipe.json --checkpoint runs/train-1/last.checkpoint --output runs/train-2
 ```
 
-安装后的模板位于 `share/jyppx/recipes/vision/`。CMake 包的数字兼容版本为 2.0.0，`jyppx_VERSION`、`version()`、构建记录和打包版本保留 `preview.1` 后缀；它们不表示正式 2.0.0 发布。
+安装后的模板位于 `share/jyppx/recipes/vision/`。CMake 包版本、`version()`、构建记录和打包版本使用项目当前配置的 `0.3.0`；该配置值不表示已经发布。
 
 配方路径相对配方所在目录解析；未知字段、错误任务组合和模型步长不匹配会报错。输出目录必须新建或为空，续训使用新的目录保存本次日志。`check` 检查配方和已安装模型选择，不读取全部数据或执行模型；`inspect`、`preview` 和 `preflight` 分别执行对应检查。`preflight` 没有任何成功候选时保留报告并返回退出码 2。
 

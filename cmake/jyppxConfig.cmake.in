@@ -1,6 +1,4 @@
 @PACKAGE_INIT@
-set(jyppx_VERSION "@JYPPX_LIUDING_VERSION@")
-set(jyppx_VERSION_PRERELEASE "@JYPPX_LIUDING_VERSION_PRERELEASE@")
 
 include(CMakeFindDependencyMacro)
 find_dependency(Torch REQUIRED)

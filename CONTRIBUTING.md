@@ -2,6 +2,8 @@
 
 提交问题时，请提供复现步骤、构建配置、LibTorch/编译器版本，以及必要的错误输出。修改代码时，围绕一个明确问题提交可审查的改动，并说明行为变化、验证结果和已知限制。
 
+开发计划编号与产品版本号分别维护。功能开发、模块升级和分支合并沿用当前产品版本，不自动修改 CMake、兼容清单或打包版本；产品版本调整按用户明确确定的版本安排执行。尚未发布的变更记入 `CHANGELOG.md` 的 `Unreleased`。
+
 ## 构建与验证
 
 项目使用 C++20 和 CMake 3.18+。先查看 [compatibility.json](compatibility.json) 和 [dependency-manifest.json](dependency-manifest.json)，准备对应的编译器、LibTorch 和依赖；已验证的版本组合与待验证组合分别记录，不能从版本范围推导支持。Windows 官方 Release LibTorch 要求匹配 Release CRT 和 `_ITERATOR_DEBUG_LEVEL=0`。

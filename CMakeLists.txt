@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
-project(jyppx VERSION 2.0.0 LANGUAGES CXX)
-set(JYPPX_LIUDING_VERSION_PRERELEASE "preview.1")
-set(JYPPX_LIUDING_VERSION "${PROJECT_VERSION}-${JYPPX_LIUDING_VERSION_PRERELEASE}")
+project(jyppx VERSION 0.3.0 LANGUAGES CXX)
 
 # Public brand metadata is deliberately separate from the stable jyppx::liuding
 # namespace, jyppx package configuration, target names, and protocol identifiers.
@@ -1250,7 +1248,7 @@ message(STATUS "")
 message(STATUS "${LIUDING_FORGE_DISPLAY_NAME_ZH} (${LIUDING_FORGE_DISPLAY_NAME_EN}) Configuration:")
 message(STATUS "  Internal project alias: ${LIUDING_FORGE_PROJECT_ALIAS}")
 message(STATUS "  Artifact prefix: ${LIUDING_FORGE_ARTIFACT_PREFIX}")
-message(STATUS "  Version: ${JYPPX_LIUDING_VERSION}")
+message(STATUS "  Version: ${PROJECT_VERSION}")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Build tests: ${JYPPX_LIUDING_BUILD_TESTS}")
 message(STATUS "  Build examples: ${JYPPX_LIUDING_BUILD_EXAMPLES}")
@@ -1272,7 +1270,7 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "Liuding Forge")
 set(CPACK_NSIS_DISPLAY_NAME "六丁炼算 (Liuding Forge)")
 set(CPACK_PACKAGE_VENDOR "Liuding Forge")
-set(CPACK_PACKAGE_VERSION "${JYPPX_LIUDING_VERSION}")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 include(CPack)
 
