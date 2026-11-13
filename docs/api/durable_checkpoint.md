@@ -15,6 +15,30 @@ new_coordinator.restore(source, jyppx::liuding::RestorePolicy::exact_only);
 
 保存与重建时必须登记所有实际参与的状态所有者：模型、优化器、调度器、精度缩放器、RNG、数据管线、指标、回调、dispatcher、事件 outbox、strategy 和 Trainer。协调器先验证完整训练域，再执行恢复；失败时回滚 participant 的修改。文件存储不会发现漏登的状态，不支持 batch 中点或未提交梯度的恢复。
 
+## 自定义状态示例
+
+[checkpoint_state.cpp](../../examples/training/checkpoint_state.cpp)是完整C++程序，演示自定义计数器参与者与文件存储，不执行模型训练。启用training、interop和 `JYPPX_LIUDING_BUILD_EXAMPLES` 后，在现有兼容构建目录编译 `jyppx_checkpoint_state`；以下命令以Linux Release目录为例，运行时加载路径须指向构建所用LibTorch共享库：
+
+```sh
+cmake --build out/build/rebuilt-cpu-release --target jyppx_checkpoint_state --parallel 1
+out/build/rebuilt-cpu-release/examples/training/liuding-forge-example-checkpoint-state save out/checkpoints/counters.bin
+out/build/rebuilt-cpu-release/examples/training/liuding-forge-example-checkpoint-state restore out/checkpoints/counters.bin
+out/build/rebuilt-cpu-release/examples/training/liuding-forge-example-checkpoint-state rollback out/checkpoints/counters.bin
+out/build/rebuilt-cpu-release/examples/training/liuding-forge-example-checkpoint-state budget out/checkpoints/counters.bin
+```
+
+`save`以与ID排序相反的登记顺序保存42和84；下一条命令是新进程，`restore`重建两个状态所有者并恢复42/84。`rollback`让第二个参与者在修改前拒绝84，验证第一个已载入参与者与第二个参与者都回到操作前111/222；`budget`将16字节声明总量的回滚预算设为15，验证未调用任何参与者载入。保存文件上限64KiB、每字段8字节，格式显式采用小端编码。示例状态不是模型、优化器或完整Trainer域；实际训练恢复按[训练API](training.md)登记全部状态并验证任务结果。
+
+安装SDK用户可直接用同目录的[独立CMake工程](../../examples/training/CMakeLists.txt)编译，配置 `CMAKE_PREFIX_PATH` 指向已安装jyppx和匹配LibTorch的前缀。此方式只编译示例，不重新构建库；例如在现有构建大目录下使用一个消费者子目录：
+
+```sh
+cmake -S examples/training -B out/build/rebuilt-cpu-release/_ic/checkpoint-state/Release/b -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="/path/to/jyppx;/path/to/libtorch"
+cmake --build out/build/rebuilt-cpu-release/_ic/checkpoint-state/Release/b --parallel 1
+ctest --test-dir out/build/rebuilt-cpu-release/_ic/checkpoint-state/Release/b --output-on-failure --parallel 1
+```
+
+该工程使用 `find_package(jyppx CONFIG REQUIRED COMPONENTS training interop)`，链接 `jyppx::liuding::training` 和 `jyppx::liuding::interop`；两个组件的开关及安装资格须与所用SDK一致。独立构建的可执行文件位于消费者构建目录；Windows还须让进程能加载匹配的LibTorch DLL，主工程构建则复用已有运行库部署规则。
+
 `TrainerOptions::checkpoint` 配置协调器的 participant 数量和恢复回滚预算。`max_rollback_bytes` 默认 1 GiB，按恢复前所有 participant 字段声明的最大字节数合计，包含可选字段；大型模型须显式配置足够的预算，例如 `.checkpoint = {.max_rollback_bytes = 3ULL << 30U}`。不足时在修改状态前拒绝恢复。该运行资源配置不属于训练拓扑，可在恢复时调整；实际 RSS 还包括模型、已读取检查点及后端临时量。
 
 ## 格式与完整性

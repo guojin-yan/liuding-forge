@@ -1,7 +1,8 @@
 # Compiler Options for JYPPX Training Framework
 #
-# Per-configuration flags use generator expressions so they work with both
-# single-config (Ninja/Make) and multi-config (Visual Studio) generators.
+# Configuration flags belong to CMake and the selected toolchain. Appending
+# target-level -O/-g flags would override explicit sanitizer/debug profiles.
+# Configuration-specific definitions below use generator expressions.
 
 # ============================================
 # Warning Flags
@@ -20,6 +21,11 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_telemetry_native
     jyppx_liuding_telemetry_http
     jyppx_liuding_models
+    jyppx_liuding_vision_ops
+    jyppx_liuding_models_yolo
+    jyppx_liuding_models_rcnn
+    jyppx_liuding_models_vision
+    jyppx_liuding_vision_tasks
     jyppx_liuding_onnx_export
     jyppx_liuding_onnx_runtime
     jyppx_liuding_onnx_serving
@@ -31,6 +37,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_cli_transport
     jyppx_cli_objects
     jyppx_cli
+    jyppx_vision_cli
     jyppx_cli_recipe_gate
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
@@ -43,9 +50,6 @@ foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
             -Wextra
             -Wpedantic
             -Wno-unused-parameter
-            $<$<CONFIG:Release>:-O3>
-            $<$<CONFIG:RelWithDebInfo>:-O2>
-            $<$<CONFIG:Debug>:-O0;-g>
         )
     elseif(MSVC)
         target_compile_options(${JYPPX_TARGET} PRIVATE
@@ -106,7 +110,7 @@ if(JYPPX_LIUDING_ENABLE_FORMAT_CHECK)
             "JYPPX_LIUDING_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
     endif()
     set(JYPPX_FORMAT_FILES)
-    foreach(JYPPX_FORMAT_ROOT IN ITEMS include src tests examples tools/cli tools/datasets tools/models)
+    foreach(JYPPX_FORMAT_ROOT IN ITEMS include src tests examples tools/cli tools/datasets tools/models tools/vision)
         file(GLOB_RECURSE JYPPX_FORMAT_ROOT_FILES CONFIGURE_DEPENDS
             "${PROJECT_SOURCE_DIR}/${JYPPX_FORMAT_ROOT}/*.c"
             "${PROJECT_SOURCE_DIR}/${JYPPX_FORMAT_ROOT}/*.cc"

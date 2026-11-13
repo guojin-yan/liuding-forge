@@ -19,7 +19,7 @@
 #endif
 #endif
 
-#include "../../tools/cli/local_process.hpp"
+#include "../../tools/cli/experiment/local_execution/local_process.hpp"
 
 #ifdef _WIN32
 #include "windows_handle_diagnostics.hpp"

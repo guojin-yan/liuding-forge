@@ -4,12 +4,19 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../../test_utils/deployment/onnx_export/arithmetic_cases.hpp"
+#include "../../test_utils/deployment/onnx_export/normalization_cases.hpp"
+#include "../../test_utils/deployment/onnx_export/sequence_cases.hpp"
+#include "../../test_utils/deployment/onnx_export/unary_cases.hpp"
+
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/session.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/verification.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <torch/torch.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -81,6 +88,580 @@ void Compare(const runtime::TensorOutput& actual,
                 std::to_string(index));
   }
 }
+
+void CheckNormalization() {
+  for (const std::string_view group :
+       {"frontend", "internal", "internal_flatten", "layer_float",
+        "layer_double"}) {
+    torch::nn::Module module;
+    const bool layer = group == "layer_float" || group == "layer_double";
+    const auto probes =
+        layer ? jyppx::liuding::test::OnnxLayerNormalizationCases(
+                    module, group == "layer_double")
+              : jyppx::liuding::test::OnnxNormalizationCases(module, group);
+    Require(probes.size() == (layer                         ? 16
+                              : group == "internal_flatten" ? 8
+                                                            : 32),
+            "installed normalization fixture count");
+    std::vector<at::Tensor> original_buffers;
+    for (const auto& buffer : module.buffers())
+      original_buffers.push_back(buffer.clone());
+    for (const auto& probe : probes) {
+      const auto label = std::string(group) + "/" + probe.name;
+      const auto input_for = [&](int batch) {
+        return jyppx::liuding::test::OnnxNormalizationTensor(
+            probe.input_values, probe.input_sample_shape, batch);
+      };
+      const auto artifact = exporter::export_module(
+          module, probe.forward, std::vector<at::Tensor>{input_for(2)});
+      runtime::Session session(artifact.onnx, artifact.digest);
+      for (const auto batch : {1, 2, 5}) {
+        const auto input = input_for(batch);
+        const runtime::TensorInput binding{
+            .name = artifact.input_names.front(),
+            .values = std::span(input.const_data_ptr<float>(),
+                                static_cast<std::size_t>(input.numel())),
+            .shape = std::span(input.sizes().data(), input.sizes().size())};
+        const auto expected = jyppx::liuding::test::OnnxNormalizationTensor(
+            probe.expected_values, probe.output_sample_shape, batch);
+        const auto native = probe.forward(std::vector<at::Tensor>{input});
+        Require(native.size() == 1 &&
+                    at::allclose(native.front(), expected, 1e-6, 1e-6),
+                "installed native normalization reference " + label);
+        const auto actual = session.run(std::span(&binding, 1));
+        Require(actual.size() == 1,
+                "installed normalization output count " + label);
+        Compare(actual.front(), expected);
+      }
+    }
+    const auto buffers = module.buffers();
+    Require(buffers.size() == original_buffers.size(),
+            "installed normalization buffer count");
+    for (std::size_t index = 0; index < buffers.size(); ++index)
+      Require(at::equal(buffers[index], original_buffers[index]),
+              "installed normalization must preserve running and affine state");
+  }
+}
+
+void CheckSequenceOperators() {
+  for (const std::string_view group : {"cat", "stack_rows", "stack_columns"}) {
+    torch::nn::Module module;
+    const auto probes = jyppx::liuding::test::OnnxSequenceCases(module, group);
+    Require(probes.size() == 12, "installed sequence fixture count");
+    for (const auto& probe : probes) {
+      const auto label = std::string(group) + "/" + probe.name;
+      const auto inputs_for = [&](int batch) {
+        std::vector<at::Tensor> inputs;
+        for (const auto& row : probe.rows)
+          inputs.push_back(row.repeat({batch, 1}));
+        return inputs;
+      };
+      const auto artifact =
+          exporter::export_module(module, probe.forward, inputs_for(2));
+      runtime::Session session(artifact.onnx, artifact.digest);
+      for (const auto batch : {1, 2, 5}) {
+        const auto inputs = inputs_for(batch);
+        std::vector<runtime::TensorInput> bindings;
+        for (std::size_t index = 0; index < inputs.size(); ++index) {
+          const auto& input = inputs[index];
+          bindings.push_back(
+              {.name = artifact.input_names[index],
+               .values = std::span(input.const_data_ptr<float>(),
+                                   static_cast<std::size_t>(input.numel())),
+               .shape = std::span(input.sizes().data(), input.sizes().size())});
+        }
+        const auto expected =
+            jyppx::liuding::test::OnnxSequenceExpected(probe, batch);
+        const auto native = probe.forward(inputs);
+        Require(native.size() == 1 && at::equal(native.front(), expected),
+                "installed native sequence reference " + label);
+        const auto actual = session.run(bindings);
+        Require(actual.size() == 1, "installed sequence output count " + label);
+        Compare(actual.front(), expected);
+        for (std::size_t index = 0; index < actual.front().values.size();
+             ++index)
+          Require(actual.front().values[index] ==
+                      expected.const_data_ptr<float>()[index],
+                  "installed exact sequence " + label);
+      }
+    }
+  }
+}
+
+void CheckUnaryOperators() {
+  for (const std::string_view operation :
+       {"sigmoid", "tanh", "exp", "log", "sqrt", "erf", "floor", "ceil",
+        "round"}) {
+    torch::nn::Module module;
+    const auto probes = jyppx::liuding::test::OnnxUnaryCases(module, operation);
+    Require(probes.size() == (operation == "floor" || operation == "ceil" ||
+                                      operation == "round"
+                                  ? 7
+                                  : 5),
+            "installed unary fixture count");
+    for (const auto& probe : probes) {
+      const auto label = std::string(operation) + "/" + probe.name;
+      const std::vector<at::Tensor> examples{probe.row.repeat({2, 1})};
+      const auto artifact =
+          exporter::export_module(module, probe.forward, examples);
+      if (!probe.cpu_kernel) {
+        const auto native = probe.forward(examples);
+        Require(native.size() == 1 &&
+                    at::allclose(native.front(),
+                                 probe.expected_row.repeat({2, 1}), 1e-6, 1e-6),
+                "installed Double Erf native reference");
+        bool refused = false;
+        try {
+          runtime::Session unsupported(artifact.onnx, artifact.digest);
+        } catch (const jyppx::liuding::CompatibilityError& error) {
+          refused = error.details().operation == "load" &&
+                    error.details().actual.find("Erf") != std::string::npos;
+        }
+        Require(refused, "ORT 1.23.2 CPU must refuse Double Erf " + label);
+        continue;
+      }
+      runtime::Session session(artifact.onnx, artifact.digest);
+      for (const auto batch : {1, 2, 5}) {
+        const auto input = probe.row.repeat({batch, 1});
+        const runtime::TensorInput binding{
+            .name = artifact.input_names.front(),
+            .values = std::span(input.const_data_ptr<float>(),
+                                static_cast<std::size_t>(input.numel())),
+            .shape = std::span(input.sizes().data(), input.sizes().size())};
+        const auto actual = session.run(std::span(&binding, 1));
+        const auto expected = probe.expected_row.repeat({batch, 1});
+        const auto native = probe.forward(std::vector<at::Tensor>{input});
+        Require(native.size() == 1 &&
+                    (probe.exact
+                         ? at::equal(native.front(), expected)
+                         : at::allclose(native.front(), expected, 1e-6, 1e-6)),
+                "installed native unary reference " + label);
+        Require(actual.size() == 1, "installed unary output count " + label);
+        Compare(actual.front(), expected);
+        if (probe.exact) {
+          for (std::size_t index = 0; index < actual.front().values.size();
+               ++index)
+            Require(actual.front().values[index] ==
+                        expected.const_data_ptr<float>()[index],
+                    "installed exact integer unary " + label);
+        }
+      }
+    }
+  }
+}
+
+void CheckArithmetic() {
+  for (const std::string_view group :
+       {"numeric", "division", "comparison", "integer", "boolean"}) {
+    torch::nn::Module module;
+    const auto probes =
+        jyppx::liuding::test::OnnxArithmeticCases(module, group);
+    Require(!probes.empty(), "installed arithmetic fixture group");
+    for (const auto& probe : probes) {
+      const auto inputs_for = [&](int batch) {
+        std::vector<at::Tensor> inputs;
+        for (const auto& row : probe.rows)
+          inputs.push_back(row.repeat({batch, 1}));
+        return inputs;
+      };
+      const auto examples = inputs_for(2);
+      const auto artifact =
+          exporter::export_module(module, probe.forward, examples);
+      runtime::Session session(artifact.onnx, artifact.digest);
+      for (const auto batch : {1, 2, 5}) {
+        const auto inputs = inputs_for(batch);
+        std::vector<runtime::TensorInput> bindings;
+        for (std::size_t index = 0; index < inputs.size(); ++index) {
+          const auto& input = inputs[index];
+          bindings.push_back(
+              {.name = artifact.input_names[index],
+               .values = std::span(input.const_data_ptr<float>(),
+                                   static_cast<std::size_t>(input.numel())),
+               .shape = std::span(input.sizes().data(), input.sizes().size())});
+        }
+        const auto actual = session.run(bindings);
+        Require(actual.size() == 1 &&
+                    actual.front().shape == std::vector<std::int64_t>{batch, 3},
+                "installed arithmetic output shape " + std::string(group) +
+                    "/" + probe.name);
+        const auto expected = probe.expected_row.repeat({batch, 1});
+        const auto native = probe.forward(inputs);
+        Require(native.size() == 1 && torch::equal(native.front(), expected),
+                "installed native arithmetic reference " + std::string(group) +
+                    "/" + probe.name);
+        Require(actual.front().values.size() ==
+                    static_cast<std::size_t>(expected.numel()),
+                "installed arithmetic output count");
+        for (std::size_t index = 0; index < actual.front().values.size();
+             ++index)
+          Require(actual.front().values[index] ==
+                      expected.const_data_ptr<float>()[index],
+                  "installed exact arithmetic " + std::string(group) + "/" +
+                      probe.name + " element=" + std::to_string(index));
+      }
+    }
+  }
+}
+
+void CheckFlatten() {
+  torch::nn::Module module;
+  for (const auto start : {1, 2, 3, -3, -2, -1}) {
+    for (const auto end : {-1, 3}) {
+      const exporter::ForwardFunction forward =
+          [start, end](std::span<const at::Tensor> inputs) {
+            return std::vector<at::Tensor>{
+                at::flatten(inputs.front(), start, end)};
+          };
+      const std::array examples{
+          at::arange(48, at::kFloat).reshape({2, 2, 3, 4})};
+      const auto artifact = exporter::export_module(module, forward, examples);
+      runtime::Session session(artifact.onnx, artifact.digest);
+      const auto axis = start < 0 ? start + 4 : start;
+      for (const auto batch : {1, 2, 5}) {
+        const auto input =
+            at::arange(batch * 24, at::kFloat).reshape({batch, 2, 3, 4});
+        const auto actual =
+            session.run(std::span(input.const_data_ptr<float>(),
+                                  static_cast<std::size_t>(input.numel())),
+                        std::span(input.sizes().data(), input.sizes().size()));
+        const std::vector<std::int64_t> expected_shape =
+            axis == 1   ? std::vector<std::int64_t>{batch, 24}
+            : axis == 2 ? std::vector<std::int64_t>{batch, 2, 12}
+                        : std::vector<std::int64_t>{batch, 2, 3, 4};
+        Require(
+            actual.shape == expected_shape &&
+                actual.values.size() == static_cast<std::size_t>(batch * 24),
+            "installed suffix flatten preserves prefix dimensions");
+        for (std::size_t index = 0; index < actual.values.size(); ++index)
+          Require(actual.values[index] == static_cast<float>(index),
+                  "installed suffix flatten preserves exact row-major data");
+      }
+    }
+  }
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  for (const std::vector<std::int64_t> shape :
+       {std::vector<std::int64_t>{24}, {2, 3, 4}}) {
+    for (const auto start : {0, -static_cast<int>(shape.size())}) {
+      const exporter::ForwardFunction forward =
+          [start](std::span<const at::Tensor> inputs) {
+            return std::vector<at::Tensor>{
+                at::flatten(inputs.front(), start, -1)};
+          };
+      const auto input = at::arange(24, at::kFloat).reshape(shape);
+      const std::array examples{input};
+      const auto artifact =
+          exporter::export_module(module, forward, examples, options);
+      runtime::Session session(artifact.onnx, artifact.digest);
+      const auto actual =
+          session.run(std::span(input.const_data_ptr<float>(),
+                                static_cast<std::size_t>(input.numel())),
+                      std::span(input.sizes().data(), input.sizes().size()));
+      Require(actual.shape == std::vector<std::int64_t>{24} &&
+                  actual.values.size() == 24U,
+              "installed all-axis flatten returns rank one");
+      for (std::size_t index = 0; index < actual.values.size(); ++index)
+        Require(actual.values[index] == static_cast<float>(index),
+                "installed all-axis flatten preserves exact data");
+    }
+  }
+}
+void CheckExact(runtime::Session& session, const at::Tensor& input,
+                const std::vector<std::int64_t>& shape,
+                const std::vector<float>& values) {
+  const auto actual =
+      session.run(std::span(input.const_data_ptr<float>(),
+                            static_cast<std::size_t>(input.numel())),
+                  std::span(input.sizes().data(), input.sizes().size()));
+  Require(actual.shape == shape && actual.values == values,
+          "installed shape operator exact independent reference");
+}
+
+void CheckShapeOperators() {
+  torch::nn::Module module;
+  for (const auto axis : {1, -3, 2, -2, 3, -1}) {
+    const exporter::ForwardFunction forward =
+        [axis](std::span<const at::Tensor> inputs) {
+          return std::vector<at::Tensor>{at::squeeze(inputs.front(), axis)};
+        };
+    const std::array examples{at::arange(6, at::kFloat).reshape({2, 1, 3, 1})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    const auto normalized = axis < 0 ? axis + 4 : axis;
+    for (const auto batch : {1, 2, 5}) {
+      const auto input =
+          at::arange(batch * 3, at::kFloat).reshape({batch, 1, 3, 1});
+      const std::vector<std::int64_t> shape =
+          normalized == 1   ? std::vector<std::int64_t>{batch, 3, 1}
+          : normalized == 3 ? std::vector<std::int64_t>{batch, 1, 3}
+                            : std::vector<std::int64_t>{batch, 1, 3, 1};
+      std::vector<float> values(static_cast<std::size_t>(batch * 3));
+      for (std::size_t index = 0; index < values.size(); ++index)
+        values[index] = static_cast<float>(index);
+      CheckExact(session, input, shape, values);
+    }
+  }
+  for (const std::vector<std::int64_t> axes :
+       {std::vector<std::int64_t>{0, -1, -2}, {0, -2, -1}}) {
+    const exporter::ForwardFunction forward =
+        [axes](std::span<const at::Tensor> inputs) {
+          return std::vector<at::Tensor>{
+              at::permute(inputs.front(), axes).contiguous()};
+        };
+    const std::array examples{at::arange(12, at::kFloat).reshape({2, 2, 3})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    for (const auto batch : {1, 2, 5}) {
+      const auto input =
+          at::arange(batch * 6, at::kFloat).reshape({batch, 2, 3});
+      const std::vector<std::int64_t> shape =
+          axes[1] == -1 ? std::vector<std::int64_t>{batch, 3, 2}
+                        : std::vector<std::int64_t>{batch, 2, 3};
+      std::vector<float> values(static_cast<std::size_t>(batch * 6));
+      for (std::int64_t n = 0; n < batch; ++n)
+        for (std::int64_t row = 0; row < 2; ++row)
+          for (std::int64_t column = 0; column < 3; ++column) {
+            const auto offset = axes[1] == -1 ? n * 6 + column * 2 + row
+                                              : n * 6 + row * 3 + column;
+            values[static_cast<std::size_t>(offset)] =
+                static_cast<float>(n * 6 + row * 3 + column);
+          }
+      CheckExact(session, input, shape, values);
+    }
+  }
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  for (const auto mode : {0, 1, 2}) {
+    const exporter::ForwardFunction forward =
+        [mode](std::span<const at::Tensor> inputs) {
+          const auto scalar = at::mean(inputs.front());
+          const auto output = mode == 0   ? at::transpose(scalar, 0, -1)
+                              : mode == 1 ? at::t(scalar)
+                                          : at::squeeze(scalar, 0);
+          return std::vector<at::Tensor>{at::unsqueeze(output, 0)};
+        };
+    const auto input = at::arange(6, at::kFloat).reshape({2, 3});
+    const std::array examples{input};
+    const auto artifact =
+        exporter::export_module(module, forward, examples, options);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    CheckExact(session, input, {1}, {2.5F});
+  }
+  for (const auto axis : {0, -3, 99}) {
+    const exporter::ForwardFunction forward =
+        [axis](std::span<const at::Tensor> inputs) {
+          return std::vector<at::Tensor>{
+              axis == 99 ? at::squeeze(inputs.front())
+                         : at::squeeze(inputs.front(), axis)};
+        };
+    const std::array examples{at::ones({2, 3, 4})};
+    bool rejected = false;
+    try {
+      static_cast<void>(exporter::export_module(module, forward, examples));
+    } catch (const jyppx::liuding::CompatibilityError& error) {
+      rejected = std::string(error.what()).find("dynamic") != std::string::npos;
+    }
+    Require(rejected, "installed dynamic squeeze rejects variable output rank");
+  }
+}
+
+void CheckReductions() {
+  torch::nn::Module module;
+  exporter::ExportOptions fixed;
+  fixed.dynamic_batch = false;
+  for (const auto mean : {false, true}) {
+    for (const auto empty : {false, true}) {
+      for (const auto keepdim : {true, false}) {
+        const exporter::ForwardFunction forward =
+            [mean, empty, keepdim](std::span<const at::Tensor> inputs) {
+              const std::vector<std::int64_t> dimensions;
+              const auto axes = empty ? at::OptionalIntArrayRef(dimensions)
+                                      : at::OptionalIntArrayRef{};
+              const auto output = mean ? at::mean(inputs.front(), axes, keepdim)
+                                       : at::sum(inputs.front(), axes, keepdim);
+              return std::vector<at::Tensor>{
+                  keepdim ? output : at::unsqueeze(output, 0)};
+            };
+        const auto input = at::arange(24, at::kFloat).reshape({2, 3, 4});
+        const std::array examples{input};
+        const auto artifact =
+            exporter::export_module(module, forward, examples, fixed);
+        runtime::Session session(artifact.onnx, artifact.digest);
+        const std::vector<std::int64_t> shape =
+            keepdim ? std::vector<std::int64_t>{1, 1, 1}
+                    : std::vector<std::int64_t>{1};
+        CheckExact(session, input, shape, {mean ? 11.5F : 276.0F});
+      }
+    }
+  }
+  for (const auto mean : {false, true}) {
+    for (const auto dimensioned : {false, true}) {
+      const exporter::ForwardFunction forward =
+          [mean, dimensioned](std::span<const at::Tensor> inputs) {
+            const auto output =
+                dimensioned
+                    ? (mean ? at::mean(inputs.front(), {1}, true, at::kDouble)
+                            : at::sum(inputs.front(), {1}, true, at::kDouble))
+                    : (mean ? at::mean(inputs.front(), at::kDouble)
+                            : at::sum(inputs.front(), at::kDouble));
+            const auto fp32 = output.to(at::kFloat);
+            return std::vector<at::Tensor>{
+                dimensioned ? fp32 : at::unsqueeze(fp32, 0)};
+          };
+      exporter::ExportOptions options;
+      options.dynamic_batch = dimensioned;
+      const std::array examples{
+          at::tensor({100000000.0F, 1.0F, -100000000.0F}).repeat({2, 1})};
+      const auto artifact =
+          exporter::export_module(module, forward, examples, options);
+      runtime::Session session(artifact.onnx, artifact.digest);
+      const std::vector<int> batches =
+          dimensioned ? std::vector<int>{1, 2, 5} : std::vector<int>{2};
+      for (const auto batch : batches) {
+        const auto input =
+            at::tensor({100000000.0F, 1.0F, -100000000.0F}).repeat({batch, 1});
+        const std::vector<std::int64_t> shape =
+            dimensioned ? std::vector<std::int64_t>{batch, 1}
+                        : std::vector<std::int64_t>{1};
+        const auto value =
+            mean ? 1.0F / 3.0F : static_cast<float>(dimensioned ? 1 : batch);
+        CheckExact(session, input, shape,
+                   std::vector<float>(dimensioned ? batch : 1, value));
+      }
+    }
+  }
+  for (const auto mode : {0, 1, 2}) {
+    const exporter::ForwardFunction forward =
+        [mode](std::span<const at::Tensor> inputs) {
+          const auto output =
+              mode == 0   ? at::sum(inputs.front().to(at::kInt), {1}, true)
+              : mode == 1 ? at::sum(inputs.front(), {1}, true, at::kLong)
+                          : at::sum(inputs.front(), {1}, true, at::kInt);
+          return std::vector<at::Tensor>{output.to(at::kFloat)};
+        };
+    // Every value fits int32, but the first row's exact integer sum does not.
+    const auto row = mode == 0 ? at::tensor({2147483520.0F, 256.0F, 0.0F})
+                               : at::tensor({1.75F, 2.5F, -1.25F});
+    const std::array examples{row.repeat({2, 1})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    for (const auto batch : {1, 2, 5}) {
+      const auto input = row.repeat({batch, 1});
+      // 2147483776 rounds to 2147483648 when the public output casts to FP32.
+      const auto value = mode == 0 ? 2147483648.0F : 2.0F;
+      CheckExact(session, input, {batch, 1}, std::vector<float>(batch, value));
+    }
+  }
+}
+
+void CheckActivations() {
+  torch::nn::Module module;
+  const std::vector<float> points{-6.0F, -3.5F, -3.0F, -2.5F, -1.5F,
+                                  -1.0F, -0.5F, 0.0F,  0.5F,  1.0F,
+                                  1.5F,  2.5F,  3.0F,  3.5F,  6.0F};
+  const auto row = at::tensor(points);
+  for (const bool swish : {false, true}) {
+    const exporter::ForwardFunction forward =
+        [swish](std::span<const at::Tensor> inputs) {
+          return std::vector<at::Tensor>{swish
+                                             ? at::hardswish(inputs.front())
+                                             : at::hardsigmoid(inputs.front())};
+        };
+    const std::array examples{row.repeat({2, 1})};
+    const auto artifact = exporter::export_module(module, forward, examples);
+    runtime::Session session(artifact.onnx, artifact.digest);
+    for (const auto batch : {1, 2, 5}) {
+      const auto input = row.repeat({batch, 1});
+      auto reference = at::empty_like(input);
+      auto* values = reference.data_ptr<float>();
+      for (std::int64_t n = 0; n < batch; ++n)
+        for (std::size_t k = 0; k < points.size(); ++k) {
+          const double x = points[k];
+          const auto bounded = std::clamp((x + 3.0) / 6.0, 0.0, 1.0);
+          values[static_cast<std::size_t>(n) * points.size() + k] =
+              static_cast<float>(swish ? x * bounded : bounded);
+        }
+      const std::array<std::int64_t, 2> shape{
+          batch, static_cast<std::int64_t>(points.size())};
+      Compare(session.run(std::span(input.const_data_ptr<float>(),
+                                    static_cast<std::size_t>(input.numel())),
+                          shape),
+              reference);
+    }
+  }
+  const auto logits = at::tensor({0.0F, -104.0F, -105.0F});
+  const auto weights = module.register_buffer(
+      "weights", at::tensor({0.0, 1e40, 1e40}, at::kDouble));
+  const double normalizer = 1.0 + std::exp(-104.0) + std::exp(-105.0);
+  for (const bool internal : {false, true}) {
+    for (const bool logarithmic : {false, true}) {
+      for (const auto axis : {1, -1}) {
+        const exporter::ForwardFunction forward =
+            [internal, logarithmic, axis,
+             weights](std::span<const at::Tensor> inputs) {
+              const auto input = inputs.front();
+              const auto output =
+                  internal
+                      ? (logarithmic
+                             ? at::_log_softmax(input.to(at::kDouble), axis,
+                                                false)
+                             : at::_softmax(input.to(at::kDouble), axis, false))
+                      : (logarithmic ? at::log_softmax(input, axis, at::kDouble)
+                                     : at::softmax(input, axis, at::kDouble));
+              const auto probability = logarithmic ? at::exp(output) : output;
+              return std::vector<at::Tensor>{
+                  (probability * weights).to(at::kFloat)};
+            };
+        const std::array examples{logits.repeat({2, 1})};
+        const auto artifact =
+            exporter::export_module(module, forward, examples);
+        runtime::Session session(artifact.onnx, artifact.digest);
+        for (const auto batch : {1, 2, 5}) {
+          const auto input = logits.repeat({batch, 1});
+          auto reference = at::empty_like(input);
+          auto* values = reference.data_ptr<float>();
+          for (std::int64_t n = 0; n < batch; ++n)
+            for (std::size_t k = 0; k < 3; ++k) {
+              values[static_cast<std::size_t>(n) * 3 + k] =
+                  k == 0
+                      ? 0.0F
+                      : static_cast<float>(std::exp(k == 1 ? -104.0 : -105.0) /
+                                           normalizer * 1e40);
+            }
+          const std::array<std::int64_t, 2> shape{batch, 3};
+          Compare(
+              session.run(std::span(input.const_data_ptr<float>(),
+                                    static_cast<std::size_t>(input.numel())),
+                          shape),
+              reference);
+        }
+      }
+    }
+  }
+  exporter::ExportOptions options;
+  options.dynamic_batch = false;
+  for (const auto mode : {0, 1, 2, 3}) {
+    for (const auto axis : {0, -1}) {
+      const exporter::ForwardFunction forward =
+          [mode, axis](std::span<const at::Tensor> inputs) {
+            const auto scalar = at::mean(inputs.front());
+            const auto output = mode == 0   ? at::softmax(scalar, axis)
+                                : mode == 1 ? at::log_softmax(scalar, axis)
+                                : mode == 2
+                                    ? at::_softmax(scalar, axis, false)
+                                    : at::_log_softmax(scalar, axis, false);
+            return std::vector<at::Tensor>{at::unsqueeze(output, 0)};
+          };
+      const auto input = at::arange(6, at::kFloat).reshape({2, 3});
+      const std::array examples{input};
+      const auto artifact =
+          exporter::export_module(module, forward, examples, options);
+      runtime::Session session(artifact.onnx, artifact.digest);
+      CheckExact(session, input, {1}, {mode % 2 == 0 ? 1.0F : 0.0F});
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -207,8 +788,30 @@ int main() {
       Compare(outputs[0], (logits + offset).contiguous());
       Compare(outputs[1], (logits * offset).contiguous());
     }
-    std::cout << "Native deployment consumer: single/multi-I/O dynamic batches "
-                 "1,2,5 match on CPU\n";
+    CheckFlatten();
+    CheckShapeOperators();
+    CheckReductions();
+    CheckActivations();
+    CheckArithmetic();
+    CheckUnaryOperators();
+    CheckSequenceOperators();
+    CheckNormalization();
+    std::cout
+        << "Native deployment consumer: single/multi-I/O dynamic batches "
+           "1,2,5 and 40 exact suffix/full flatten cases match on CPU; "
+           "27 exact squeeze/permutation/scalar cases and 3 dynamic squeeze "
+           "rejections; "
+           "25 exact reduction cases including Int32 promotion overflow "
+           "boundary; "
+           "38 activation/dtype/scalar and 111 arithmetic/promotion cases "
+           "with independent references; 150 unary dtype/integer cases "
+           "and one Double Erf CPU refusal with independent references "
+           "and 151 native forwards; 108 exact cat/stack mixed-type cases "
+           "and 108 native forwards with independent references; "
+           "216 BatchNorm optional-affine/internal/flatten cases and "
+           "216 native forwards with independent references; "
+           "96 LayerNorm Float/Double precision and optional-affine cases "
+           "and 96 native forwards with independent references\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';

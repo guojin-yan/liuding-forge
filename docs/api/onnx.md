@@ -58,6 +58,24 @@ const auto output = session.run(input, shape);
 
 导出以算子覆盖为边界，不按模型名称设置白名单。已支持算子的组合可直接复用；缺失或自定义算子通过 `custom_lowerings` 注册原生 C++ 转换，未注册时报告具体算子与原因。导出器使用 LibTorch 官方 ONNX serializer，当前输出为 opset 17、自包含权重，不支持 external data 或直接转换任意 `.pt` 文件。
 
+`flatten(start_dim, end_dim)` 当前要求 `end_dim` 指向最后一维，接受正负维度索引并保留全部前缀维度。例如 `[N, 2, 3, 4]` 从维度 2 展平后为 `[N, 2, 12]`，动态 batch `N` 保持；从维度 0 展平得到一维结果，应使用固定形状导出。其他结束维度明确拒绝。
+
+`permute` 和 `transpose` 接受正负维度索引；标量 `transpose`、`t` 和 `squeeze` 保持标量。`squeeze(dim)` 只移除大小为 1 的指定维度，其他大小保持原形状。动态导出要求显式指定非 batch 维度，省略维度或指定维度 0 会明确拒绝，因为 batch 为 1 时移除它会改变输出秩；这类调用请使用固定形状导出。
+
+`mean` / `sum` 支持全维和指定维度归约，`None` 或空维度列表表示全维，`keepdim` 决定是否保留大小为 1 的归约维度。显式 `dtype` 和整数求和的类型提升在累加前生效；需要公开 FP32 输出时，在 forward 中将归约结果转回 FP32。全维归约应使用固定形状导出；标量结果须先增加一个维度，才能交给要求秩为 1–8 的 Runtime。
+
+`hardsigmoid` 使用 PyTorch 的 `clamp(x / 6 + 0.5, 0, 1)` 定义。`softmax` / `log_softmax` 及其内部 ATen 入口在归一化前应用计算类型转换，支持正负轴；标量输入保留标量结果，使用 Runtime 时同样须先增加一个维度。
+
+二元算术在运算前应用捕获的计算类型，整数真除法保留小数；`eq` / `gt` / `lt` 按 PyTorch 的普通 Tensor、零维 Tensor 和标量优先级确定比较类型。整数标量和 `add` / `sub` 的整数 `alpha` 直接保存为整数，避免经过 double 丢失大于 2⁵³ 的有效位；布尔加法/最大值按逻辑或、乘法/最小值按逻辑与转换。公开 Runtime I/O 仍为 FP32，其他中间类型的 kernel 可用性取决于所选 ORT 后端。
+
+`sigmoid`、`tanh`、`exp`、`log`、`sqrt`、`erf` 等一元运算在执行前应用捕获的结果类型，整数/布尔中间输入按 PyTorch 规则提升为浮点。整数 `floor`、`ceil`、`round` 保持输入类型和数值，不经过浮点转换；浮点输入保留对应舍入运算。ORT 1.23.2 的 CPU 后端没有 Double `Erf` 内核，加载时明确拒绝；需要该后端执行时，调用方应在 `erf` 前显式选择 FP32 并确认所需精度。
+
+`cat` / `stack` 按捕获的输出类型统一列表中每个 Tensor 的类型后再拼接，保持列表顺序与指定轴；`stack` 在类型转换后插入新维度。自动动态 batch 要求输出首维仍对应输入 batch，拼接 batch 维或在最前面插入固定大小的维度应选择固定形状导出。
+
+BatchNorm 仅导出使用已有 running mean/variance 的推理模式；可选 weight/bias 缺省为每通道的 1/0，不更新原统计量。支持内部 `_native_batch_norm_legit_no_training` 的真实输出及后续形状操作，拒绝训练模式和使用内部辅助统计输出的图。
+
+LayerNorm 按 `normalized_shape` 指定的末尾维度计算总体方差，weight/bias 均可省略。Double 中间输入保持 Double，使用先减均值、再求平方均值的方式计算方差，避免较大公共偏移下的消去误差；对外使用 Runtime 时仍须返回 FP32。
+
 导出会真实执行 forward，并可能为动态 batch 校验再次执行。调用方负责设定 eval 模式、CPU 设备、数据类型和预处理，保证 forward 确定且不修改输入、模型状态或外部资源。trace 只捕获实际执行路径；动态 batch 会用另一 batch 检查图结构，遇到形状常量或路径变化明确拒绝，不能据此推导任意数据相关控制流均可导出。当前动态轴仅支持 batch 维；其他维度须固定。
 
 `ExportOptions` 设置 batch 上下界、命名和字节上限；`dynamic_batch=false` 导出固定形状。符号 batch 不会在 ONNX 中编码业务上下界，运行端还应设置 `max_batch_size` 并检查自己的最小 batch。输出大小限制不等于进程内存或显存硬配额。

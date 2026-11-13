@@ -8,7 +8,7 @@
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
 
-#include <ATen/record_function.h>
+#include "model_checkpoint/record_function_observer.hpp"
 #include <c10/core/StorageImpl.h>
 #ifdef JYPPX_LIUDING_NN_CUDA_METRICS
 #include <c10/cuda/CUDACachingAllocator.h>
@@ -784,13 +784,8 @@ void fail_model_storage_write(c10::StorageImpl* storage) {
   throw c10::Error(location, "injected model commit copy");
 }
 
-std::unique_ptr<at::ObserverContext> observe_model_copy(
-    const at::RecordFunction& function) {
-  if (std::string_view(function.name()) != "aten::copy_" ||
-      function.inputs().empty() || !function.inputs().front().isTensor())
-    return nullptr;
+void observe_model_copy(const at::Tensor& target) {
   auto& fault = *active_commit_fault;
-  const auto& target = function.inputs().front().toTensor();
   for (std::size_t index = 0; index < fault.targets.size(); ++index) {
     if (target.unsafeGetTensorImpl() !=
         fault.targets[index].unsafeGetTensorImpl())
@@ -802,18 +797,17 @@ std::unique_ptr<at::ObserverContext> observe_model_copy(
           fail_model_storage_write);
     }
   }
-  return nullptr;
 }
 
 class ObserveCommitFault final {
  public:
   explicit ObserveCommitFault(CommitFault& fault) : fault_(fault) {
     active_commit_fault = &fault;
-    handle_ = at::addThreadLocalCallback(
-        at::RecordFunctionCallback(observe_model_copy).needsInputs(true));
+    handle_ = jyppx::liuding::tests::model_checkpoint::register_copy_observer(
+        observe_model_copy);
   }
   ~ObserveCommitFault() {
-    at::removeCallback(handle_);
+    jyppx::liuding::tests::model_checkpoint::unregister_copy_observer(handle_);
     for (const auto& tensor : fault_.targets)
       tensor.storage().unsafeGetStorageImpl()->clear_materializer();
     active_commit_fault = nullptr;
@@ -821,7 +815,7 @@ class ObserveCommitFault final {
 
  private:
   CommitFault& fault_;
-  at::CallbackHandle handle_;
+  std::uint64_t handle_;
 };
 
 TEST(ModelCheckpointParticipantTest,

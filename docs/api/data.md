@@ -1,6 +1,6 @@
-# API: Data
+# API：数据
 
-All data types live in the `jyppx::liuding::data` namespace. Include everything with `#include <jyppx/liuding/liuding.hpp>` or the individual headers shown below.
+数据类型位于 `jyppx::liuding::data` 命名空间。可包含 `#include <jyppx/liuding/liuding.hpp>` 或下列独立头文件。
 
 ## Dataset
 
@@ -41,7 +41,9 @@ public:
 };
 ```
 
-## Dataset utilities
+## 数据集视图
+
+`Subset` 按给定索引顺序共享源数据集，可保留重复索引；`ConcatDataset` 和 `ChainDataset` 拼接同类 map 数据集，合计长度超过 `size_t` 范围时在构造阶段抛出结构化 `InvalidArgument`，不会让累计偏移回绕。`StackDataset` 取各数据集最短公共前缀，拒绝空数据集；合法的最大 `size_t` 长度不会被当作空值。这些视图不按逻辑样本总数分配存储。
 
 ### Subset
 
@@ -83,7 +85,7 @@ random_split(std::shared_ptr<DatasetT> dataset,
              Optional<int64_t> seed = std::nullopt);
 ```
 
-Mirrors `torch.utils.data.random_split`: indices are shuffled (seeded when a seed is given) and assigned to consecutive subsets. `lengths` must sum to the dataset size.
+`random_split` 打乱全部索引，再按给定长度分配到各子集。`lengths` 的数学总和须等于数据集大小；在分配索引数组前逐项检查剩余数量，拒绝超量、少量及整数回绕输入，错误组件为 `data.random_split`、操作为 `lengths`。允许长度为零的子集。固定 seed 在同一标准库环境内复现顺序；这里使用 `std::shuffle`，不承诺与下文可移植 `RandomSampler` 相同的跨标准库顺序。该操作需要 O(N) 索引存储，逻辑数据集视图本身的轻量性不等于拆分可处理任意容量。
 
 ```cpp
 auto subsets = jyppx::liuding::data::random_split(
@@ -225,19 +227,32 @@ Compose pipeline({
 
 `#include <jyppx/liuding/data/samplers/...>`
 
+下列具体采样器均继承 `Sampler`。
+
 ```cpp
 class Sampler { public:
     virtual std::vector<size_t> indices() const = 0;  // one epoch of indices
     virtual size_t size() const = 0;
 };
 
-class SequentialSampler : public Sampler;                       // 0..n-1 class RandomSampler : public Sampler;                           // seeded permutation class BatchSampler : public Sampler;                            // flattens + counts batches class WeightedRandomSampler : public Sampler;                   // weights, replacement opt. class SubsetRandomSampler : public Sampler;                     // permuted index subset class DistributedSampler : public Sampler;                      // rank/world_size sharding
+class SequentialSampler;      // 0..n-1
+class RandomSampler;          // seeded permutation
+class BatchSampler;           // flat indices; size counts batches
+class WeightedRandomSampler;  // weights, replacement opt.
+class SubsetRandomSampler;    // permuted index subset
+class DistributedSampler;     // rank/world_size sharding
 ```
 
 `RandomSampler(size, seed)` 每次返回覆盖全部索引的随机排列。默认算法为 `splitmix64-fisher-yates-rejection/v1`：64 位无符号 SplitMix64、从后向前的 Fisher–Yates，以及拒绝取模偏差的有界采样；不依赖标准库的 `std::shuffle` 或 distribution。同一 population、seed、epoch 和调用顺序在不同标准库上产生相同索引；`set_epoch(e)` 将状态重置为 `uint64(seed) + e`，按 2⁶⁴ 取模。未传 seed 时使用系统随机源，并在状态中保存实际 base seed。该保证不包含不同设备或平台上的浮点训练结果。
 
 `RandomSampler::algorithm_id()` 返回算法版本，`configuration_identity()` 同时包含算法和 population。`save_state()` 使用 `JYPPX-RANDOM-SAMPLER/v2`、population、base seed 和当前 64 位状态四行 ASCII（LF 分隔，无结尾换行）；`load_state()` 在完整验证后才修改实例，拒绝不同 population、非规范数值和旧 `std::shuffle` v1 状态。旧运行需要原版本继续恢复，新算法使用新的运行目录。该可移植保证仅适用于 `RandomSampler`，不自动扩展到 weighted、subset 或 distributed sampler。`BatchSampler(base, batch_size, drop_last)` 通过 `size()` 返回批次数。
 
-`WeightedRandomSampler(weights, num_samples, replacement, seed)` draws indices with probability proportional to `weights`. `DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks (padding to even counts unless `drop_last`); call `set_epoch()` once per epoch to reshuffle. Pass `rank` and `world_size` explicitly from the external launcher or job configuration. v1.0 does not publish a process-group API.
+`WeightedRandomSampler(weights, num_samples, replacement, seed)` 按权重抽样，权重须有限且非负、总和须有限且为正，`num_samples` 须为正；无放回抽样数不得超过正权重项数。零权重项不会被抽中，有放回模式在极小总权重的舍入边界仍保持这一约束。可独立包含 `<jyppx/liuding/data/samplers/weighted_random_sampler.hpp>`；相同标准库、配置和调用顺序下可用 `save_state()` / `load_state()` 精确续抽，不承诺跨标准库的加权序列或极端权重比下的精确实数概率。
+
+`BatchSampler` 的 `indices()` 返回扁平样本索引，`size()` 保持返回批次数，`sample_count()` 返回应用尾批策略后的样本数；支持嵌套视图，并在截断前检查底层声明的样本数与实际索引长度。可直接传给 `DataPipeline`，管线的 `batch_size` / `drop_last` 必须与该视图一致，冲突在构造时拒绝；有效样本数为零仍拒绝构造。也可直接传基础 sampler，由管线组批。
+
+`BatchSampler` 将 `set_epoch()`、epoch 能力和状态保存/恢复转发给底层 sampler；配置身份同时绑定底层类型/配置、批大小及尾批策略。底层缺少稳定身份时不提升恢复等级；底层支持状态、身份与确定性 batch factory 时，管线可按原合同精确恢复已提交游标及后续 epoch。旧版未记录该配置身份的 BatchSampler 管线状态会被视为拓扑不兼容，须使用原版本恢复。
+
+`DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` 按显式 rank/world_size 划分 epoch，不丢弃尾部时会补齐各 rank 的样本数；每个 epoch 调用一次 `set_epoch()`。状态为 `save_state()` 生成的规范无符号十进制，接受 0 至最大 `uint64_t`，拒绝符号、空白、前导零、尾字节及溢出；拒绝时当前 epoch 和后续顺序保持不变。既有合法状态格式保持可读。rank/world_size 由外部启动器或任务配置提供，v1.0 未提供进程组 API。
 
 Pass a custom sampler to the `DataPipeline` constructor for index strategies the built-ins do not cover, such as weighted sampling.

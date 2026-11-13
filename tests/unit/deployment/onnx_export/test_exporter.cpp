@@ -381,7 +381,7 @@ TEST(NativeOnnxExport,
     ++calls;
     auto* replacement =
         graph.create(c10::Symbol::onnx("Sin"), {node.input()}, 1);
-    replacement->output()->setType(node.output()->type());
+    replacement->output()->copyMetadata(node.output());
     replacement->insertBefore(&node);
     return std::vector<torch::jit::Value*>{replacement->output()};
   };
@@ -522,7 +522,7 @@ TEST(NativeOnnxRuntime,
                                              torch::jit::Graph& graph) {
     auto* replacement =
         graph.create(c10::Symbol::onnx("Sin"), {node.input()}, 1);
-    replacement->output()->setType(node.output()->type());
+    replacement->output()->copyMetadata(node.output());
     replacement->insertBefore(&node);
     return std::vector<torch::jit::Value*>{replacement->output()};
   };

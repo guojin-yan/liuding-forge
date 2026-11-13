@@ -1,30 +1,37 @@
 # Product tools are composed here, outside the library component graph.
-include("${CMAKE_CURRENT_SOURCE_DIR}/Transport.cmake")
+find_package(Threads REQUIRED)
+add_library(jyppx_cli_transport STATIC
+    telemetry/native_telemetry_protocol.cpp)
+set_target_properties(jyppx_cli_transport PROPERTIES
+    OUTPUT_NAME liuding-forge-cli-transport)
+target_include_directories(jyppx_cli_transport PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(jyppx_cli_transport PUBLIC jyppx::liuding::experiment Threads::Threads)
+target_link_libraries(jyppx_cli_transport PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(jyppx_cli_objects OBJECT
     cli_main.cpp
-    api_migration.cpp
-    config_migration.cpp
+    migration/api_migration.cpp
+    migration/config_migration.cpp
     doctor_config.cpp
-    evaluation_data.cpp
+    experiment/evaluation_data.cpp
     data_preparation.cpp
-    model_checkpoint.cpp
-    bundle_signing.cpp
-    onnx_delivery.cpp
-    onnx_verification.cpp
-    onnx_reconstruction.cpp
-    local_attempt.cpp
-    local_cuda_device.cpp
-    local_search.cpp
-    offline_workflow.cpp
-    image_recipe.cpp
-    recipe_initial_state.cpp
-    transfer_recipe.cpp
-    paired_recipe.cpp
-    run_commands.cpp
-    telemetry_commands.cpp
-    native_otlp_worker.cpp
-    native_tensorboard_worker.cpp
+    deployment/artifacts/model_checkpoint.cpp
+    deployment/artifacts/bundle_signing.cpp
+    deployment/onnx/onnx_delivery.cpp
+    deployment/onnx/onnx_verification.cpp
+    deployment/onnx/onnx_reconstruction.cpp
+    experiment/local_execution/local_attempt.cpp
+    experiment/local_execution/local_search.cpp
+    experiment/offline_workflow.cpp
+    recipes/image/image_recipe.cpp
+    recipes/image/recipe_initial_state.cpp
+    recipes/image/transfer_recipe.cpp
+    recipes/paired/paired_recipe.cpp
+    recipes/diagnostics/failure_report.cpp
+    experiment/run_commands.cpp
+    telemetry/telemetry_commands.cpp
+    telemetry/native_otlp_worker.cpp
+    telemetry/native_tensorboard_worker.cpp
 )
 add_executable(jyppx_cli)
 set_target_properties(jyppx_cli PROPERTIES OUTPUT_NAME liuding-forge)
@@ -39,12 +46,12 @@ if(TARGET jyppx::liuding::telemetry_native)
 endif()
 if(TARGET jyppx::liuding::telemetry_http)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::telemetry_http)
-    set_property(SOURCE native_otlp_worker.cpp APPEND PROPERTY
+    set_property(SOURCE telemetry/native_otlp_worker.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_NATIVE_OTLP_HTTP=1)
 endif()
 if(TARGET jyppx::liuding::bundle_signing)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::bundle_signing)
-    set_property(SOURCE bundle_signing.cpp APPEND PROPERTY
+    set_property(SOURCE deployment/artifacts/bundle_signing.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_BUNDLE_SIGNING=1)
 endif()
 if(TARGET jyppx::liuding::onnx_export)
@@ -53,13 +60,13 @@ if(TARGET jyppx::liuding::onnx_export)
 endif()
 if(TARGET jyppx::liuding::onnx_runtime)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::onnx_runtime)
-    set_property(SOURCE onnx_verification.cpp onnx_reconstruction.cpp APPEND PROPERTY
+    set_property(SOURCE deployment/onnx/onnx_verification.cpp deployment/onnx/onnx_reconstruction.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_ONNX_RUNTIME=1)
     jyppx_add_onnx_runtime_dependency(jyppx_cli)
 endif()
 if(TARGET jyppx::liuding::models)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::models)
-    set_property(SOURCE onnx_reconstruction.cpp APPEND PROPERTY
+    set_property(SOURCE deployment/onnx/onnx_reconstruction.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_ONNX_MODELS=1)
 endif()
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
@@ -78,8 +85,11 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
 endif()
 if(JYPPX_LIUDING_BUILD_TESTS)
     # Explicit runtime opt-in, compiled only in test-enabled CLI builds.
-    set_property(SOURCE image_recipe.cpp APPEND PROPERTY
-        COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS=1)
+    set_property(SOURCE recipes/image/image_recipe.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS=1
+            JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS=1)
+    set_property(SOURCE recipes/paired/paired_recipe.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS=1)
     add_executable(jyppx_cli_recipe_gate)
     set_target_properties(jyppx_cli_recipe_gate PROPERTIES OUTPUT_NAME liuding-forge-recipe-gate)
     target_link_libraries(jyppx_cli_recipe_gate PRIVATE jyppx_cli_objects)

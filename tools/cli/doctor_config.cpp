@@ -5,7 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "cli.hpp"
-#include "config_migration.hpp"
+#include "migration/config_migration.hpp"
 
 #include <jyppx/liuding/core/value_schema.hpp>
 #include <jyppx/liuding/experiment/config.hpp>

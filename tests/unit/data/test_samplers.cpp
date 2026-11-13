@@ -219,6 +219,60 @@ TEST(BatchSamplerTest, CountsMaximumPopulationWithoutOverflow) {
 
   EXPECT_EQ(keep_tail.size(), kMaximum / 2 + 1);
   EXPECT_EQ(drop_tail.size(), kMaximum / 2);
+  EXPECT_EQ(keep_tail.sample_count(), kMaximum);
+  EXPECT_EQ(drop_tail.sample_count(), kMaximum - 1);
+}
+
+TEST(BatchSamplerTest, ForwardsEpochAndConfigurationIdentity) {
+  auto base = std::make_shared<samplers::RandomSampler>(10, 7);
+  samplers::BatchSampler sampler(base, 4, false);
+  samplers::RandomSampler reference(10, 7);
+  sampler.set_epoch(1);
+  reference.set_epoch(1);
+  EXPECT_EQ(sampler.indices(), reference.indices());
+  EXPECT_TRUE(sampler.supports_epoch_control());
+  EXPECT_FALSE(sampler.configuration_identity().empty());
+  EXPECT_NE(sampler.configuration_identity(),
+            samplers::BatchSampler(base, 2, false).configuration_identity());
+  EXPECT_NE(sampler.configuration_identity(),
+            samplers::BatchSampler(base, 4, true).configuration_identity());
+  EXPECT_NE(sampler.configuration_identity(),
+            samplers::BatchSampler(
+                std::make_shared<samplers::SequentialSampler>(10), 4, false)
+                .configuration_identity());
+  samplers::BatchSampler unknown(std::make_shared<SizeOnlySampler>(10), 4);
+  EXPECT_TRUE(unknown.configuration_identity().empty());
+  EXPECT_FALSE(unknown.supports_epoch_control());
+}
+
+TEST(BatchSamplerTest, RejectsMalformedBaseBeforeTruncation) {
+  const samplers::BatchSampler sampler(std::make_shared<SizeOnlySampler>(10), 4,
+                                       true);
+  EXPECT_THROW(sampler.indices(), jyppx::liuding::InvalidArgument);
+  class WrongLengthSampler final : public samplers::Sampler {
+   public:
+    std::vector<size_t> indices() const override {
+      return {0, 1, 2, 3, 4, 5, 6};
+    }
+    size_t size() const override { return 6; }
+  };
+  const samplers::BatchSampler masked(std::make_shared<WrongLengthSampler>(), 4,
+                                      true);
+  // Both six and seven indices truncate to four; validate before dropping.
+  EXPECT_THROW(masked.indices(), jyppx::liuding::InvalidArgument);
+}
+
+TEST(BatchSamplerTest, NestedViewsCountFlatSamplesAndApplyBothTailPolicies) {
+  auto inner = std::make_shared<samplers::BatchSampler>(
+      std::make_shared<samplers::SequentialSampler>(10), 4, true);
+  const samplers::BatchSampler keep(inner, 3, false);
+  const samplers::BatchSampler drop(inner, 3, true);
+  EXPECT_EQ(keep.sample_count(), 8U);
+  EXPECT_EQ(keep.size(), 3U);
+  EXPECT_EQ(keep.indices(), (std::vector<size_t>{0, 1, 2, 3, 4, 5, 6, 7}));
+  EXPECT_EQ(drop.sample_count(), 6U);
+  EXPECT_EQ(drop.size(), 2U);
+  EXPECT_EQ(drop.indices(), (std::vector<size_t>{0, 1, 2, 3, 4, 5}));
 }
 
 TEST(SamplerContractTest, PublishesAndRestoresCurrentStateCapabilities) {

@@ -2,6 +2,8 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "../../../examples/evaluation/segmentation/model/tiny_unet.hpp"
+
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
@@ -52,6 +54,7 @@
 namespace {
 using namespace jyppx::liuding;
 using namespace jyppx::liuding::training;
+using jyppx::liuding::examples::segmentation::TinyUNet;
 namespace img = jyppx::liuding::data::image;
 using Json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -173,41 +176,6 @@ Data load(const std::string& split) {
   return result;
 }
 
-torch::nn::Sequential block(std::int64_t in, std::int64_t out) {
-  return torch::nn::Sequential(
-      torch::nn::Conv2d(torch::nn::Conv2dOptions(in, out, 3).padding(1)),
-      torch::nn::ReLU(),
-      torch::nn::Conv2d(torch::nn::Conv2dOptions(out, out, 3).padding(1)),
-      torch::nn::ReLU());
-}
-class TinyUNet final : public torch::nn::Module {
- public:
-  TinyUNet()
-      : e1(register_module("e1", block(3, 8))),
-        e2(register_module("e2", block(8, 16))),
-        middle(register_module("middle", block(16, 32))),
-        d2(register_module("d2", block(48, 16))),
-        d1(register_module("d1", block(24, 8))),
-        head(register_module("head", torch::nn::Conv2d(8, 2, 1))) {}
-  Tensor forward(const Tensor& x) {
-    const auto a = e1->forward(x);
-    const auto b = e2->forward(torch::max_pool2d(a, 2));
-    const auto c = middle->forward(torch::max_pool2d(b, 2));
-    const auto up = [](const Tensor& v) {
-      // Exact nearest 2x, with a deterministic reduction in backward.
-      return v.unsqueeze(3)
-          .unsqueeze(5)
-          .expand({v.size(0), v.size(1), v.size(2), 2, v.size(3), 2})
-          .reshape({v.size(0), v.size(1), v.size(2) * 2, v.size(3) * 2});
-    };
-    const auto d = d2->forward(torch::cat({up(c), b}, 1));
-    return head->forward(d1->forward(torch::cat({up(d), a}, 1)));
-  }
-
- private:
-  torch::nn::Sequential e1, e2, middle, d2, d1;
-  torch::nn::Conv2d head;
-};
 void save_weights(TinyUNet& module, const fs::path& path) {
   std::vector<Tensor> values;
   for (const auto& p : module.named_parameters())

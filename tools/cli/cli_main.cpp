@@ -4,11 +4,11 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include "bundle_signing.hpp"
+#include "deployment/artifacts/bundle_signing.hpp"
 #include "cli.hpp"
-#include "local_attempt.hpp"
-#include "native_otlp_worker.hpp"
-#include "native_tensorboard_worker.hpp"
+#include "experiment/local_execution/local_attempt.hpp"
+#include "telemetry/native_otlp_worker.hpp"
+#include "telemetry/native_tensorboard_worker.hpp"
 
 #include <jyppx/liuding/foundation/build_config.hpp>
 #include <jyppx/liuding/foundation/version.hpp>

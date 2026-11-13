@@ -11,6 +11,7 @@
 #include <torch/csrc/jit/ir/constants.h>
 
 #include <ATen/Functions.h>
+#include <ATen/native/TypeProperties.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -201,12 +202,12 @@ class Lowerer final {
       name = "constant_" + std::to_string(counter_++);
     } while (initializers_.contains(name));
     auto* value = graph_->addInput(name);
-    value->setType(c10::TensorType::create(tensor));
+    value->inferTypeFrom(tensor);
     initializers_.emplace(name, std::move(tensor));
     return value;
   }
 
-  Value* Scalar(double number, at::ScalarType dtype) {
+  Value* Scalar(const at::Scalar& number, at::ScalarType dtype) {
     return Constant(at::scalar_tensor(
         number, at::TensorOptions().dtype(dtype).device(at::kCPU)));
   }
@@ -230,8 +231,7 @@ class Lowerer final {
     if (literal->isBool())
       return Scalar(literal->toBool() ? 1.0 : 0.0, hint.value_or(at::kBool));
     if (literal->isInt())
-      return Scalar(static_cast<double>(literal->toInt()),
-                    hint.value_or(at::kLong));
+      return Scalar(literal->toInt(), hint.value_or(at::kLong));
     if (literal->isDouble())
       return Scalar(literal->toDouble(), hint.value_or(at::kFloat));
     if (literal->isIntList()) return IntegerVector(literal->toIntVector());
@@ -244,19 +244,65 @@ class Lowerer final {
         graph_->create(c10::Symbol::onnx(operation), inputs, outputs);
     result->insertBefore(&before);
     if (outputs == 1 && before.outputs().size() == 1)
-      result->output()->setType(before.output()->type());
+      result->output()->copyMetadata(before.output());
     return result;
   }
 
   Value* Unary(Node& node, const char* operation) {
-    return Op(node, operation, {Tensor(node.input(0), node)})->output();
+    auto* input =
+        Cast(node, Tensor(node.input(0), node), ScalarType(node.output()));
+    return Op(node, operation, {input})->output();
   }
 
-  Value* Binary(Node& node, const char* operation) {
-    return Op(node, operation,
-              {Tensor(node.input(0), node),
-               Tensor(node.input(1), node, ScalarType(node.input(0)))})
-        ->output();
+  Value* Cast(Node& node, Value* input, at::ScalarType dtype) {
+    if (ScalarType(input) == dtype) return input;
+    const auto type = input->type()->cast<c10::TensorType>();
+    if (!type) Unsupported(node, "type conversion requires a typed tensor");
+    auto* result = Op(node, "Cast", {input});
+    result->i_(c10::Symbol::attr("to"), OnnxType(dtype, node));
+    result->output()->setType(type->withScalarType(dtype));
+    return result->output();
+  }
+
+  at::ScalarType ComparisonType(Node& node) {
+    at::native::ResultTypeState state;
+    for (const auto index : {0U, 1U}) {
+      auto* input = node.input(index);
+      const auto literal = Literal(input);
+      if (literal && literal->isScalar()) {
+        state =
+            at::native::update_result_type_state(literal->toScalar(), state);
+        continue;
+      }
+      const auto type = input->type()->cast<c10::TensorType>();
+      if (!type || !type->dim() || !type->scalarType())
+        Unsupported(node, "comparison promotion requires known dtype and rank");
+      auto& category = *type->dim() == 0 ? state.zeroResult : state.dimResult;
+      category = category == at::ScalarType::Undefined
+                     ? *type->scalarType()
+                     : c10::promoteTypes(category, *type->scalarType());
+    }
+    return at::native::result_type(state);
+  }
+
+  Value* Binary(Node& node, const char* operation,
+                std::optional<at::ScalarType> computation_type = {}) {
+    const auto dtype = computation_type.value_or(ScalarType(node.output()));
+    auto* left = Cast(node, Tensor(node.input(0), node, dtype), dtype);
+    auto* right = Cast(node, Tensor(node.input(1), node, dtype), dtype);
+    // ONNX numeric arithmetic/ordering operators do not accept bool inputs.
+    if (dtype == at::kBool) {
+      const std::string name(operation);
+      if (name == "Mul" || name == "Min")
+        operation = "And";
+      else if (name == "Add" || name == "Max")
+        operation = "Or";
+      else if (name == "Greater" || name == "Less") {
+        left = Cast(node, left, at::kLong);
+        right = Cast(node, right, at::kLong);
+      }
+    }
+    return Op(node, operation, {left, right})->output();
   }
 
   std::vector<Value*> Convert(Node& node, const std::string& symbol) {
@@ -273,27 +319,49 @@ class Lowerer final {
         {"aten::ceil", "Ceil"},
         {"aten::round", "Round"},
         {"aten::erf", "Erf"},
-        {"aten::hardsigmoid", "HardSigmoid"},
         {"aten::hardswish", "HardSwish"}};
+    if ((symbol == "aten::floor" || symbol == "aten::ceil" ||
+         symbol == "aten::round") &&
+        c10::isIntegralType(ScalarType(node.input(0)), false)) {
+      // ATen keeps integer values and dtype unchanged. ONNX rounding operators
+      // accept floating point only; a float round-trip would lose integer bits.
+      return {Unary(node, "Identity")};
+    }
     if (const auto found = unary.find(symbol); found != unary.end())
       return {Unary(node, found->second)};
+    if (symbol == "aten::hardsigmoid") {
+      auto* result = Op(node, "HardSigmoid", {Tensor(node.input(0), node)});
+      result->f_(c10::Symbol::attr("alpha"), 1.0 / 6.0);
+      result->f_(c10::Symbol::attr("beta"), 0.5);
+      return {result->output()};
+    }
     static const std::unordered_map<std::string, const char*> binary{
         {"aten::mul", "Mul"},       {"aten::pow", "Pow"},
         {"aten::matmul", "MatMul"}, {"aten::mm", "MatMul"},
         {"aten::bmm", "MatMul"},    {"aten::maximum", "Max"},
-        {"aten::minimum", "Min"},   {"aten::eq", "Equal"},
-        {"aten::gt", "Greater"},    {"aten::lt", "Less"}};
+        {"aten::minimum", "Min"}};
     if (const auto found = binary.find(symbol); found != binary.end())
       return {Binary(node, found->second)};
+    if (symbol == "aten::eq" || symbol == "aten::gt" || symbol == "aten::lt") {
+      const auto* operation = symbol == "aten::eq"   ? "Equal"
+                              : symbol == "aten::gt" ? "Greater"
+                                                     : "Less";
+      return {Binary(node, operation, ComparisonType(node))};
+    }
     if (symbol == "aten::add" || symbol == "aten::sub") {
-      auto* right = Tensor(node.input(1), node, ScalarType(node.input(0)));
-      if (node.inputs().size() > 2 && Number(node.input(2), node) != 1.0)
-        right = Op(node, "Mul",
-                   {right, Scalar(Number(node.input(2), node),
-                                  ScalarType(node.input(0)))})
+      const auto dtype = ScalarType(node.output());
+      auto* left = Cast(node, Tensor(node.input(0), node, dtype), dtype);
+      auto* right = Cast(node, Tensor(node.input(1), node, dtype), dtype);
+      if (node.inputs().size() > 2 && Number(node.input(2), node) != 1.0) {
+        auto* alpha = Tensor(node.input(2), node, dtype);
+        const auto right_type = right->type();
+        right = Op(node, dtype == at::kBool ? "And" : "Mul", {right, alpha})
                     ->output();
-      return {Op(node, symbol == "aten::add" ? "Add" : "Sub",
-                 {Tensor(node.input(0), node), right})
+        right->setType(right_type);
+      }
+      if (dtype == at::kBool && symbol == "aten::add")
+        return {Op(node, "Or", {left, right})->output()};
+      return {Op(node, symbol == "aten::add" ? "Add" : "Sub", {left, right})
                   ->output()};
     }
     if (symbol == "aten::div") {
@@ -368,14 +436,25 @@ class Lowerer final {
       const bool no_training = symbol != "aten::batch_norm";
       if (!no_training && Boolean(node.input(5), node))
         Unsupported(node, "training BatchNorm is not an inference export");
-      std::vector<Value*> inputs;
-      for (std::size_t index = 0; index < 5; ++index) {
-        if (IsNone(node.input(index)))
-          Unsupported(node,
-                      "BatchNorm requires affine state and running statistics");
-        inputs.push_back(Tensor(node.input(index), node));
+      const auto type = node.input(0)->type()->cast<c10::TensorType>();
+      const auto sizes = type ? type->sizes().concrete_sizes() : std::nullopt;
+      if (!sizes || sizes->size() < 2 || (*sizes)[1] <= 0)
+        Unsupported(node, "BatchNorm requires a known channel dimension");
+      if (IsNone(node.input(3)) || IsNone(node.input(4)))
+        Unsupported(node, "inference BatchNorm requires running statistics");
+      const auto options = at::TensorOptions().dtype(ScalarType(node.input(0)));
+      std::vector<Value*> inputs{Tensor(node.input(0), node)};
+      for (std::size_t index = 1; index < 5; ++index) {
+        if (IsNone(node.input(index))) {
+          inputs.push_back(Constant(index == 1
+                                        ? at::ones({(*sizes)[1]}, options)
+                                        : at::zeros({(*sizes)[1]}, options)));
+        } else {
+          inputs.push_back(Tensor(node.input(index), node));
+        }
       }
       auto* result = Op(node, "BatchNormalization", inputs);
+      result->output()->copyMetadata(node.output(0));
       result->f_(c10::Symbol::attr("epsilon"),
                  Number(node.input(no_training ? 6 : 7), node));
       result->i_(c10::Symbol::attr("training_mode"), 0);
@@ -383,7 +462,11 @@ class Lowerer final {
       for (std::size_t index = 1; index < node.outputs().size(); ++index) {
         if (!node.output(index)->uses().empty())
           Unsupported(node, "training statistics outputs are used");
-        outputs.push_back(result->output());
+        // The inference-only auxiliary outputs are empty tensors. Give each a
+        // separate dead value so its metadata cannot overwrite the real output
+        // before downstream lowering (for example flatten) inspects its rank.
+        outputs.push_back(Constant(at::empty(
+            {0}, at::TensorOptions().dtype(ScalarType(node.output(index))))));
       }
       return outputs;
     }
@@ -428,31 +511,59 @@ class Lowerer final {
     }
     if (symbol == "aten::mean" || symbol == "aten::sum") {
       const bool mean = symbol == "aten::mean";
-      std::vector<Value*> inputs{Tensor(node.input(0), node)};
-      auto* result = static_cast<Node*>(nullptr);
-      if (node.inputs().size() >= 3 && !IsNone(node.input(1))) {
-        const auto axes = Ints(node.input(1), node);
-        if (!mean) inputs.push_back(IntegerVector(axes));
-        result = Op(node, mean ? "ReduceMean" : "ReduceSum", inputs);
-        if (mean) result->is_(c10::Symbol::attr("axes"), axes);
-        result->i_(c10::Symbol::attr("keepdims"),
-                   Boolean(node.input(2), node) ? 1 : 0);
-      } else {
-        result = Op(node, mean ? "ReduceMean" : "ReduceSum", inputs);
-        result->i_(c10::Symbol::attr("keepdims"), 0);
+      auto* input = Tensor(node.input(0), node);
+      const auto dtype = ScalarType(node.output());
+      // ATen applies an explicit dtype (or sum's integral promotion) before
+      // accumulation. Casting the reduced result cannot recover lost values.
+      if (ScalarType(input) != dtype) {
+        const auto type = input->type()->cast<c10::TensorType>();
+        if (!type) Unsupported(node, "reduction requires a typed tensor");
+        auto* cast = Op(node, "Cast", {input});
+        cast->i_(c10::Symbol::attr("to"), OnnxType(dtype, node));
+        cast->output()->setType(type->withScalarType(dtype));
+        input = cast->output();
       }
+      const bool dimensioned = node.inputs().size() >= 3;
+      const auto axes = dimensioned && !IsNone(node.input(1))
+                            ? Ints(node.input(1), node)
+                            : std::vector<std::int64_t>{};
+      std::vector<Value*> inputs{input};
+      if (!mean && !axes.empty()) inputs.push_back(IntegerVector(axes));
+      auto* result = Op(node, mean ? "ReduceMean" : "ReduceSum", inputs);
+      if (mean && !axes.empty()) result->is_(c10::Symbol::attr("axes"), axes);
+      result->i_(c10::Symbol::attr("keepdims"),
+                 dimensioned && Boolean(node.input(2), node) ? 1 : 0);
       return {result->output()};
     }
     if (symbol == "aten::flatten") {
-      const auto end = Int(node.input(2), node);
       const auto input_type = node.input(0)->type()->cast<c10::TensorType>();
       const auto rank = input_type ? input_type->dim() : std::nullopt;
-      if (end != -1 && (!rank || end != static_cast<std::int64_t>(*rank) - 1))
+      if (!rank) Unsupported(node, "flatten requires a known tensor rank");
+      const auto dimensions =
+          std::max<std::int64_t>(1, static_cast<std::int64_t>(*rank));
+      auto start = Int(node.input(1), node);
+      auto end = Int(node.input(2), node);
+      if (start < -dimensions || start >= dimensions || end < -dimensions ||
+          end >= dimensions)
+        Unsupported(node, "invalid flatten dimensions");
+      if (start < 0) start += dimensions;
+      if (end < 0) end += dimensions;
+      if (end != dimensions - 1)
         Unsupported(node,
                     "flatten currently requires the last dimension as end_dim");
-      auto* result = Op(node, "Flatten", {Tensor(node.input(0), node)});
-      result->i_(c10::Symbol::attr("axis"), Int(node.input(1), node));
-      return {result->output()};
+      if (start == 1) {
+        auto* result = Op(node, "Flatten", {Tensor(node.input(0), node)});
+        result->i_(c10::Symbol::attr("axis"), 1);
+        return {result->output()};
+      }
+      // ONNX Flatten always returns rank two. ATen keeps every prefix axis
+      // and may return rank one. Reshape zeros copy the runtime prefix sizes,
+      // including a dynamic batch; -1 combines only the remaining suffix.
+      std::vector<std::int64_t> target(static_cast<std::size_t>(start), 0);
+      target.push_back(-1);
+      return {Op(node, "Reshape",
+                 {Tensor(node.input(0), node), IntegerVector(target)})
+                  ->output()};
     }
     if (symbol == "aten::reshape" || symbol == "aten::view") {
       const auto target = Ints(node.input(1), node);
@@ -462,27 +573,40 @@ class Lowerer final {
     }
     if (symbol == "aten::permute" || symbol == "aten::transpose" ||
         symbol == "aten::t") {
+      const auto type = node.input(0)->type()->cast<c10::TensorType>();
+      if (!type || !type->dim())
+        Unsupported(node, "transpose requires a known tensor rank");
+      const auto rank = static_cast<std::int64_t>(*type->dim());
+      const auto dimension = [&](std::int64_t axis) {
+        const auto dimensions = std::max<std::int64_t>(rank, 1);
+        if (axis < -dimensions || axis >= dimensions)
+          Unsupported(node, "invalid transpose dimension");
+        return axis < 0 ? axis + dimensions : axis;
+      };
       std::vector<std::int64_t> permutation;
-      if (symbol == "aten::permute")
+      if (symbol == "aten::permute") {
         permutation = Ints(node.input(1), node);
-      else {
-        const auto type = node.input(0)->type()->cast<c10::TensorType>();
-        if (!type || !type->dim())
-          Unsupported(node, "transpose requires a known tensor rank");
-        const auto rank = static_cast<std::int64_t>(*type->dim());
+        if (permutation.size() != static_cast<std::size_t>(rank))
+          Unsupported(node, "permutation length differs from tensor rank");
+        std::set<std::int64_t> unique;
+        for (auto& axis : permutation) {
+          axis = dimension(axis);
+          if (!unique.insert(axis).second)
+            Unsupported(node, "permutation contains duplicate dimensions");
+        }
+      } else {
         for (std::int64_t index = 0; index < rank; ++index)
           permutation.push_back(index);
         const auto first =
-            symbol == "aten::t" ? 0 : (Int(node.input(1), node) + rank) % rank;
+            symbol == "aten::t" ? 0 : dimension(Int(node.input(1), node));
         const auto second = symbol == "aten::t"
-                                ? rank - 1
-                                : (Int(node.input(2), node) + rank) % rank;
-        if (rank == 0 || first < 0 || second < 0 || first >= rank ||
-            second >= rank)
-          Unsupported(node, "invalid transpose dimensions");
+                                ? std::max<std::int64_t>(rank - 1, 0)
+                                : dimension(Int(node.input(2), node));
+        if (rank == 0) return {Unary(node, "Identity")};
         std::swap(permutation[static_cast<std::size_t>(first)],
                   permutation[static_cast<std::size_t>(second)]);
       }
+      if (rank == 0) return {Unary(node, "Identity")};
       auto* result = Op(node, "Transpose", {Tensor(node.input(0), node)});
       result->is_(c10::Symbol::attr("perm"), permutation);
       return {result->output()};
@@ -492,9 +616,12 @@ class Lowerer final {
       if (list->kind() != torch::jit::prim::ListConstruct)
         Unsupported(node, "concat requires an explicit tensor list");
       const auto axis = Int(node.input(1), node);
+      const auto dtype = ScalarType(node.output());
       std::vector<Value*> inputs;
       for (auto* entry : list->inputs()) {
-        auto* value = Tensor(entry, node);
+        // ATen promotes the whole list. ONNX Concat requires one element type,
+        // including the Unsqueeze inputs used to lower stack.
+        auto* value = Cast(node, Tensor(entry, node, dtype), dtype);
         if (symbol == "aten::stack")
           value =
               Op(node, "Unsqueeze", {value, IntegerVector({axis})})->output();
@@ -504,21 +631,76 @@ class Lowerer final {
       result->i_(c10::Symbol::attr("axis"), axis);
       return {result->output()};
     }
-    if (symbol == "aten::unsqueeze" || symbol == "aten::squeeze") {
+    if (symbol == "aten::squeeze") {
+      const auto type = node.input(0)->type()->cast<c10::TensorType>();
+      if (!type || !type->dim())
+        Unsupported(node, "squeeze requires a known tensor rank");
+      const auto rank = static_cast<std::int64_t>(*type->dim());
+      if (rank == 0) return {Unary(node, "Identity")};
+      const bool dynamic =
+          options_.dynamic_batch || !options_.dynamic_axes.empty();
       std::vector<Value*> inputs{Tensor(node.input(0), node)};
-      if (node.inputs().size() > 1)
-        inputs.push_back(IntegerVector({Int(node.input(1), node)}));
-      return {Op(node, symbol == "aten::unsqueeze" ? "Unsqueeze" : "Squeeze",
-                 inputs)
+      if (node.inputs().size() > 1) {
+        auto axis = Int(node.input(1), node);
+        if (axis < -rank || axis >= rank)
+          Unsupported(node, "invalid squeeze dimension");
+        if (axis < 0) axis += rank;
+        if (dynamic && axis == 0)
+          Unsupported(node,
+                      "squeezing a dynamic batch may change output rank; use "
+                      "an explicit non-batch dimension or a static export");
+        const auto sizes = type->sizes().concrete_sizes();
+        if (!sizes) Unsupported(node, "squeeze requires known dimension sizes");
+        // ATen leaves a selected non-singleton dimension unchanged. ONNX
+        // Squeeze with that axis instead rejects the tensor at execution.
+        if ((*sizes)[static_cast<std::size_t>(axis)] != 1)
+          return {Unary(node, "Identity")};
+        inputs.push_back(IntegerVector({axis}));
+      } else if (dynamic) {
+        Unsupported(node,
+                    "dynamic squeeze needs an explicit non-batch dimension; "
+                    "removing all singleton axes may remove batch one");
+      }
+      return {Op(node, "Squeeze", inputs)->output()};
+    }
+    if (symbol == "aten::unsqueeze") {
+      return {Op(node, "Unsqueeze",
+                 {Tensor(node.input(0), node),
+                  IntegerVector({Int(node.input(1), node)})})
                   ->output()};
     }
     if (symbol == "aten::softmax" || symbol == "aten::_softmax" ||
-        symbol == "aten::log_softmax") {
-      auto* result =
-          Op(node, symbol == "aten::log_softmax" ? "LogSoftmax" : "Softmax",
-             {Tensor(node.input(0), node)});
-      result->i_(c10::Symbol::attr("axis"), Int(node.input(1), node));
-      return {result->output()};
+        symbol == "aten::log_softmax" || symbol == "aten::_log_softmax") {
+      auto* input = Tensor(node.input(0), node);
+      auto type = input->type()->cast<c10::TensorType>();
+      if (!type || !type->dim())
+        Unsupported(node, "softmax requires a known tensor rank");
+      const auto dtype = ScalarType(node.output());
+      // Both explicit dtype and the internal half_to_float option select the
+      // computation type, so conversion must precede normalization.
+      if (ScalarType(input) != dtype) {
+        auto* cast = Op(node, "Cast", {input});
+        cast->i_(c10::Symbol::attr("to"), OnnxType(dtype, node));
+        type = type->withScalarType(dtype);
+        cast->output()->setType(type);
+        input = cast->output();
+      }
+      const bool scalar = *type->dim() == 0;
+      if (scalar) {
+        auto* reshape = Op(node, "Reshape", {input, IntegerVector({1})});
+        type = type->withSizes(std::vector<std::int64_t>{1});
+        reshape->output()->setType(type);
+        input = reshape->output();
+      }
+      const bool logarithmic =
+          symbol == "aten::log_softmax" || symbol == "aten::_log_softmax";
+      auto* result = Op(node, logarithmic ? "LogSoftmax" : "Softmax", {input});
+      result->i_(c10::Symbol::attr("axis"),
+                 scalar ? 0 : Int(node.input(1), node));
+      if (!scalar) return {result->output()};
+      result->output()->setType(type);
+      return {Op(node, "Squeeze", {result->output(), IntegerVector({0})})
+                  ->output()};
     }
     if (symbol == "aten::dropout") {
       if (Boolean(node.input(2), node))
@@ -550,12 +732,46 @@ class Lowerer final {
     }
     if (symbol == "aten::layer_norm") {
       const auto normalized = Ints(node.input(1), node);
+      auto* input = Tensor(node.input(0), node);
+      if (ScalarType(input) == at::kDouble) {
+        // Keep FP64 statistics and center before squaring. A fused backend
+        // kernel may compute E[x*x] - E[x]*E[x], losing a small variance for
+        // inputs with a large common offset even when the input is Double.
+        std::vector<std::int64_t> axes;
+        for (auto axis = -static_cast<std::int64_t>(normalized.size());
+             axis < 0; ++axis)
+          axes.push_back(axis);
+        const auto mean = [&](Value* value) {
+          auto* result = Op(node, "ReduceMean", {value});
+          result->is_(c10::Symbol::attr("axes"), axes);
+          result->i_(c10::Symbol::attr("keepdims"), 1);
+          result->output()->setType(
+              c10::TensorType::get()->withScalarType(at::kDouble));
+          return result->output();
+        };
+        auto* centered = Op(node, "Sub", {input, mean(input)})->output();
+        auto* squared = Op(node, "Mul", {centered, centered})->output();
+        auto* variance = mean(squared);
+        auto* adjusted =
+            Op(node, "Add",
+               {variance, Scalar(Number(node.input(4), node), at::kDouble)})
+                ->output();
+        auto* deviation = Op(node, "Sqrt", {adjusted})->output();
+        auto* result = Op(node, "Div", {centered, deviation})->output();
+        if (!IsNone(node.input(2)))
+          result =
+              Op(node, "Mul", {result, Tensor(node.input(2), node)})->output();
+        if (!IsNone(node.input(3)))
+          result =
+              Op(node, "Add", {result, Tensor(node.input(3), node)})->output();
+        return {result};
+      }
       auto* weight =
           IsNone(node.input(2))
               ? Constant(at::ones(normalized, at::TensorOptions().dtype(
                                                   ScalarType(node.input(0)))))
               : Tensor(node.input(2), node);
-      std::vector<Value*> inputs{Tensor(node.input(0), node), weight};
+      std::vector<Value*> inputs{input, weight};
       if (!IsNone(node.input(3))) inputs.push_back(Tensor(node.input(3), node));
       auto* result = Op(node, "LayerNormalization", inputs);
       result->i_(c10::Symbol::attr("axis"),

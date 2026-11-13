@@ -22,7 +22,7 @@ auto adapter = std::make_shared<jyppx::liuding::training::SchedulerAdapter>(warm
 // 将 adapter 绑定到 FitRequest 中对应优化器的 scheduler 字段。
 ```
 
-构造后首次参数更新使用 `start_factor × 基础学习率`，第 100 次成功更新后达到基础学习率。接入 Trainer 时还需包含 `<jyppx/liuding/training/scheduler_adapter.hpp>`。完整可运行程序见 [basic_trainer.cpp](../../examples/basic_trainer.cpp)，构建 target 为 `jyppx_basic_trainer`，可执行文件为 `liuding-forge-example-basic-trainer`。
+构造后首次参数更新使用 `start_factor × 基础学习率`，第 100 次成功更新后达到基础学习率。接入 Trainer 时还需包含 `<jyppx/liuding/training/scheduler_adapter.hpp>`。完整可运行程序见 [basic_trainer.cpp](../../examples/training/basic_trainer.cpp)，构建 target 为 `jyppx_basic_trainer`，可执行文件为 `liuding-forge-example-basic-trainer`；手动更新、指标调度与新进程恢复见[优化器教程](../tutorials/03_optimizers.md)。
 
 后续衰减可用 [SequentialLrScheduler](composite_lr_scheduler.md) 组合，例如按更新计数的预热加多项式衰减。子调度器必须使用同一个优化器与相同 `step_mode`，构造各子对象会立即应用其初始因子；先构造保持基础学习率的衰减对象，再构造预热对象，最后按预热、衰减的顺序交给组合器。
 

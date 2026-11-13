@@ -104,7 +104,7 @@ class Subset : public Dataset<T> {
  * @param seed Optional deterministic shuffle seed.
  * @return Disjoint subsets in the same order as @p lengths.
  * @throws jyppx::liuding::InvalidArgument The dataset is null or lengths do not
- * cover the dataset.
+ * cover the dataset, including a length that exceeds the remaining size.
  */
 template <typename DatasetT, typename T = typename DatasetT::value_type>
 std::vector<std::shared_ptr<Subset<T>>> random_split(
@@ -114,19 +114,27 @@ std::vector<std::shared_ptr<Subset<T>>> random_split(
     detail::throw_invalid("data.random_split", "dataset", "non-null dataset",
                           "null dataset", "Provide a valid source dataset.");
   }
-  size_t total = 0;
+  const size_t dataset_size = dataset->size();
+  size_t remaining = dataset_size;
   for (const size_t length : lengths) {
-    total += length;
+    if (length > remaining) {
+      detail::throw_invalid(
+          "data.random_split", "lengths", "sum equal to dataset size",
+          "length=" + std::to_string(length) +
+              ", remaining=" + std::to_string(remaining),
+          "Adjust split lengths to cover every sample exactly once.");
+    }
+    remaining -= length;
   }
-  if (total != dataset->size()) {
+  if (remaining != 0) {
     detail::throw_invalid(
         "data.random_split", "lengths", "sum equal to dataset size",
-        "sum=" + std::to_string(total) +
-            ", dataset_size=" + std::to_string(dataset->size()),
+        "sum=" + std::to_string(dataset_size - remaining) +
+            ", dataset_size=" + std::to_string(dataset_size),
         "Adjust split lengths to cover every sample exactly once.");
   }
 
-  std::vector<size_t> indices(dataset->size());
+  std::vector<size_t> indices(dataset_size);
   std::iota(indices.begin(), indices.end(), size_t{0});
   if (seed.has_value()) {
     std::mt19937_64 generator(static_cast<std::mt19937_64::result_type>(*seed));

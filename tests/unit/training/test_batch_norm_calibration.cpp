@@ -2,7 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
-#include "../../../tools/cli/recipe_bn_calibration.hpp"
+#include "../../../tools/cli/recipes/image/recipe_bn_calibration.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/random.hpp>

@@ -396,6 +396,9 @@ class DataPipeline final : public BatchPipeline {
    * @param options Validated identity, lineage, schema and batching options.
    * @param batch_factory Collates one ordered index span into a value.
    * @throws InvalidArgument A required object or option is invalid.
+   *
+   * When sampler is a BatchSampler, options.batch_size and options.drop_last
+   * must match its policy. The effective flat sample count must be nonzero.
    */
   DataPipeline(std::shared_ptr<samplers::Sampler> sampler,
                DataPipelineOptions options, DataBatchFactory batch_factory);

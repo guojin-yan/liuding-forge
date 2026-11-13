@@ -24,7 +24,7 @@ liuding-forge api scan --root application --max-files 2000 --max-bytes 8388608 -
 | `suggestion` | 当前所属合同或已移除能力的说明 |
 | `automatic_change` | 始终为 false |
 
-文件按路径排序，再按固定规则与文本顺序输出；同一行同一旧名称只返回一次，不返回源码片段或配置值。规则覆盖旧 package、工具/数据/损失与初始化头、优化器、scheduler 和训练 callback；表位于 `tools/cli/api_migration.cpp`，不是完整符号数据库。
+文件按路径排序，再按固定规则与文本顺序输出；同一行同一旧名称只返回一次，不返回源码片段或配置值。规则覆盖旧 package、工具/数据/损失与初始化头、优化器、scheduler 和训练 callback；表位于 `tools/cli/migration/api_migration.cpp`，不是完整符号数据库。
 
 旧 `jyppx/optim/sgd.hpp` 指向 `jyppx/liuding/optim/sgd_adapter.hpp`，优化器状态仍需显式审查；旧 `jyppx::utils` 需选择实际的 foundation/data/training owner。旧 TensorBoard 头和 callback 指向 `run export --backend tensorboard-native`，配置与映射见[运行遥测](run_telemetry_cli.md)；历史 `feature_id` 保持兼容，不启用旧 Python 路由。量化与分布式占位符只报告已移除，不授予替代能力。
 

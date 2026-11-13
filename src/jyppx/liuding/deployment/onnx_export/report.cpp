@@ -106,10 +106,11 @@ Json Tensors(std::span<const ExportTensorRecord> tensors, bool state) {
       size *= static_cast<std::uint64_t>(extent);
     }
     if (tensor.size_bytes != size || size > (1ULL << 32U)) Invalid();
+    const auto digest = Digest(tensor.digest);
     result.push_back({{"name", tensor.name},
                       {"dtype", tensor.dtype},
                       {"shape", tensor.shape},
-                      {"digest", Digest(tensor.digest)},
+                      {"digest", digest},
                       {"size_bytes", tensor.size_bytes},
                       {"role", tensor.role}});
   }
@@ -122,11 +123,12 @@ std::vector<ExportTensorRecord> ReadTensors(const Json& values) {
   result.reserve(values.size());
   for (const auto& value : values) {
     Fields(value, {"name", "dtype", "shape", "digest", "size_bytes", "role"});
-    ExportTensorRecord tensor{.name = Text(value.at("name")),
-                              .dtype = Text(value.at("dtype")),
-                              .digest = ReadDigest(value.at("digest")),
-                              .size_bytes = Uint(value.at("size_bytes")),
-                              .role = Text(value.at("role"))};
+    ExportTensorRecord tensor;
+    tensor.name = Text(value.at("name"));
+    tensor.dtype = Text(value.at("dtype"));
+    tensor.digest = ReadDigest(value.at("digest"));
+    tensor.size_bytes = Uint(value.at("size_bytes"));
+    tensor.role = Text(value.at("role"));
     if (!value.at("shape").is_array() || value.at("shape").size() > 8U)
       Invalid();
     for (const auto& extent : value.at("shape")) {
@@ -184,10 +186,14 @@ Json Document(const ExportReport& report) {
     if (tensor.role != "output") Invalid();
   const auto build = Json::parse(build_fingerprint_json(report.build));
   for (const auto& field : build.items()) (void)Text(field.value());
+  const auto model_digest = Digest(report.model_digest);
+  const auto inputs = Tensors(report.inputs, false);
+  const auto outputs = Tensors(report.outputs, false);
+  const auto state = Tensors(report.state, true);
   return {{"format", "jyppx.liuding.onnx_export_report"},
           {"schema_version", ExportReport::format_version},
           {"model",
-           {{"digest", Digest(report.model_digest)},
+           {{"digest", model_digest},
             {"size_bytes", report.model_size_bytes}}},
           {"build", build},
           {"source", source},
@@ -199,9 +205,9 @@ Json Document(const ExportReport& report) {
           {"minimum_batch", report.minimum_batch},
           {"maximum_batch", report.maximum_batch},
           {"dynamic_axes", axes},
-          {"inputs", Tensors(report.inputs, false)},
-          {"outputs", Tensors(report.outputs, false)},
-          {"state", Tensors(report.state, true)},
+          {"inputs", inputs},
+          {"outputs", outputs},
+          {"state", state},
           {"operators", report.operators},
           {"verification",
            {{"official_checker", "passed"},
@@ -261,24 +267,22 @@ ExportReport deserialize_export_report(std::string_view json,
     result.model_digest = ReadDigest(model.at("digest"));
     result.model_size_bytes = Uint(model.at("size_bytes"));
     const auto& build = value.at("build");
-    result.build = {
-        .jyppx_version = Text(build.at("jyppx_version")),
-        .git_commit = Text(build.at("git_commit")),
-        .compiler = Text(build.at("compiler")),
-        .cxx_standard = Text(build.at("cxx_standard")),
-        .os_arch = Text(build.at("os_arch")),
-        .build_type = Text(build.at("build_type")),
-        .libtorch_version = Text(build.at("libtorch_version")),
-        .libtorch_build = Text(build.at("libtorch_build")),
-        .accelerator_runtime = Text(build.at("accelerator_runtime")),
-        .dependency_lock_digest = Text(build.at("dependency_lock_digest"))};
+    result.build.jyppx_version = Text(build.at("jyppx_version"));
+    result.build.git_commit = Text(build.at("git_commit"));
+    result.build.compiler = Text(build.at("compiler"));
+    result.build.cxx_standard = Text(build.at("cxx_standard"));
+    result.build.os_arch = Text(build.at("os_arch"));
+    result.build.build_type = Text(build.at("build_type"));
+    result.build.libtorch_version = Text(build.at("libtorch_version"));
+    result.build.libtorch_build = Text(build.at("libtorch_build"));
+    result.build.accelerator_runtime = Text(build.at("accelerator_runtime"));
+    result.build.dependency_lock_digest = Text(build.at("dependency_lock_digest"));
     const auto& source = value.at("source");
-    result.source = {
-        .run_id = Optional(source.at("run_id"), false),
-        .source_digest = Optional(source.at("source_digest"), false),
-        .config_digest = Optional(source.at("config_digest"), true),
-        .data_manifest_digest =
-            Optional(source.at("data_manifest_digest"), true)};
+    result.source.run_id = Optional(source.at("run_id"), false);
+    result.source.source_digest = Optional(source.at("source_digest"), false);
+    result.source.config_digest = Optional(source.at("config_digest"), true);
+    result.source.data_manifest_digest =
+        Optional(source.at("data_manifest_digest"), true);
     const auto opset = Uint(value.at("opset"));
     if (opset != 17U) Invalid();
     result.opset = static_cast<std::uint32_t>(opset);

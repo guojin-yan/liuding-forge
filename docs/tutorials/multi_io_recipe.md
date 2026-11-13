@@ -85,6 +85,10 @@ liuding-forge recipe resume --file paired-affine.local.json --root runs/paired-r
 
 恢复包括模型、SGD momentum、调度器、Trainer、训练/验证游标、回调、诊断、策略及 RNG。配置、数据内容或构建身份变化会被拒绝；需要变更时创建新运行。异常终止后可以从已成功发布的 `latest.jyck` 恢复；同目录同时运行会被锁拒绝。完成态重复 `resume` 返回原有结果，质量未通过的运行仍返回退出码 `4`。
 
+训练 `fit` 抛出异常时，配方尝试将现场诊断保存为独立CAS产物，角色为 `training.diagnostics.failure`、逻辑名为 `training-diagnostics-failure.json`；通过[本地运行存储](../api/local_run_storage.md)查询run的产物引用。报告绑定双输入/双输出模型契约、配置、数据及存在时的最后安全 `latest.jyck`，包含已观察的训练/验证NaN/Inf与非有限梯度尝试。相同报告内容重复发布保持幂等。
+
+失败报告不提交失败后的可变训练状态，也不把运行改为不可恢复终态；修复问题后仍显式执行 `resume`，从检查点恢复成功轨迹统计。若诊断存储也失败，会输出简短警告并保留原训练异常。进程强杀或异常发生于 `fit` 之外时不保证报告已保存，诊断JSON不能替代训练检查点。
+
 ## 6. 核对交付文件
 
 ```sh

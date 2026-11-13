@@ -126,10 +126,12 @@ SearchObservation execute_vision_trial(const RecipeSpec& r,
                                          "validation.top1", "validation.top5"};
   if (!objectives.contains(objective))
     throw InvalidArgument("Unknown native vision trial objective");
-  if (objective.starts_with("validation.") &&
-      !(r.model.task == TaskKind::classify
-            ? !r.classification_validation_root.empty()
-            : r.validation.has_value()))
+  const bool has_validation = !r.extension.training_manifest.empty()
+                                  ? !r.extension.validation_manifest.empty()
+                              : r.model.task == TaskKind::classify
+                                  ? !r.classification_validation_root.empty()
+                                  : r.validation.has_value();
+  if (objective.starts_with("validation.") && !has_validation)
     throw InvalidArgument(
         "Validation search objective requires a validation split");
   if ((objective == "validation.map" || objective == "validation.ap50") &&

@@ -133,3 +133,44 @@ endif()
 
 enable_testing()
 add_test(NAME Runs COMMAND jyppx_component_consumer)
+
+if(JYPPX_CONSUMER_COMPONENT STREQUAL "data")
+    add_executable(jyppx_dataset_view_consumer data/dataset_views.cpp)
+    target_link_libraries(jyppx_dataset_view_consumer PRIVATE jyppx::liuding::data)
+    add_dependencies(jyppx_dataset_view_consumer jyppx_component_consumer)
+    foreach(view IN ITEMS concat split stack)
+        add_test(NAME DatasetView-${view}
+            COMMAND jyppx_dataset_view_consumer ${view})
+        set_tests_properties(DatasetView-${view} PROPERTIES
+            LABELS "installed;data" TIMEOUT 30)
+    endforeach()
+    add_executable(jyppx_weighted_sampler_consumer data/weighted_sampler.cpp)
+    target_link_libraries(jyppx_weighted_sampler_consumer PRIVATE
+        jyppx::liuding::data)
+    add_dependencies(jyppx_weighted_sampler_consumer jyppx_component_consumer)
+    foreach(weights IN ITEMS tiny leading-zero ordinary)
+        add_test(NAME WeightedSampler-${weights}
+            COMMAND jyppx_weighted_sampler_consumer ${weights})
+        set_tests_properties(WeightedSampler-${weights} PROPERTIES
+            LABELS "installed;data" TIMEOUT 30)
+    endforeach()
+    add_executable(jyppx_distributed_sampler_consumer data/distributed_sampler.cpp)
+    target_link_libraries(jyppx_distributed_sampler_consumer PRIVATE
+        jyppx::liuding::data)
+    add_dependencies(jyppx_distributed_sampler_consumer jyppx_component_consumer)
+    foreach(epoch_state IN ITEMS negative malformed ordinary)
+        add_test(NAME DistributedSampler-${epoch_state}
+            COMMAND jyppx_distributed_sampler_consumer ${epoch_state})
+        set_tests_properties(DistributedSampler-${epoch_state} PROPERTIES
+            LABELS "installed;data" TIMEOUT 30)
+    endforeach()
+    add_executable(jyppx_batch_sampler_consumer data/batch_sampler.cpp)
+    target_link_libraries(jyppx_batch_sampler_consumer PRIVATE jyppx::liuding::data)
+    add_dependencies(jyppx_batch_sampler_consumer jyppx_component_consumer)
+    foreach(batch_contract IN ITEMS tail resume rejected)
+        add_test(NAME BatchSampler-${batch_contract}
+            COMMAND jyppx_batch_sampler_consumer ${batch_contract})
+        set_tests_properties(BatchSampler-${batch_contract} PROPERTIES
+            LABELS "installed;data" TIMEOUT 30)
+    endforeach()
+endif()

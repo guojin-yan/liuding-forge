@@ -8,6 +8,7 @@
 #include "batch_transform_detail.hpp"
 
 #include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/samplers/batch_sampler.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <algorithm>
@@ -45,6 +46,11 @@ constexpr std::size_t kMaxPrefetchBatches = 4096U;
 constexpr std::uint64_t kMaxBatchTimeoutMs = 24ULL * 60ULL * 60ULL * 1000ULL;
 
 static_assert(std::is_nothrow_move_assignable_v<DataPipelineState>);
+
+std::size_t sampler_index_count(const samplers::Sampler& sampler) {
+  const auto* batches = dynamic_cast<const samplers::BatchSampler*>(&sampler);
+  return batches ? batches->sample_count() : sampler.size();
+}
 
 void append_byte(std::string& output, std::uint8_t value) {
   output.push_back(static_cast<char>(value));
@@ -991,7 +997,7 @@ struct DataPipeline::Impl {
       }
       return;
     }
-    const auto expected = sampler->size();
+    const auto expected = sampler_index_count(*sampler);
     const auto expected_indices =
         candidate.drop_last
             ? (expected / candidate.batch_size) * candidate.batch_size
@@ -1054,10 +1060,18 @@ DataPipeline::DataPipeline(std::shared_ptr<samplers::Sampler> sampler,
     throw InvalidArgument("DataPipeline batch factory cannot be empty");
   }
   validate_options(options);
-  if (sampler->size() == 0) {
+  if (const auto* batches =
+          dynamic_cast<const samplers::BatchSampler*>(sampler.get());
+      batches && (batches->batch_size() != options.batch_size ||
+                  batches->drop_last() != options.drop_last)) {
+    throw InvalidArgument(
+        "DataPipeline batching options must match its BatchSampler");
+  }
+  const auto sample_count = sampler_index_count(*sampler);
+  if (sample_count == 0) {
     throw InvalidArgument("DataPipeline sampler must produce samples");
   }
-  if (sampler->size() > kMaxIndexCount) {
+  if (sample_count > kMaxIndexCount) {
     throw ResourceExhausted(
         "DataPipeline sampler exceeds the checkpointable index bound");
   }
@@ -1098,7 +1112,7 @@ void DataPipeline::set_epoch(std::uint64_t epoch) {
   try {
     impl_->sampler->set_epoch(epoch);
     auto indices = impl_->sampler->indices();
-    const auto expected = impl_->sampler->size();
+    const auto expected = sampler_index_count(*impl_->sampler);
     if (expected > kMaxIndexCount) {
       throw ResourceExhausted(
           "DataPipeline sampler exceeds the checkpointable index bound");

@@ -320,6 +320,13 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
         set_tests_properties(Cli_transfer_recipe_group_rates_CUDA PROPERTIES
             LABELS "cli;integration;recipe;external-weights;cuda" TIMEOUT 1200 SKIP_RETURN_CODE 77)
     endif()
+    add_test(NAME Cli_image_failure_diagnostics
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/recipes/diagnostics/test_image_failures.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+            --work-dir "${CMAKE_BINARY_DIR}/_image_failure_diagnostics/$<CONFIG>")
+    set_tests_properties(Cli_image_failure_diagnostics PROPERTIES
+        LABELS "cli;integration;recipe;diagnostics" TIMEOUT 300 RUN_SERIAL TRUE)
     add_test(NAME Cli_image_recipe
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_image_recipe.py"
             --cli $<TARGET_FILE:jyppx_cli>)
@@ -387,6 +394,13 @@ add_test(NAME NativePairedAffineDataPreparation
 set_tests_properties(NativePairedAffineDataPreparation PROPERTIES
     LABELS "data;recipe;cli;examples" TIMEOUT 180)
 
+add_test(NAME Cli_paired_failure_diagnostics
+    COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/recipes/diagnostics/test_paired_failures.py"
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+        --work-dir "${CMAKE_BINARY_DIR}/_paired_failure_diagnostics/$<CONFIG>")
+set_tests_properties(Cli_paired_failure_diagnostics PROPERTIES
+    LABELS "cli;integration;recipe;diagnostics" TIMEOUT 180 RUN_SERIAL TRUE)
 add_test(NAME Cli_paired_recipe
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_paired_recipe.py"
         --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)

@@ -226,9 +226,8 @@ DynamicAxes Axes(const ExportOptions& options, const ExportResult& result) {
   return axes;
 }
 
-void SymbolicTypes(const std::shared_ptr<torch::jit::Graph>& graph,
-                   const DynamicAxes& axes) {
-  std::map<std::string, c10::ShapeSymbol> symbols;
+void ValidateDynamicTypes(const std::shared_ptr<torch::jit::Graph>& graph,
+                          const DynamicAxes& axes) {
   const auto apply = [&](torch::jit::Value* value) {
     const auto found = axes.find(value->debugName());
     if (found == axes.end()) return;
@@ -236,22 +235,6 @@ void SymbolicTypes(const std::shared_ptr<torch::jit::Graph>& graph,
     if (!type || !type->sizes().concrete_sizes())
       throw CompatibilityError(
           "Traced ONNX public tensor has no concrete shape", Details("trace"));
-    const auto shape = *type->sizes().concrete_sizes();
-    std::vector<c10::ShapeSymbol> dimensions;
-    for (std::size_t index = 0; index < shape.size(); ++index) {
-      const auto symbolic =
-          found->second.find(static_cast<std::int64_t>(index));
-      if (symbolic == found->second.end())
-        dimensions.push_back(c10::ShapeSymbol::fromStaticSize(shape[index]));
-      else {
-        const auto [entry, inserted] = symbols.try_emplace(
-            symbolic->second, c10::ShapeSymbol::newSymbol());
-        (void)inserted;
-        dimensions.push_back(entry->second);
-      }
-    }
-    value->setType(
-        type->withSymbolicShapes(c10::SymbolicShape(std::move(dimensions))));
   };
   for (auto* input : graph->inputs()) apply(input);
   for (auto* output : graph->outputs()) apply(output);
@@ -601,8 +584,10 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
       continue;
     }
     auto* identity = graph->create(c10::Symbol::onnx("Identity"), {old}, 1);
-    identity->output()->setType(old->type());
+    const auto original_name = old->debugName();
+    identity->output()->copyMetadata(old);
     identity->output()->setDebugName(result.output_names[index]);
+    old->setDebugName(original_name);
     graph->appendNode(identity);
     graph->return_node()->replaceInput(index, identity->output());
   }
@@ -634,7 +619,7 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
       graph->eraseInput(index);
     }
   }
-  SymbolicTypes(graph, axes);
+  ValidateDynamicTypes(graph, axes);
   std::set<std::string> operators;
   for (const auto* node : graph->nodes()) {
     if (!node->kind().is_onnx())
@@ -647,6 +632,8 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
   graph->lint();
   std::unordered_map<std::string, std::unordered_map<std::int64_t, std::string>>
       dynamic_axes;
+  // The official serializer binds these symbols on both public inputs and
+  // outputs. Keep JIT tensor types concrete until this exported API boundary.
   for (const auto& [name, dimensions] : axes)
     dynamic_axes[name].insert(dimensions.begin(), dimensions.end());
   const auto exported = torch::jit::export_onnx(

@@ -1,5 +1,7 @@
 # 本地学习率搜索与最佳模型保存
 
+从自己的C++程序直接执行本机工作进程、管理取消/超时/输出与JSON行交互，见[本地运行SDK示例](local_execution/README.md)。
+
 这个离线示例使用 C++ 训练 `torch::nn::Linear`，通过网格或随机搜索比较三个学习率，将验证集均方误差、模型检查点和完整试验历史写入 SQLite 与内容寻址存储。训练、搜索、模型保存和恢复全部由 C++ 完成；运行时不下载数据，不调用 Python。源码见 [search_trial.cpp](search_trial.cpp)。
 
 ## 构建

@@ -2,7 +2,7 @@
 
 CMake target 为 `jyppx::liuding::experiment`，公共头文件为 `<jyppx/liuding/experiment/evaluation.hpp>`。实际模型推理接口见[训练与评估](training.md)。
 
-完整接线示例见 [C++ 行人检测训练与评估](../../examples/evaluation/README.md)：直接预测框、完整训练恢复、实际 AP 报告与评估游标恢复使用同一冻结模型和数据身份。
+轻量接线见[C++ 分类断点续评与报告](../../examples/evaluation/classification/README.md)，无需外部数据，涵盖实际 forward、新进程恢复、完成态重放以及 pass/fail/incomplete。完整检测训练、恢复及实际 AP 报告见[C++ 任务评估示例](../../examples/evaluation/README.md)。
 
 `EvaluationSuite` 固定任务、数据集摘要、环境、seed 和有序规则。每条规则指定完整指标定义、切片上下文、最小样本数及阈值；修改规则时应递增 suite 版本，其规范 JSON 摘要也随之变化。生产者身份包含 evaluation/run ID、模型和配置 SHA-256、实际构建指纹及 adapter ID/version。
 

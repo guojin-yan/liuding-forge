@@ -16,7 +16,7 @@
 #include <unistd.h>
 #endif
 
-#include "../../tools/cli/sidecar_process.hpp"
+#include "../../tools/cli/telemetry/sidecar_process.hpp"
 
 #ifdef _WIN32
 #include "windows_handle_diagnostics.hpp"

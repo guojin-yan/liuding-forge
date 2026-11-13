@@ -2,7 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
-#include "../cli/local_process.hpp"
+#include <jyppx/liuding/experiment/local_execution/process.hpp>
 #include <jyppx/liuding/vision/tasks/data/context.hpp>
 #include <jyppx/liuding/vision/tasks/extended.hpp>
 #include <jyppx/liuding/vision/tasks/data/extended.hpp>
@@ -405,7 +405,7 @@ int Run(const std::vector<std::string>& argv) {
         return t::execute_vision_trial(
             r, path, objective,
             [executable, seconds](const t::TrainRequest& request) {
-              j::cli::LocalProcessOptions launch;
+              j::experiment::LocalProcessOptions launch;
               launch.executable = executable;
               launch.working_directory =
                   std::filesystem::absolute(request.output.parent_path());
@@ -421,7 +421,7 @@ int Run(const std::vector<std::string>& argv) {
                 launch.arguments.push_back(Utf8(request.resume));
               }
               auto result =
-                  j::cli::LocalProcessRunner{}.run(launch, request.stop);
+                  j::experiment::LocalProcessRunner{}.run(launch, request.stop);
               const auto base = Utf8(request.output);
               Emit(result.stdout_capture, base + ".stdout.log");
               Emit(result.stderr_capture, base + ".stderr.log");
@@ -431,7 +431,7 @@ int Run(const std::vector<std::string>& argv) {
                 usage = {
                     {"source",
                      u.source ==
-                             j::cli::LocalProcessResourceSource::windows_process
+                             j::experiment::LocalProcessResourceSource::windows_process
                          ? "windows_process"
                          : "linux_wait4"},
                     {"user_cpu_us",
@@ -459,7 +459,7 @@ int Run(const std::vector<std::string>& argv) {
                    base + ".process.json");
               if (request.stop.stop_requested())
                 throw j::Cancelled("Vision search child cancelled");
-              if (result.status != j::cli::LocalProcessStatus::exited ||
+              if (result.status != j::experiment::LocalProcessStatus::exited ||
                   !result.exit_code || *result.exit_code != 0)
                 throw j::IoError(
                     "Vision search child failed; inspect the attempt process "

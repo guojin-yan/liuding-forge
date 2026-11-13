@@ -203,6 +203,10 @@ liuding-forge recipe resume --file my-resnet18.json --root runs/resumable --form
 
 恢复覆盖模型参数和 buffer、所选优化器的状态、完整学习率调度器树、Trainer、训练与验证数据游标、采样器、CPU/选定 CUDA RNG、回调游标和诊断统计。当前学习率、SGD momentum 或 AdamW 一阶/二阶矩与步数、预热或衰减阶段及调度计数一起恢复，不会重新预热或多推进一步。新的 `pause-after` 可以继续分段运行。异常终止后，已有 `latest.jyck` 时也可从该检查点重做尚未持久化的工作；尚未发布首个检查点时不能恢复。
 
+`fit` 抛出异常时，图像分类与迁移学习配方尝试把当时的诊断快照保存到 `run-store/`，产物角色为 `training.diagnostics.failure`、逻辑名为 `training-diagnostics-failure.json`；通过[本地运行存储](../api/local_run_storage.md)查询 run 的产物引用并读取 CAS 内容。报告关联模型契约、配置、数据和存在时的最后一个 `latest.jyck` 摘要，记录失败前已观察的训练/验证 NaN/Inf 和非有限梯度尝试。失败报告独立于最终 `diagnostics.json`，相同报告内容重复发布保持幂等。
+
+该路径保留原训练异常和可恢复运行状态，不把失败后的内存状态写入训练检查点。确认数据或配置问题后仍按本节命令显式恢复；恢复使用检查点内的统计，失败报告继续留作诊断。存储不可用时会输出简短警告并保留原错误；进程强杀或异常发生于 `fit` 之外时不保证有失败报告。
+
 配方使用可移植、带版本的 `RandomSampler`，并在结果的 `sampling` 和模型包来源中保存算法、seed 与训练/验证 sampler 身份。同一数据顺序、seed 和 epoch 在 Windows/Linux 上使用相同排列；跨平台比较还需冻结完整初始参数、预处理和数值策略，不能仅凭相同 seed 推断训练结果相同。旧 `std::shuffle` v1 采样状态不接受为当前算法续训，已有运行应使用原版本恢复。算法及状态契约见[数据 API](../api/data.md#samplers)。
 
 启用 [BatchNorm 校准](#34-训练后重估-batchnorm-统计)时，可用 `--pause-calibration-after N` 在处理 N 批后有序暂停；N 必须大于零且小于校准总批数，不能与 `--pause-after` 同时提供。该暂停会丢弃本遍局部统计并保留校准前检查点，新进程会重放完整校准，不增加训练更新。例如训练集至少有三批时：

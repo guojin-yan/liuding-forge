@@ -1,14 +1,8 @@
+if(TARGET jyppx::liuding::data AND TARGET jyppx::liuding::interop)
+    add_subdirectory(data)
+endif()
+
 if(TARGET jyppx::liuding::sdk)
-add_executable(jyppx_basic_data_pipeline basic_data_pipeline.cpp)
-set_target_properties(jyppx_basic_data_pipeline PROPERTIES
-    OUTPUT_NAME liuding-forge-example-basic-data-pipeline)
-target_link_libraries(jyppx_basic_data_pipeline PRIVATE jyppx::liuding::sdk)
-
-add_executable(jyppx_basic_trainer basic_trainer.cpp)
-set_target_properties(jyppx_basic_trainer PROPERTIES
-    OUTPUT_NAME liuding-forge-example-basic-trainer)
-target_link_libraries(jyppx_basic_trainer PRIVATE jyppx::liuding::sdk)
-
 add_executable(jyppx_mnist mnist/mnist.cpp)
 set_target_properties(jyppx_mnist PROPERTIES
     OUTPUT_NAME liuding-forge-example-mnist)
@@ -39,11 +33,19 @@ target_link_libraries(jyppx_distillation PRIVATE jyppx::liuding::sdk)
 # libraries. Copy the DLLs (not the whole directory, which also holds large
 # import libraries) once before the examples build.
 foreach(example_target IN ITEMS
-        jyppx_basic_data_pipeline jyppx_basic_trainer
         jyppx_mnist jyppx_distillation)
     jyppx_add_torch_runtime_dependency(${example_target})
 endforeach()
 
+endif()
+
+if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::interop)
+    add_subdirectory(training)
+endif()
+
+if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::interop
+   AND TARGET jyppx::liuding::experiment)
+    add_subdirectory(evaluation/classification)
 endif()
 
 if(TARGET jyppx_dataset_preparation)
@@ -183,7 +185,9 @@ endif()
 if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
    AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::optim
    AND TARGET jyppx::liuding::experiment)
-    add_executable(jyppx_liuding_pedestrian_detector evaluation/pedestrian_detector.cpp)
+    add_executable(jyppx_liuding_pedestrian_detector
+        evaluation/detection/pedestrian_detector.cpp
+        evaluation/detection/model/detector.cpp)
     set_target_properties(jyppx_liuding_pedestrian_detector PROPERTIES
         OUTPUT_NAME liuding-forge-example-pedestrian-detector)
     target_link_libraries(jyppx_liuding_pedestrian_detector PRIVATE
@@ -207,6 +211,107 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
         set_tests_properties(RealDetectorExample PROPERTIES
             LABELS "examples;training;evaluation;external-data"
             TIMEOUT 1800 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+        add_test(NAME DetectorExampleArguments
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_detector_crash_recovery.py"
+                --binary $<TARGET_FILE:jyppx_liuding_pedestrian_detector>
+                --arguments-only)
+        set_tests_properties(DetectorExampleArguments PROPERTIES
+            LABELS "examples;training;evaluation" TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME RealDetectorCrashRecovery
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_detector_crash_recovery.py"
+                --binary $<TARGET_FILE:jyppx_liuding_pedestrian_detector>)
+        set_tests_properties(RealDetectorCrashRecovery PROPERTIES
+            LABELS "examples;training;evaluation;external-data"
+            TIMEOUT 600 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    endif()
+endif()
+
+if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
+   AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::optim
+   AND TARGET jyppx::liuding::experiment)
+    add_executable(jyppx_liuding_pedestrian_segmentation
+        evaluation/segmentation/pedestrian_segmentation.cpp
+        evaluation/segmentation/model/tiny_unet.cpp)
+    set_target_properties(jyppx_liuding_pedestrian_segmentation PROPERTIES
+        OUTPUT_NAME liuding-forge-example-pedestrian-segmentation)
+    target_link_libraries(jyppx_liuding_pedestrian_segmentation PRIVATE
+        jyppx::liuding::training jyppx::liuding::data_image
+        jyppx::liuding::interop jyppx::liuding::optim
+        jyppx::liuding::experiment nlohmann_json::nlohmann_json)
+    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+        target_compile_definitions(jyppx_liuding_pedestrian_segmentation PRIVATE
+            JYPPX_LIUDING_SPATIAL_CUDA_METRICS=1)
+    endif()
+    if(WIN32)
+        target_link_libraries(jyppx_liuding_pedestrian_segmentation PRIVATE psapi)
+    endif()
+    jyppx_apply_instrumentation(jyppx_liuding_pedestrian_segmentation)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_pedestrian_segmentation)
+    if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND)
+        add_test(NAME SegmentationExampleArguments
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_segmentation_example.py"
+                --binary $<TARGET_FILE:jyppx_liuding_pedestrian_segmentation>
+                --arguments-only)
+        set_tests_properties(SegmentationExampleArguments PROPERTIES
+            LABELS "examples;training;evaluation" TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME RealSegmentationRecoveryExample
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_segmentation_example.py"
+                --binary $<TARGET_FILE:jyppx_liuding_pedestrian_segmentation>)
+        set_tests_properties(RealSegmentationRecoveryExample PROPERTIES
+            LABELS "examples;training;evaluation;external-data"
+            TIMEOUT 1500 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    endif()
+endif()
+
+if(TARGET jyppx::liuding::experiment)
+    add_executable(jyppx_liuding_local_job_example
+        experiment/local_execution/job.cpp)
+    set_target_properties(jyppx_liuding_local_job_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-local-job)
+    target_link_libraries(jyppx_liuding_local_job_example PRIVATE jyppx::liuding::experiment)
+    jyppx_apply_instrumentation(jyppx_liuding_local_job_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_local_job_example)
+    add_executable(jyppx_liuding_durable_local_execution_example
+        experiment/local_execution/durable.cpp)
+    set_target_properties(jyppx_liuding_durable_local_execution_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-durable-local-execution)
+    target_link_libraries(jyppx_liuding_durable_local_execution_example PRIVATE
+        jyppx::liuding::experiment)
+    jyppx_apply_instrumentation(jyppx_liuding_durable_local_execution_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_durable_local_execution_example)
+    if(JYPPX_LIUDING_BUILD_TESTS)
+        include(GoogleTest)
+        set(JYPPX_TESTS_SOURCE_DIR "${PROJECT_SOURCE_DIR}/tests")
+        add_executable(jyppx_local_job_log_fixture
+            "${PROJECT_SOURCE_DIR}/tests/experiment/local_execution/log_fixture.cpp")
+        jyppx_apply_instrumentation(jyppx_local_job_log_fixture)
+        jyppx_add_gtest(jyppx_test_local_job_sdk
+            LINK_TARGET jyppx::liuding::experiment
+            "${PROJECT_SOURCE_DIR}/tests/experiment/local_execution/test_runner.cpp")
+        target_link_libraries(jyppx_test_local_job_sdk PRIVATE nlohmann_json::nlohmann_json)
+        target_compile_definitions(jyppx_test_local_job_sdk PRIVATE
+            JYPPX_LOCAL_JOB_SDK_FIXTURE="$<TARGET_FILE:jyppx_liuding_durable_local_execution_example>"
+            JYPPX_LOCAL_LOG_FIXTURE="$<TARGET_FILE:jyppx_local_job_log_fixture>")
+        add_dependencies(jyppx_test_local_job_sdk
+            jyppx_liuding_durable_local_execution_example jyppx_local_job_log_fixture)
+    endif()
+    add_executable(jyppx_liuding_local_execution_example
+        experiment/local_execution/main.cpp)
+    set_target_properties(jyppx_liuding_local_execution_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-local-execution)
+    target_link_libraries(jyppx_liuding_local_execution_example PRIVATE
+        jyppx::liuding::experiment)
+    jyppx_apply_instrumentation(jyppx_liuding_local_execution_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_local_execution_example)
+    if(JYPPX_LIUDING_BUILD_TESTS)
+        add_test(NAME LocalExecutionSdkExample
+            COMMAND jyppx_liuding_local_execution_example)
+        set_tests_properties(LocalExecutionSdkExample PROPERTIES
+            LABELS "examples;experiment;local" TIMEOUT 30 RUN_SERIAL TRUE)
     endif()
 endif()
 

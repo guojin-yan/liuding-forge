@@ -13,6 +13,9 @@
 #include <gtest/gtest.h>
 #include <limits>
 #include <stop_token>
+#include <string>
+#include <string_view>
+#include <utility>
 
 namespace {
 using namespace jyppx::liuding;
@@ -180,6 +183,27 @@ TEST(EvaluationSuiteTest,
   ASSERT_NE(index, std::string::npos);
   encoded.replace(index, std::string("\"version\":1").size(), "\"version\":-1");
   EXPECT_THROW(parse_evaluation_suite_json(encoded), Error);
+}
+
+TEST(EvaluationSuiteTest, RejectsMalformedNestedRulesAfterOwnedFields) {
+  auto original = suite();
+  original.rules.front().rule_id = std::string(128U, 'r');
+  original.rules.front().minimum_samples = 7U;
+  original.rules.front().minimum = 0.75;
+  const auto encoded = evaluation_suite_json(original);
+  const std::array<std::pair<std::string_view, std::string_view>, 3> mutations{{
+      {R"("version":1)", R"("version":-1)"},
+      {R"("minimum_samples":7)", R"("minimum_samples":-1)"},
+      {R"("minimum":0.75)", R"("minimum":"invalid")"},
+  }};
+  for (const auto &[before, after] : mutations) {
+    auto malformed = encoded;
+    const auto index = malformed.find(before);
+    ASSERT_NE(index, std::string::npos) << before;
+    malformed.replace(index, before.size(), after);
+    EXPECT_THROW(parse_evaluation_suite_json(malformed), Error) << before;
+  }
+  EXPECT_EQ(evaluation_suite_json(parse_evaluation_suite_json(encoded)), encoded);
 }
 
 TEST(EvaluationSuiteTest,

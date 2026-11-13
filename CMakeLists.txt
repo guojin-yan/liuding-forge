@@ -635,9 +635,9 @@ add_library(jyppx_liuding_training STATIC
     src/jyppx/liuding/training/callbacks/early_stopping_callback.cpp
     src/jyppx/liuding/training/checkpoint_coordinator.cpp
     src/jyppx/liuding/training/batch_norm_calibration.cpp
-    src/jyppx/liuding/training/classification_evaluation.cpp
-    src/jyppx/liuding/training/segmentation_evaluation.cpp
-    src/jyppx/liuding/training/detection_evaluation.cpp
+    src/jyppx/liuding/training/evaluation/classification_evaluation.cpp
+    src/jyppx/liuding/training/evaluation/segmentation_evaluation.cpp
+    src/jyppx/liuding/training/evaluation/detection_evaluation.cpp
     src/jyppx/liuding/training/event_sink.cpp
     src/jyppx/liuding/training/telemetry_adapter.cpp
     src/jyppx/liuding/training/amp/grad_scaler.cpp
@@ -726,6 +726,10 @@ if(JYPPX_LIUDING_BUILD_EXPERIMENT)
         src/jyppx/liuding/experiment/run_store.cpp
         src/jyppx/liuding/experiment/run_telemetry_sink.cpp
         src/jyppx/liuding/experiment/telemetry_exporters.cpp
+        src/jyppx/liuding/experiment/local_execution/process.cpp
+        src/jyppx/liuding/experiment/local_execution/runner.cpp
+        src/jyppx/liuding/experiment/local_execution/log_retention.cpp
+        src/jyppx/liuding/experiment/local_execution/devices.cpp
         src/jyppx/liuding/experiment/evaluation.cpp
         $<TARGET_OBJECTS:sqlite3_amalgamation>
     )
@@ -759,6 +763,10 @@ if(JYPPX_LIUDING_BUILD_EXPERIMENT)
         PRIVATE
             Threads::Threads
     )
+    target_link_libraries(jyppx_liuding_experiment PRIVATE ${CMAKE_DL_LIBS})
+    if(WIN32)
+        target_link_libraries(jyppx_liuding_experiment PRIVATE psapi)
+    endif()
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_experiment)
     list(APPEND JYPPX_ENABLED_COMPONENTS experiment)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS experiment)

@@ -260,7 +260,12 @@ jyppx_add_gtest(jyppx_test_nn_model_adapter
 jyppx_add_gtest(jyppx_test_nn_model_checkpoint
     LINK_TARGET jyppx::liuding::nn
     nn/test_model_checkpoint_participant.cpp
+    nn/model_checkpoint/record_function_observer.cpp
 )
+# RecordFunction is provided by Release LibTorch; isolate its NDEBUG-dependent
+# header ABI in one test bridge without disabling project assertions/sanitizers.
+set_source_files_properties(nn/model_checkpoint/record_function_observer.cpp
+    PROPERTIES COMPILE_DEFINITIONS NDEBUG)
 if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
     target_compile_definitions(jyppx_test_nn_model_checkpoint PRIVATE
         JYPPX_LIUDING_NN_CUDA_METRICS=1)
@@ -302,14 +307,14 @@ jyppx_add_gtest(jyppx_test_training_detection_metric
 target_link_libraries(jyppx_test_training_detection_metric PRIVATE nlohmann_json::nlohmann_json)
 jyppx_add_gtest(jyppx_test_training_detection_evaluation
     LINK_TARGET jyppx::liuding::training
-    training/test_detection_evaluation.cpp)
+    training/evaluation/test_detection_evaluation.cpp)
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_detection_evaluation PRIVATE jyppx::liuding::experiment)
     target_compile_definitions(jyppx_test_training_detection_evaluation PRIVATE JYPPX_LIUDING_EVALUATION_REPORT_TEST=1)
 endif()
 jyppx_add_gtest(jyppx_test_training_segmentation_evaluation
     LINK_TARGET jyppx::liuding::training
-    training/test_segmentation_evaluation.cpp
+    training/evaluation/test_segmentation_evaluation.cpp
 )
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_segmentation_evaluation PRIVATE jyppx::liuding::experiment)
@@ -319,7 +324,7 @@ endif()
 
 jyppx_add_gtest(jyppx_test_training_spatial_evaluation_sessions
     LINK_TARGET jyppx::liuding::training
-    training/test_spatial_evaluation_sessions.cpp)
+    training/evaluation/test_spatial_evaluation_sessions.cpp)
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_spatial_evaluation_sessions PRIVATE
         jyppx::liuding::experiment)
@@ -335,8 +340,8 @@ target_link_libraries(jyppx_test_training_batch_norm_calibration PRIVATE
 
 jyppx_add_gtest(jyppx_test_training_classification_evaluation
     LINK_TARGET jyppx::liuding::training
-    training/test_classification_evaluation.cpp
-    training/test_classification_evaluation_session.cpp
+    training/evaluation/test_classification_evaluation.cpp
+    training/evaluation/test_classification_evaluation_session.cpp
 )
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_classification_evaluation PRIVATE
@@ -365,6 +370,7 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image AND TAR
     jyppx_add_gtest(jyppx_test_training_real_spatial_task
         LINK_TARGET jyppx::liuding::training
         training/test_real_spatial_task.cpp
+        ${PROJECT_SOURCE_DIR}/examples/evaluation/segmentation/model/tiny_unet.cpp
         ENVIRONMENT "CUBLAS_WORKSPACE_CONFIG=:4096:8")
     target_link_libraries(jyppx_test_training_real_spatial_task PRIVATE
         jyppx::liuding::data_image jyppx::liuding::interop
