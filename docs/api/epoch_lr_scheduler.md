@@ -1,35 +1,16 @@
-# Descriptor-first epoch schedulers
+# 按 epoch 推进的学习率调度器
 
-`#include <jyppx/liuding/optim/epoch_lr_scheduler.hpp>`
+包含 `<jyppx/liuding/optim/epoch_lr_scheduler.hpp>`，链接 `jyppx::liuding::optim`。四个算法均继承 `LrScheduler`，使用共享的 `OptimizerRateControl`，遵循相同的事务与检查点接口。
 
-The epoch scheduler family contains `ExponentialLrScheduler`,
-`MultiStepLrScheduler`, `CosineAnnealingLrScheduler`, and
-`CosineAnnealingWarmRestartsLrScheduler`. All four inherit
-`LrScheduler`, consume a shared `OptimizerRateControl`, and expose the same
-transaction and checkpoint behavior.
+| 算法 | 配置和行为 |
+| --- | --- |
+| `ExponentialLrScheduler` | `gamma` 有限非负，每个 epoch 乘以当前学习率 |
+| `MultiStepLrScheduler` | `milestones` 非空、为正且严格递增，位于 int64 范围；指定 epoch 应用 `gamma` |
+| `CosineAnnealingLrScheduler` | `t_max` 为正且在 int64 范围；`eta_min` 有限非负且不超过任一基础学习率；使用可组合的递归余弦轨迹 |
+| `CosineAnnealingWarmRestartsLrScheduler` | `t_0`、`t_mult` 为正且在 int64 范围；由基础学习率计算余弦，每个边界重启并扩展周期 |
 
-## Configuration
+options 包含稳定 `scheduler_id`。全部选项、构造时基础学习率、optimizer ID 和有序 group ID 写入不可变描述符；恢复时任何不一致都会在修改前拒绝。
 
-- `ExponentialLrSchedulerOptions` stores a stable `scheduler_id` and finite non-negative `gamma`.
-- `MultiStepLrSchedulerOptions` additionally requires a nonempty sequence of positive, strictly increasing, int64-compatible milestones.
-- `CosineAnnealingLrSchedulerOptions` stores positive int64-compatible
-  `t_max` and a finite non-negative `eta_min` no greater than any captured base
-  rate.
-- `CosineAnnealingWarmRestartsLrSchedulerOptions` adds positive
-  int64-compatible `t_0` and `t_mult`. Its exact state includes a cycle index,
-  active cycle length, and position that must agree with `completed_steps`.
+`step()` 先读取并校验全部组学习率，预览完整候选学习率和计数，成功后一次提交全部组并更新调度器状态。指数与 MultiStep 使用当前学习率，可用于 `ChainedLrScheduler`；重启余弦保存周期索引、长度与位置，并检查其与 `completed_steps` 一致。周期长度或索引溢出在修改前拒绝。
 
-Every option, construction-time base rate, optimizer ID and ordered group ID
-is encoded in the immutable typed descriptor. Changing any of them makes an
-exact restore fail before state mutation.
-
-## Transaction behavior
-
-`step()` first reads and validates all current group rates. The scheduler then
-calculates a complete candidate rate vector and next counter without mutation. Only after that preview succeeds does the optimizer receive one atomic all-group update; the scheduler counter is committed last through a non-throwing path.
-
-The exponential and multi-step implementations transform the current rates, so they compose in `ChainedLrScheduler`. Cosine annealing uses the chainable recursive schedule, a stable half-angle weight, and an explicit transition away from each cosine minimum. Warm restarts calculate rates from captured base rates, reset every group at a cycle boundary, and grow the next cycle transactionally. A cycle-length or cycle-index overflow is rejected before optimizer or scheduler mutation.
-
-## Recovery
-
-Use `LrSchedulerCheckpointParticipant` for all four algorithms. Participant schema v3 stores the complete descriptor in `topology` and the typed leaf state plus current group rates in `control`. Only the current schema and exact restore policy are accepted; no legacy map reader or forwarding API exists.
+`LrSchedulerCheckpointParticipant` 使用 participant schema3：`topology` 保存完整描述符，`control` 保存状态树及当前组学习率，仅接受当前格式与 exact 恢复策略。Trainer 接入和其他算法见[调度器适配](scheduler_adapter.md)与[优化器总览](optim.md)。

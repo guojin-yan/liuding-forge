@@ -43,25 +43,25 @@ ViT/DINO 的 headless 输出为最终归一化 CLS；CNN/Swin 输出为各自定
 
 ## 当前架构
 
-下表是公共注册表中的模型架构，并非可下载的预训练模型清单。表中的参考通过表示固定随机 state、输入和输出的独立差分；完整设备矩阵、权重和任务精度须分别验证。
+下表列出公共注册表中的模型架构。注册表只描述当前构建可创建的模型，不是可下载权重或已取得任务精度的清单。
 
-| 家族 | 注册表名称 | 特征接口与验证边界 |
+| 家族 | 注册表名称 | 特征接口 |
 | --- | --- | --- |
-| ResNet / ResNeXt | `resnet18`、`resnet34`、`resnet50`、`resnet101`、`resnext50_32x4d` | 四级残差 stage；34/101 与 ResNeXt50 已有固定 torchvision 随机参考，18/50 的精确 timm 映射另验。 |
-| DenseNet | `densenet121` | 四级 dense/transition 特征；固定 torchvision 随机参考通过。 |
-| MobileNetV2 | `mobilenetv2_100` | 五级特征；固定 timm 随机参考通过。 |
-| MobileNetV3 | `mobilenet_v3_small`、`mobilenet_v3_large` | 最后一级卷积特征；与目标 timm 变体的精确映射尚未验收。 |
-| EfficientNet | `efficientnet_b0`、`efficientnet_b2` | 步长 2/4/8/16/32 的五级特征；固定 timm 随机参考通过。 |
-| EfficientNetV2 | `tf_efficientnetv2_s` | fused-MBConv、MBConv 与动态 TF SAME padding，返回五级特征；固定 timm 随机状态、logits 和特征差分通过。 |
-| ConvNeXt | `convnext_tiny`、`convnext_small` | 四级 NCHW 特征与全局分类头；固定 timm 随机 state、logits 和四级特征差分通过。与 DINOv3 ConvNeXt 是独立架构及权重身份。 |
-| ViT/16 | `vit_tiny_patch16_224`、`vit_small_patch16_224`、`vit_base_patch16_224` | 十二层预归一化注意力骨干，提供 CLS/patch token 和 NCHW patch grid；固定 timm 随机 state、logits、token 与 grid 差分通过。 |
-| Swin Transformer | `swin_tiny_patch4_window7_224` | 四级 shifted-window 骨干，提供步长 4/8/16/32 的 NCHW 特征；固定 timm 随机 state、logits 和四级特征差分通过。 |
-| DINOv2 ViT/14 | `vit_small_patch14_dinov2`、`vit_base_patch14_dinov2`、`vit_large_patch14_dinov2`、`vit_giant_patch14_dinov2` | 四容量的 token/CLS 固定 timm 随机参考通过；Giant 的 backward/资源及完整设备矩阵未关闭。 |
-| DINOv3 ViT/16 | `dinov3_vits16`、`dinov3_vits16plus`、`dinov3_vitb16`、`dinov3_vitl16`、`dinov3_vitl16plus`、`dinov3_vith16plus`、`dinov3_vit7b16` | 七个官方 factory 已登记；S/S+/B、L/L+ 有分层固定 Meta 随机参考；H+ 已通过 CPU FP32 的 224×224 前后向与固定 Meta 随机参考、Ubuntu CUDA FP16 参数存储单步门禁，7B 尚未运行验收。 |
-| DINOv3 ConvNeXt | `dinov3_convnext_tiny`、`dinov3_convnext_small`、`dinov3_convnext_base`、`dinov3_convnext_large` | 四级空间特征；T/S/B/L 有固定 Meta 随机参考，B/L 的完整 dtype/设备矩阵未关闭。 |
-| 特征 Transformer | `transformer_encoder` | 已嵌入序列的 batch-first encoder，不提供 tokenizer、图像 patch embedding 或分类头。 |
+| ResNet / ResNeXt | `resnet18`、`resnet34`、`resnet50`、`resnet101`、`resnext50_32x4d` | 四级残差 stage |
+| DenseNet | `densenet121` | 四级 dense/transition 特征 |
+| MobileNetV2 | `mobilenetv2_100` | 五级特征 |
+| MobileNetV3 | `mobilenet_v3_small`、`mobilenet_v3_large` | 最后一级卷积特征 |
+| EfficientNet | `efficientnet_b0`、`efficientnet_b2` | 步长 2/4/8/16/32 的五级特征 |
+| EfficientNetV2 | `tf_efficientnetv2_s` | fused-MBConv、MBConv、动态 TF SAME padding 与五级特征 |
+| ConvNeXt | `convnext_tiny`、`convnext_small` | 四级 NCHW 特征与全局分类头 |
+| ViT/16 | `vit_tiny_patch16_224`、`vit_small_patch16_224`、`vit_base_patch16_224` | CLS、patch token 与 NCHW patch grid |
+| Swin Transformer | `swin_tiny_patch4_window7_224` | 四级 shifted-window 特征 |
+| DINOv2 ViT/14 | `vit_small_patch14_dinov2`、`vit_base_patch14_dinov2`、`vit_large_patch14_dinov2`、`vit_giant_patch14_dinov2` | CLS、patch token 与 patch grid |
+| DINOv3 ViT/16 | `dinov3_vits16`、`dinov3_vits16plus`、`dinov3_vitb16`、`dinov3_vitl16`、`dinov3_vitl16plus`、`dinov3_vith16plus`、`dinov3_vit7b16` | CLS、storage token、patch token 与 patch grid |
+| DINOv3 ConvNeXt | `dinov3_convnext_tiny`、`dinov3_convnext_small`、`dinov3_convnext_base`、`dinov3_convnext_large` | 四级空间特征 |
+| 特征 Transformer | `transformer_encoder` | 已嵌入序列的 batch-first encoder；调用方提供 embedding 与任务 head |
 
-H+ 默认骨干参数为 840,633,600，包含 519 项参数和 33 项缓冲区。独立 CPU FP32 门禁覆盖 224×224 的 batch 1/2 前向、三类 head 的反向与一次 SGD 更新，以及固定 Meta 随机状态的 552 项严格导入、非方形 token/CLS 和第 0/15/31 层特征对照；执行使用单线程、12 GiB 内存隔离上限。Ubuntu 的独立 CUDA 门禁使用 FP16 参数和梯度，验证 batch 1 的 224×224 token 前向、三类 head 的反向及一次 SGD 更新；检查全部 520 项非 mask 梯度、输入梯度和 head/patch embedding 更新，并在同步后释放 cuBLAS 工作缓冲，核验显存回收。该门禁要求显式设置 `JYPPX_LIUDING_DINOV3_HUGE_CUDA_TRAINING_GATE=1`，单进程串行执行，峰值 RSS 上限 8 GiB、CUDA allocated 上限 5 GiB。Windows、FP32 主参数 AMP、多步恢复、预训练权重与任务精度仍需验收。7B 登记的默认参数为 6,716,043,264，保留独立的 `local_cls_norm` 状态；仅 FP32 参数存储约需 25.02 GiB，其构造和运行资源资格仍未验收。
+大型变体需为参数、激活、优化器状态及恢复回滚分别预留内存；名称可查询不表示适合当前设备。默认参数量可通过 `ModelInfo::default_parameters` 查询。
 
 `ModelRegistry::add` 可注册调用方自己的显式工厂；同名和空工厂会被拒绝。注册表没有静态插件加载。`ModelInfo::default_parameters` 只统计默认参数，不包括 buffer；自定义配置会改变参数量。
 
@@ -71,13 +71,13 @@ ResNet/ResNeXt 与 ConvNeXt 返回四级 NCHW stage，DenseNet 返回四级 dens
 
 DINOv2 要求高宽为 14 的正整数倍，`forward_features` 返回 `[N, 1 + H/14 * W/14, D]`，CLS 在第一个位置，其后为行优先 patch token。非参考网格使用 bicubic 位置编码插值。`num_classes == 0` 时 `forward` 返回 CLS embedding；设置正类别数才返回 logits。`reset_classifier()` 后应重建 adapter，使输出 schema 与新 head 一致。
 
-普通 ViT/16 默认要求 224×224 输入；设置 `ViTOptions::dynamic_image_size = true` 后可接受高宽均为 16 的正整数倍的图像，并对 14×14 参考位置编码网格作 bicubic 插值。`forward_features` 返回 `[N, 1 + H/16 * W/16, D]`，`forward_patch_grid` 返回归一化 patch token 组成的 `[N,D,H/16,W/16]`。默认分类头输出 1000 类 logits，设置 `num_classes = 0` 则返回 CLS embedding；替换分类头后须重建 adapter。随机架构差分不代表预训练权重可用，Tiny/Small/Base 的 CPU 单步 backward 已分别验收，完整设备和任务矩阵仍开放。
+普通 ViT/16 默认要求 224×224 输入；设置 `ViTOptions::dynamic_image_size = true` 后可接受高宽均为 16 的正整数倍的图像，并对 14×14 参考位置编码网格作 bicubic 插值。`forward_features` 返回 `[N, 1 + H/16 * W/16, D]`，`forward_patch_grid` 返回归一化 patch token 组成的 `[N,D,H/16,W/16]`。默认分类头输出 1000 类 logits，设置 `num_classes = 0` 则返回 CLS embedding；替换分类头后须重建 adapter。使用预训练权重前分别核对架构配置、参数映射、输入配方和目标任务。
 
-Swin-T 默认要求 224×224 输入；设置 `SwinOptions::dynamic_image_size = true` 后接受高宽均为 4 的正整数倍的图像。四级 `forward_features` 返回通道数 96/192/384/768 的 NCHW 特征，空间尺寸在 patch embedding 后按 patch merging 逐级向上取整；窗口大小为 7，交替使用局部窗口与位移窗口注意力。默认分类头先对最后一级归一化特征作全局平均池化，再输出 1000 类 logits；`num_classes = 0` 返回 768 维 embedding。更换 head 后应重建 adapter。当前随机架构参考与 CPU 单步训练不代表预训练权重、完整设备矩阵或任务质量。
+Swin-T 默认要求 224×224 输入；设置 `SwinOptions::dynamic_image_size = true` 后接受高宽均为 4 的正整数倍的图像。四级 `forward_features` 返回通道数 96/192/384/768 的 NCHW 特征，空间尺寸在 patch embedding 后按 patch merging 逐级向上取整；窗口大小为 7，交替使用局部窗口与位移窗口注意力。默认分类头先对最后一级归一化特征作全局平均池化，再输出 1000 类 logits；`num_classes = 0` 返回 768 维 embedding。更换 head 后应重建 adapter。输入尺寸和分类头选项必须与导入权重及目标任务一致。
 
 DINOv3 ViT 的 token 顺序为 CLS、四个 extra/storage token、patch token；输入高宽会裁到不大于原尺寸的 16 倍数。DINOv3 ConvNeXt 输出四级 NCHW 特征，输入高宽会裁到 32 的倍数。调用方应在数据管线中明确记录这些裁剪及其几何语义，不能把输出当作原图全幅特征。高资源变体的构造、训练、显存和设备能力以各自实测门禁为准。
 
-[图像训练基准](../benchmarks/README.md#图像读取到训练更新)可选择 DINOv2 四容量，以及 DINOv3 ViT-S/S+/B/L/L+/H+ 和 ConvNeXt-T/S/B/L，检查文件读取、Trainer、反向传播与实际 SGD 更新。H+ 的 Ubuntu CPU FP32 和 CUDA FP16 参数存储路径已分别在 224×224、两个 worker 下完成两次无动量 SGD 更新，并核对完整默认骨干参数量；带动量恢复仍受下述显存限制。高容量模型须显式选择并串行测量；随机初始化验证不代表预训练权重、任务准确率或性能优势。7B 尚未接入该训练基准。
+[图像训练基准](../benchmarks/README.md#图像读取到训练更新)提供 DINOv2 四容量，以及 DINOv3 ViT-S/S+/B/L/L+/H+ 和 ConvNeXt-T/S/B/L 的显式选择。它测量文件读取、Trainer、反向传播与 SGD 更新；大型变体应按实际资源预算串行运行，7B 不在该入口中。
 
 `transformer_encoder` 接收已嵌入的 `[batch, sequence, model_dimension]` 浮点特征，返回相同形状。可选 `attention_mask` 是 `[S,S]` bool，`padding_mask` 是 `[N,S]` bool，`true` 分别表示屏蔽注意力边或忽略 key。调用方提供位置与因果语义；全屏蔽行保持 LibTorch 后端行为，可能产生 NaN。
 
@@ -135,11 +135,9 @@ block 使用零基索引，`{8, 2}` 表示第九和第三个 block 之后，按�
 
 启用 `models` 与 `training` 后，可将模型适配器交给 `Trainer`，通过 [`FileCheckpointStore`](durable_checkpoint.md) 保存和恢复完整训练状态。重建时必须保持模型、分类头、优化器、精度和数据管线拓扑一致，并登记模型、优化器、调度器、RNG、数据游标、回调及 CUDA FP16 所需的 GradScaler 状态；只保存模型权重不能恢复训练进度。
 
-当前一致续训验证覆盖 DINOv2 ViT-S/B、DINOv3 ViT-S/S+/B/L/L+ 和 ConvNeXt-T/S/B/L 的 CPU FP32 与 CUDA FP16 autocast，CUDA 路径保留 FP32 参数；DINOv2 ViT-L 另有 CPU FP32 恢复验证，其 CUDA 完整恢复仍待验证。逐字节相同的续训结果要求固定软件、硬件、线程和确定性算法设置；这些验证使用单线程 CPU 计算、两个数据 worker 和严格确定性算法。DINOv2 的 CPU/CUDA 输入分别为 28×28/原生 518×518，DINOv3 为 32×32；DINOv2 位置插值的 CUDA 反向计算可能存在数值非确定性。其他容量、精度、分辨率和任务仍需分别验证。
+精确续训要求固定软件、硬件、线程、确定性算法、输入与管线拓扑；CUDA 矩阵运算按运行库要求设置 `CUBLAS_WORKSPACE_CONFIG`。改变参数布局、输入形状、设备或精度后，应为新配置独立验证恢复结果。
 
-大型模型需要为恢复预留足够的回滚空间，可通过 `TrainerOptions::checkpoint.max_rollback_bytes` 配置；DINOv2 ViT-L 和 DINOv3 ViT-L/L+ 的上述恢复验证显式使用 4 GiB 预算。该值限制回滚状态，不等于训练进程的全部内存需求。
-
-H+ 的 224×224 CUDA FP16 参数存储恢复有独立显式门禁 `JYPPX_LIUDING_DINO_HUGE_HALF_STORAGE_RECOVERY_GATE=1`，使用完整骨干、三类 head、SGD momentum=0.8、GradScaler 和 4 GiB 回滚预算。当前 RTX 2060 6 GiB 环境在首次 SGD 动量分配时显存不足，尚未完成连续训练或恢复验证；其单步资格不能外推到带动量的多步训练。该门禁默认跳过，须在满足实际训练及恢复资源需求的设备上单进程串行执行。
+大型模型可通过 `TrainerOptions::checkpoint.max_rollback_bytes` 配置恢复回滚空间。该值仅限制协调器的回滚状态，不等于训练进程的全部内存需求。
 
 ## 权重与验证
 
@@ -157,11 +155,11 @@ H+ 的 224×224 CUDA FP16 参数存储恢复有独立显式门禁 `JYPPX_LIUDING
 
 不同 QKV 参数布局或梯度分组会改变浮点归约顺序，即使使用同一 PyTorch 后端，范数和后续计算也可能存在舍入差异。数值对照需固定输入、batch 形状、参数布局、dtype、设备及算子图；同配置的精确恢复和真实任务质量仍按各自合同验证。
 
-当前固定随机参考覆盖选定架构的结构、state 导入和前向/特征差分，不覆盖预训练权重、任务精度或完整 Models profile。未提供参考目录时，相应可选测试会条件跳过；跳过不算验收通过。实际支持范围以具体变体、设备、dtype 和验证结果为准。
+架构结构、权重映射、预处理、任务精度和设备支持分别核对。可用的精确运行环境见[兼容矩阵](../../compatibility.json)；模型名称和随机初始化输出不构成预训练模型质量依据。
 
 ### 固定外部权重
 
-以下两个来源可用于显式离线导入。下载应由使用者执行；库内候选仍保持 `not_provisioned`，完整数据集精度和微调资格尚待验证。ResNet50 的 1000 列输出暂未绑定经过独立核验的有序类别表，不能据此推断类别名称。
+以下两个来源可用于显式离线导入。下载应由使用者执行；库内候选仍保持 `not_provisioned`，需由使用者验证目标任务精度与微调结果。ResNet50 的 1000 列输出暂未绑定经过独立核验的有序类别表，不能据此推断类别名称。
 
 | 模型与固定来源 | 权重输入配方 | 导入设置 |
 | --- | --- | --- |

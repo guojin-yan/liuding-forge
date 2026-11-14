@@ -1,20 +1,6 @@
-# Training scheduler adapter
+# 训练调度器适配
 
-`#include <jyppx/liuding/training/scheduler_adapter.hpp>`
-
-`SchedulerAdapter` is the event boundary between a training loop and a
-descriptor-first `LrScheduler`. It exposes the scheduler's declared `batch`,
-`epoch`, `metric`, or `manual` mode and accepts a `SchedulerInput` containing
-that trigger, a one-based event index, and an optional metric.
-
-The adapter rejects a wrong trigger, duplicate event, skipped event, missing or
-non-finite metric, and a metric attached to a non-metric event before any state
-changes. A valid metric event calls `step(metric)`; every other valid event
-calls the metric-less `step()`.
-
-The adapter is also a `CheckpointParticipant`. Registration with
-`CheckpointParticipantRegistry` delegates the exact scheduler descriptor,
-typed state tree, and current rates without introducing another checkpoint schema or compatibility reader.
+公共头文件为 `<jyppx/liuding/training/scheduler_adapter.hpp>`。`training::SchedulerAdapter` 将训练事件转为 `optim::LrScheduler` 的 batch、epoch、metric 或 manual 调度；`SchedulerInput` 携带 trigger、一基连续 event_index 和可选指标。
 
 ```cpp
 auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
@@ -28,4 +14,6 @@ scheduler_adapter->step({.trigger = jyppx::liuding::optim::SchedulerStepMode::ep
 checkpoint_registry.register_participant(scheduler_adapter);
 ```
 
-Event delivery and checkpoint I/O must be serialized by the training loop. The legacy `Trainer` is not adapted through this API; a new training loop can consume the boundary directly without forwarding to legacy optimizer or scheduler types.
+错误 trigger、重复或跳过事件、缺少/非有限 metric、向非 metric 事件传入 metric，都会在修改前拒绝。metric 事件调用 `step(metric)`，其他事件调用无参数 `step()`。
+
+适配器同时是 `CheckpointParticipant`，复用调度器的完整描述符、状态树和组学习率。接入当前 Trainer 时，把它放入对应的 `OptimizerExecutionBinding::scheduler`，训练器负责事件投递和参与者登记；不要在应用中重复调用 step。直接使用时由调用方串行管理事件和检查点 I/O，见[优化器教程](../tutorials/03_optimizers.md)。

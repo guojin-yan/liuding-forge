@@ -1,22 +1,8 @@
-# API: Delegated SGD Adapter
+# SGD 优化器
 
-The migrated SGD path lives in the `jyppx::liuding::optim` namespace and is exported by the focused `jyppx::liuding::optim` CMake target.
+公共头文件为 `<jyppx/liuding/optim/sgd_adapter.hpp>`，类型为 `optim::SgdOptimizerAdapter`，链接 `jyppx::liuding::optim`。
 
-```cpp
-#include <jyppx/liuding/optim/sgd_adapter.hpp>
-```
-
-## Stable optimizer descriptor
-
-`SgdOptimizerAdapter` delegates the numerical update to
-`torch::optim::SGD`. JYPPX owns the stable descriptor around that backend:
-
-- every group has a caller-selected `group_id`;
-- the optimizer has a caller-selected stable `optimizer_id` shared by its checkpoint participant and associated schedulers;
-- every parameter has a globally unique `parameter_id`;
-- tensor pointers and container positions are never persisted as identities;
-- immutable SGD options are validated before native construction;
-- learning rates are the only mutable group option exposed by the adapter.
+数值更新委派给 `torch::optim::SGD`。支持 momentum、dampening、weight_decay 与 Nesterov，只有学习率可在构造后修改。
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
@@ -34,49 +20,12 @@ loss.backward();
 optimizer->step();
 ```
 
-The adapter accepts dense, non-overlapping CPU or CUDA parameters with float16, bfloat16, float32, or float64 dtype. Parameters must require gradients. Group IDs, parameter IDs, tensor identities, and options must be unique and valid when construction completes.
+参数绑定和调用生命周期遵循[优化器公共约定](optim.md#优化器选择)。构造时提供稳定 optimizer ID、组 ID 和唯一参数 ID；`step()` 先执行可选 closure，再检查完整梯度集合。未定义梯度跳过且保留对应参数步数；稀疏或 shape/dtype/device 不匹配的梯度在更新前拒绝。`completed_steps()` 只在更新成功后推进，`set_learning_rates()` 统一校验全部组后提交。
 
-`SingleDeviceStrategy::prepare()` may move those same model-owned tensor
-identities before the first update. It then calls the narrow
-`synchronize_parameter_placement()` lifecycle operation, which atomically
-refreshes only dtype, device, and derived byte metadata. Shape, stride, identity, group order, and options must remain unchanged. Synchronization is rejected after any successful step or native optimizer state exists; from that point the checkpoint topology is frozen.
+首次更新前可通过 `SingleDeviceStrategy::prepare()` 同步模型参数放置；参数身份、shape、stride、组顺序和选项保持固定。
 
-Before every update, the adapter checks all defined gradients as one preflight. Each gradient must be dense and match its parameter dtype, device, and shape. Sparse gradients are rejected before any parameter is modified; use a sparse-aware optimizer instead. Undefined gradients retain LibTorch's skip semantics. Non-finite gradient detection belongs to the Trainer precision boundary so direct adapter use does not add an implicit device synchronization.
+## 检查点
 
-## Checkpoint participant
+`SgdOptimizerCheckpointParticipant` 使用 schema1，固定完整参数拓扑、算法选项、运行库版本，保存成功更新计数、各组当前学习率及可选 momentum。schema1 的 `topology` 固定组/参数身份、选项、dtype/device/shape/stride 与 LibTorch 版本，`control` 保存更新次数、学习率和 momentum 存在位，`momentum.NNNNNNNNNN` 保存每个参数的缓冲区；未初始化时为空。
 
-`SgdOptimizerCheckpointParticipant` provides exact, storage-neutral recovery:
-
-```cpp
-auto participant =
-    std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-        optimizer);
-registry.register_participant(participant);
-```
-
-Schema version 1 contains three field classes:
-
-| Field | Contents |
-|---|---|
-| `topology` | stable group/parameter IDs, immutable options, dtype, device, shape, stride, and LibTorch version |
-| `control` | completed step count, current group learning rates, and momentum-presence bits |
-| `momentum.NNNNNNNNNN` | one fixed raw tensor field per parameter; empty before momentum exists |
-
-The manifest does not change after the first step because momentum fields are
-declared up front. Loading validates the stored manifest, full topology,
-control metadata, all field sizes, and every candidate tensor before changing
-native state. A successful commit swaps the complete pointer-keyed native state
-map only after all data has been reconstructed against stable parameter IDs.
-
-The format is not a LibTorch archive or pickle. Its exact guarantee currently
-requires the same schema, stable topology, and compile-time LibTorch version.
-The adapter and participant are not internally synchronized; training must be
-quiescent during checkpoint describe, save, and load operations.
-
-## Migration status
-
-This is the first optimizer algorithm on the delegated path. Its older
-hand-written SGD implementation and the old `optim/schedulers` hierarchy have
-been deleted after all owned consumers moved to descriptor-first schedulers.
-There is no alias or forwarding bridge. Hand-written implementations of other
-algorithms remain separate until they are migrated algorithm by algorithm.
+恢复先验证 manifest、拓扑、字段大小及全部候选 Tensor，成功后才替换状态；失败保留原状态。格式为有界的 storage-neutral 字段，不接受 pickle、LibTorch archive 或其他优化器状态。保存和恢复期间暂停训练修改；完整任务恢复还需模型、数据、RNG 与调度器，见[协调器](checkpoint_coordinator.md)。

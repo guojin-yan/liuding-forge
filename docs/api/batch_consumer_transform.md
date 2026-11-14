@@ -57,4 +57,4 @@ factory、传输、consumer transform、资源检查或 schema 检查在成功�
 
 map 当前写 v5，iterable 当前写 v4，分别保存 consumer 身份、完整输入 schema 和确定性声明；iterable 还保存 factory 确定性。相邻的无 consumer 格式 map v4 / iterable v3 仍可读取完整结构 schema，但不能被静默恢复到新启用 consumer 的配置。
 
-保留 map v3 / iterable v2 的显式 label 迁移：只允许原先可证明等价的 `BatchSchema::any(id, version)`，不能从旧标签推断新的结构约束。所有迁移后重写为当前格式；身份、确定性、schema、来源或 worker/memory topology 不匹配时拒绝恢复，live epoch 保持原状。仓库中的历史 writer fixture 原样保留，新增相邻格式 fixture 由独立二进制格式构造，并已与旧提交 `22e88a8`、Ubuntu LibTorch 2.14.1+cu126 的真实 C++ writer 输出逐字节核对一致；两种来源在 metadata 中分别说明。
+保留 map v3 / iterable v2 的显式 label 迁移：只允许原先可证明等价的 `BatchSchema::any(id, version)`，不能从旧标签推断新的结构约束。所有迁移后重写为当前格式；身份、确定性、schema、来源或 worker/memory topology 不匹配时拒绝恢复，live epoch 保持原状。格式夹具及其来源说明保存在[检查点测试数据](../../tests/fixtures/checkpoint/)。

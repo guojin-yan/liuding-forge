@@ -1,68 +1,32 @@
-# Liuding Forge
+# Liuding Forge（六丁炼算）
 
 [中文 README](README.md)
 
-Liuding Forge is a C++20 deep-learning training framework built on LibTorch for engineering teams that need native C++ training, durable lifecycle state, local experimentation, and delivery tooling.
+Liuding Forge is a C++20 deep learning training framework built on LibTorch, with resumable training, data pipelines, vision models, local experiments, and model delivery tools.
 
-> Status: the project has not been released. The multi-model training suite is merged into the main branch, and the configured product version remains `0.3.0`. Features and validation apply to their declared scope and environment; complete quality, device, and release qualification remains pending.
+The project has not been released. The source version is `0.3.0`. See [SDK scope and limitations](docs/user-guide/beta_limits.md) for component and model boundaries, and [compatibility.json](compatibility.json) for platform, device, and dependency combinations.
 
-The [vision training suite](docs/api/vision/index.md) offers a shared C++ API/CLI for original YOLOv5 P5/P6, YOLOv8/11/12/26, Faster/Fast R-CNN, FCOS/RetinaNet/SSD/RT-DETR, YOLO-World/YOLOE, semantic segmentation/depth, SimMIM/ReID, and classification with existing backbones. It covers data conversion and augmentation, training/resume, validation/prediction, tuning, weight conversion, and ONNX export. Model packs remain optional; starter recipes are in [recipes/vision/suite](recipes/vision/suite/). Pretrained weights are not bundled, and compilation or model construction does not establish accuracy or deployment qualification for every model.
+## Current capabilities
 
-Start with [SDK usage scope and limits](docs/user-guide/beta_limits.md) to select validated components, workflows, and environments; formal release and resource-intensive extension matrices require separate qualification.
+| Module | Interfaces and workflows |
+| --- | --- |
+| [Training](docs/api/training.md) | Trainer, task steps, callbacks, multiple optimizers, accumulation, clipping, and explicit AMP |
+| [Data](docs/api/data.md) | Map/iterable pipelines, sampling, thread workers, structured batches, and cursor recovery |
+| [Image data](docs/api/data_image.md) | Decoding, unified annotations, joint geometry, batching, device transfer, and bounded image output |
+| [Optimizers and scheduling](docs/api/optim.md) | SGD, Adam, AdamW, RMSprop, Adagrad, NAdam, Adadelta, LAMB, and resumable schedulers |
+| [Checkpoints](docs/api/durable_checkpoint.md) | Coordinated model, optimizer, scheduler, RNG, data, GradScaler, and callback state |
+| [Models](docs/api/models.md) | Classification backbones, ViT/Swin, DINOv2/v3, feature extraction, classifier replacement, and explicit weight imports |
+| [Vision suite](docs/api/vision/index.md) | Original YOLOv5 P5/P6, YOLOv8/11/12/26, Faster/Fast R-CNN, FCOS, RetinaNet, SSD, RT-DETR, and other registered models; data conversion, augmentation, training, validation, prediction, and tuning |
+| [Extended tasks](docs/api/vision/extensions.md) | Multilabel classification, semantic segmentation, depth, SimMIM, distillation, open vocabulary, ReID, and sequence tracking |
+| [Local experiments](docs/api/local_run_storage.md) | SQLite/CAS, runs and artifacts, native process execution, bounded search, TensorBoard, and OTLP telemetry |
+| [Evaluation](docs/api/evaluation.md) | Classification, box AP, segmentation metrics, source summaries, quality rules, and JSON/HTML reports |
+| [Model delivery](docs/api/onnx.md) | C++ ONNX export, ONNX Runtime, model bundles, signing, and local serving |
 
-## Product scope
+The registry in the selected build determines available model combinations. The repository includes no pretrained weights. Architecture implementation, weight licensing, task quality, and device support have separate boundaries. See [recipes](recipes/README.md) for configuration templates and [examples](examples/README.md) for complete C++ programs.
 
-Liuding Forge targets engineering teams that build, recover, evaluate, and deliver training workloads in native C++. The project focuses on reliable training lifecycle management, data pipelines, optimizers and schedulers, evaluation, checkpoints, experiment artifacts, diagnostics, and delivery tools. Web UI, team services, RBAC, multi-tenancy, and remote control planes are outside this repository.
+## Integration
 
-When using the C++ API, include public headers from `<jyppx/liuding/...>` and call the interfaces in the `jyppx::liuding` namespace. For CMake integration, find the installed package with `find_package(jyppx)` and link targets such as `jyppx::liuding::<component>`; build options continue to use the `JYPPX_*` prefix. The libraries, CLI, examples, and archive files that users run or distribute use the `liuding-forge` product prefix.
-
-## What the project adds
-
-PyTorch is strongest in its Python ecosystem and research velocity. LibTorch provides the C++ tensor and neural-network foundation, but engineering teams still need explicit lifecycle state, recoverable training, bounded data concurrency, experiment artifacts, environment identity, and delivery boundaries. Liuding Forge adds these engineering contracts on top of LibTorch and makes them reviewable through versioned state and reproducible evidence.
-
-The project focuses on:
-
-- Native C++ integration with a single design for public APIs, CMake packages, installation consumers, ABI, and runtime boundaries.
-- Explicit checkpoint domains covering model, optimizer, scheduler, data, strategy, RNG, AMP, callbacks, and task state.
-- Bounded behavior for map/iterable data, worker lifecycle, structured batches, capability descriptors, and failure cleanup.
-- BuildFingerprint, dependency locks, workload identity, and device identity bound to performance and release evidence.
-- Replaceable boundaries for local runs, artifacts, evaluation, telemetry, bundles, and serving.
-
-## Feature Module Development Progress
-
-The table is organized by engineering foundation, core compute, data pipelines, model system, training system, experiments and evaluation, delivery tools, extensions, and capabilities outside the current scope. It shows only Liuding Forge capability status and development progress; the notes identify the corresponding PyTorch modules or commonly used capabilities. Every judgment is limited to the current v1.0 code scope and declared environment.
-
-| Feature module | Detailed scope | Liuding Forge status | Development progress | Other notes |
-| --- | --- | --- | --- | --- |
-| **Engineering foundation: build and installation** | Naming boundaries, dependency direction, CMake package, installation consumers, and repository hygiene | Complete | Complete | PyTorch counterpart: the LibTorch C++ frontend, CMake package, and C++ extension build path; the public API uses `jyppx::liuding`. |
-| **Core compute: tensor and autograd** | Tensor operations, neural-network modules, and autograd foundations | Complete (via LibTorch) | Ongoing validation | PyTorch counterpart: `torch.Tensor`, `torch.autograd`, `torch.nn`, and the LibTorch C++ frontend; Liuding Forge does not reimplement tensor/autograd. |
-| **Core compute: foundation and loss functions** | Foundation contracts, error/RNG/build fingerprint, and common loss vertical slices | Complete | Complete | PyTorch counterpart: `torch.nn` losses, random utilities, and device foundations; coverage follows this project's C++ contracts. |
-| **Data pipelines: datasets and loading** | Map/iterable pipelines, workers, samplers, deterministic cursors, and data lifecycle | Complete | Complete | PyTorch counterpart: `torch.utils.data.Dataset`, `DataLoader`, `Sampler`, and worker mechanisms; multi-process distributed loading is outside the current scope. |
-| **Data pipelines: structured batches and capability descriptors** | Batch schemas, field access, capability declarations, and constrained collate behavior | Complete | Complete | PyTorch counterpart: `collate_fn`, batch composition, and data-field handling; this project adds an explicit capability contract. |
-| **Model system: model adapters and ecosystem** | ModelAdapter, model checkpoint participant, ResNet/ResNeXt/DenseNet/MobileNet/EfficientNet, `tf_efficientnetv2_s`, ConvNeXt, ViT, Swin-T, four DINOv2 capacities, and eleven DINOv3 factories | Partial | All 33 vision variants provide unified feature extraction, classifier queries/replacement, and headless embeddings. Selected variants have fixed random-state, feature-differential, and training checks. Preprocessing, pretrained weights, and full device/task matrices remain open | PyTorch counterpart: `torch.nn.Module`, torchvision, timm, and the DINO ecosystem. Architecture checks do not establish pretrained-model availability; see the [model API (Chinese)](docs/api/models.md). |
-| **Training system: optimizers** | SGD, Adam, AdamW, RMSprop, Adagrad, NAdam, Adadelta, and LAMB adapters with state recovery | Complete | Complete | PyTorch counterpart: `torch.optim` and optimizer state; cross-version migration, sparse parameters, and the wider extension ecosystem remain limited. |
-| **Training system: learning-rate schedulers** | Descriptor-first schedulers, composition, lifecycle-event integration, and exact restore | Complete | Complete | PyTorch counterpart: `torch.optim.lr_scheduler`; this project adds explicit descriptors, event binding, and recoverable state. |
-| **Training system: Trainer and orchestration** | Trainer, callbacks, metrics, strategies, AMP, multiple optimizers, and checkpoint domains | Complete | Complete | PyTorch counterpart: training loops, model/optimizer composition, and ecosystem Trainers; this project provides a C++ training loop. |
-| **Training system: checkpointing and recovery** | Storage-neutral participants, transactional coordination, file storage, CAS/SQLite metadata, and bounded recovery | Complete | Complete | PyTorch counterpart: `state_dict`, `torch.save`, and `torch.load`; arbitrary PyTorch pickle is not supported, and recovery is defined by explicit participants and manifests. |
-| **Training system: mixed precision** | CPU bfloat16, CUDA float16/bfloat16, GradScaler, and RNG participants | Partial | Ongoing improvement | PyTorch counterpart: `torch.amp`, `torch.cuda.amp`, and `GradScaler`; only declared combinations are covered and device/LibTorch versions must match. |
-| **Training system: metrics, callbacks, and events** | Training metrics, lifecycle callbacks, event dispatch, and scheduler event integration | Complete | Complete | PyTorch counterpart: training-loop hooks and ecosystem capabilities such as torchmetrics and Lightning; current interfaces serve this project's Trainer. |
-| **Training system: training diagnostics** | Loss NaN/Inf, nonfinite gradients, AMP skips, optional gradient norms and data-wait timing, recoverable sampling, and JSON reports associated with run/input identities | Scoped diagnostics and reports available | Ongoing improvement | PyTorch counterpart: training checks and profiling hooks; extra scans/timing are off by default. Full profiling and automatic root-cause analysis remain open. |
-| **Experiments and evaluation: local runs and artifacts** | Runs/artifacts, SQLite/CAS, telemetry, environment identity, and offline workflows | Complete | Complete | PyTorch counterpart: TensorBoard, `torch.profiler`, experiment tracking, and artifact-management ecosystems; this does not replace remote tracking or multi-tenant platforms. |
-| **Experiments and evaluation: native telemetry** | C++ TensorBoard event files, OTLP protocol encoding for three signals, and HTTP delivery | Partial | TensorBoard, offline OTLP, and synchronous HTTP are optional components, disabled by default; process-level cancellation and full HTTPS Collector qualification remain open | Related to `torch.utils.tensorboard` and the OpenTelemetry ecosystem; see the [TensorBoard example](examples/experiment/README.md#原生-tensorboard) and [OTLP HTTP tutorial (Chinese)](docs/tutorials/native-otlp-http.md). |
-| **Experiments and evaluation: local jobs and parameter search** | Durable local processes, grid/random search, metric selection, best artifacts, and local resource admission | Partial | Bounded serial search, exact resume with frozen inputs, durable workers, and typed outputs implemented; the complete RunSpec and device matrix remain unqualified | One machine and STORE coordinate logical reservations; explicit OS memory boundaries, CPU placement, and qualified NVIDIA UUID binding are available, without a uniform RSS/VRAM hard limit. See the [local C++ execution](examples/experiment/local_execution/README.md) and [search examples](examples/experiment/README.md). |
-| **Experiments and evaluation: evaluation and data quality** | Classification, semantic IoU/Dice and axis-aligned box AP inference, class/source slices, checkpoint recovery for all three evaluators and quality reports | Three scoped evaluators available | In progress | PyTorch counterpart: evaluation loops and torchmetrics; scoped pedestrian detection and segmentation tasks have complete training/recovery validation. Other models, devices, and the full task matrix require separate qualification. See the [detection example](examples/evaluation/README.md). |
-| **Delivery tools: model bundles and interoperability** | Bounded model bundles, interop backends, weight import, and installed-consumer workflows | Partial | Native Ed25519 signing, external-policy verification, and checks before deployment implemented; complete delivery workflow in progress | PyTorch counterpart: `state_dict`, TorchScript, `torch.export`, and weight-import paths; arbitrary exports and pickle are not accepted. See [bundle signing (Chinese)](docs/user-guide/bundle-signing.md). |
-| **Delivery tools: C++ CLI and toolchain** | liuding-forge CLI, migration, evaluation, inspection, packaging, and installation-consumer tools | Complete | Complete | PyTorch counterpart: the LibTorch C++ frontend, `torchrun` surroundings, and extension-build tools; this project focuses on native C++ and offline delivery. |
-| **Delivery tools: performance observability and resource baselines** | BuildFingerprint, device/workload identity, data-pipeline resource observation, and baseline protocol | Complete | Ongoing improvement | PyTorch counterpart: Profiler, CUDA observation, and benchmark tools; performance results require exact environment identity and cannot be compared across environments directly. |
-| **Delivery tools: quality, recovery, and release gates** | Training lifecycle quality/recovery validation, coverage, sanitizers, fuzzing, resource matrices, and release rollback | Partial | Ongoing improvement | PyTorch counterpart: testing, benchmark, and release-validation ecosystems; full coverage, dependency security, and rollback remain under development. |
-| **Extensions: image input and annotation workflow** | Image/annotation readers, pixel semantics, coordinate tracing, masks, joint transforms, batching, and rendering/output | Partial | Lossless PNG labels, CPU joint geometry and sample-keyed randomness, stack/pad/ragged collation, CPU/CUDA numeric and pixel-batch geometry, precommit recovery, CPU annotation rendering, and bounded PNG/JPEG encoding with local file output have working slices; CUDA rich annotations, asynchronous output, and end-to-end task integration remain open | PyTorch counterpart: torchvision datasets, transforms, masks/annotations, and visual data pipelines; see the [image data API (Chinese)](docs/api/data_image.md) and [image rendering API (Chinese)](docs/api/vision_render.md). |
-| **Extensions: export, serving, and deployment** | Generic C++ ONNX export, ONNX Runtime, and local Serving | Partial | ONNX Serving, environment locks, known-vector checks, and controlled version switching implemented; complete load and release qualification remain in development | PyTorch counterparts: `torch.onnx`, TorchScript, and deployment ecosystems. Export depends on operator coverage; Runtime uses an explicit provider, with each device qualified separately. See [ONNX export and inference](docs/api/onnx.md) and the [Serving examples](examples/serving/README.md). |
-| **Outside current scope: distributed training** | Multi-process, multi-backend, and cross-node training control | Not available | Outside current scope | PyTorch counterpart: `torch.distributed`, DDP, and multi-backend communication; this is outside the current v1.0 repository delivery. |
-| **Outside current scope: remote platform and control plane** | Web, team services, RBAC, multi-tenancy, and remote run control | Not available | Outside current scope | PyTorch does not itself provide a complete remote control plane; related capabilities belong to platform and MLOps ecosystems. |
-
-Core training, data, checkpointing, experiment artifacts, and the C++ toolchain are available within their declared scope. The model ecosystem, complete image workflow, serving, and release-quality capabilities are still developing; distributed training and remote platforms are outside the current version scope. Liuding Forge adds engineering capabilities around LibTorch rather than reimplementing PyTorch.
-
-The code mainline is main and the remote repository is [github.com/guojin-yan/liuding-forge](https://github.com/guojin-yan/liuding-forge). Future commits and pushes target main.
+Public headers use `<jyppx/liuding/...>` and namespace `jyppx::liuding`. The CMake package is `jyppx`, component targets are `jyppx::liuding::<component>`, and build options use `JYPPX_LIUDING_*`. The `sdk` target aggregates eight base components; Models, Vision, deployment, and telemetry components are optional. Product commands are `liuding-forge` and the separate `liuding-forge-vision`.
 
 ## Requirements
 
@@ -119,7 +83,7 @@ cmake --build out/build/release --config Release --parallel 2
 ctest --test-dir out/build/release -C Release --output-on-failure
 ~~~
 
-See [docs/benchmarks/README.md](docs/benchmarks/README.md) for benchmark operation and [scripts/benchmarks/RESOURCE_BASELINE.md](scripts/benchmarks/RESOURCE_BASELINE.md) for the resource protocol. Historical results, audits, and raw acceptance evidence are kept outside the code repository under v1.0-plan/06_records/.
+See [docs/benchmarks/README.md](docs/benchmarks/README.md) for benchmark operation and [scripts/benchmarks/RESOURCE_BASELINE.md](scripts/benchmarks/RESOURCE_BASELINE.md) for the resource protocol. Bind performance results to the actual build, device, and workload. Save generated output under ignored `out/` or a working directory you choose.
 
 ## Documentation and repository boundary
 
@@ -127,7 +91,7 @@ Start with the [documentation index](docs/index.md), [tutorials](docs/tutorials/
 
 See [training and search recipes](recipes/README.md) for native CLI configuration templates and [development scripts](scripts/README.md) for maintenance, validation, and release tools.
 
-The repository contains source code, tests, build/CI configuration, scripts, shipped operation instructions, and required machine-readable configuration. Delivery reports, dependency and license audits, historical benchmark results, validation logs, and raw acceptance evidence are archived outside the code repository under v1.0-plan/06_records/. Builds, run logs, and temporary products belong under the ignored out/ directory.
+The repository contains source, tests, build configuration, reusable maintenance tools, and usage instructions. Keep builds, data, logs, and model output under ignored `out/` or a working directory you choose. See [repository hygiene](docs/development/repository_hygiene.md) for directory responsibilities.
 
 ## License and contribution
 

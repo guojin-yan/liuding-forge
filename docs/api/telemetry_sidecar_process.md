@@ -24,4 +24,4 @@ Windows使用 Unicode `CreateProcessW`、CRT argv转义、显式句柄继承列�
 
 POSIX使用独立进程组、固定绝对 `execve`、父端 nonblocking descriptors、`poll`和 exec状态管道；fork后的子进程只使用已准备数据与 async-signal-safe调用，关闭其他描述符，SIGPIPE仅在线程内屏蔽。清理向原组发送 SIGKILL并回收直接子进程；leader PID在组清理前保持所有权。后代 zombie由其真实父进程或系统 reaper回收，库不改变全局 subreaper/SIGCHLD策略；已有 `SIG_IGN/SA_NOCLDWAIT` 时拒绝启动。原生 worker按该所有权协议协作，进程组不是对恶意 `setsid/setpgid` 程序的沙箱。
 
-进程通道测试中的 Python程序仅是故障夹具，官方 Python包仅用于独立读取/参考映射；二者不安装，也不参与产品导出。原生 Collector、TLS信任、持久 ACK、强取消及完整章节资格按各自实际验证授予。
+进程通道测试中的 Python程序仅是故障夹具，官方 Python包仅用于独立读取/参考映射；二者不安装，也不参与产品导出。Collector 接收、TLS 信任、持久 ACK 与进程清理分别遵循[运行遥测](run_telemetry_cli.md)的契约。

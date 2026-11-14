@@ -1,8 +1,21 @@
-# API: Optimizers and Schedulers
+# 优化器与学习率调度
 
-All types live in the `jyppx::liuding::optim` namespace.
+优化器和调度器位于 `jyppx::liuding::optim`，链接 `jyppx::liuding::optim`。完整训练和新进程恢复示例见[优化器教程](../tutorials/03_optimizers.md)。
 
-The migrated optimizer boundary includes independently exported [`SgdOptimizerAdapter`](sgd_adapter.md) and [`AdamOptimizerAdapter`](adam_adapter.md), plus [`AdamWOptimizerAdapter`](adamw_adapter.md), [`RmspropOptimizerAdapter`](rmsprop_adapter.md), and [`AdagradOptimizerAdapter`](adagrad_adapter.md). They delegate numerical updates to LibTorch. The current-only [`NAdamOptimizerAdapter`](nadam_adapter.md) and [`AdadeltaOptimizerAdapter`](adadelta_adapter.md), together with the value-added [`LambOptimizerAdapter`](lamb_adapter.md), supply the same stable identity and storage-neutral recovery contract around JYPPX-native kernels because the supported LibTorch C++ candidates expose none of these algorithms. The migrated scheduler boundary includes descriptor-first [`StepLrScheduler`](step_lr_scheduler.md) plus transactional [`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md) and the [epoch scheduler family](epoch_lr_scheduler.md), including the [linear-family schedulers](linear_lr_scheduler.md) and [event-driven schedulers](event_lr_scheduler.md). They record typed semantics and stable optimizer/group identity and provide exact storage-neutral recovery. The old mutable-map optimizer base and all implementations that depended on it have been removed. There is no legacy forwarding header or state conversion; all supported optimizers use the typed current contract below.
+## 优化器选择
+
+| 优化器 | 数值实现 | 主要状态与语义 |
+| --- | --- | --- |
+| [SGD](sgd_adapter.md) | LibTorch SGD | momentum、dampening、Nesterov 与耦合衰减 |
+| [Adam](adam_adapter.md) | LibTorch Adam | 每参数步数、一二阶矩及可选 AMSGrad |
+| [AdamW](adamw_adapter.md) | LibTorch AdamW | 解耦权重衰减、一二阶矩及可选 AMSGrad |
+| [RMSprop](rmsprop_adapter.md) | LibTorch RMSprop | 平方平均、可选 momentum 与 centered 均值 |
+| [Adagrad](adagrad_adapter.md) | LibTorch Adagrad | 预先创建的累加器、独立参数步数与学习率衰减 |
+| [NAdam](nadam_adapter.md) | 原生 Tensor 内核 | NAdam/NAdamW、累计动量乘积与 maximize |
+| [Adadelta](adadelta_adapter.md) | 原生 Tensor 内核 | 平方梯度/更新平均与 maximize |
+| [LAMB](lamb_adapter.md) | 原生 Tensor 内核 | bias correction、更新方向衰减与逐 Tensor trust ratio |
+
+每个优化器使用稳定的 optimizer ID、有序参数组 ID 和全局唯一参数 ID。参数从模型拥有的 Tensor 绑定；支持稠密、非重叠 CPU/CUDA 浮点参数，梯度必须匹配参数的 shape、dtype 和设备。未定义梯度被跳过，稀疏或描述不匹配的梯度在更新前拒绝。
 
 ```cpp
 #include <jyppx/liuding/optim/adamw_adapter.hpp>
@@ -18,26 +31,19 @@ auto optimizer = std::make_shared<jyppx::liuding::optim::AdamWOptimizerAdapter>(
          .options = {.learning_rate = 1e-3, .weight_decay = 0.0}}});
 ```
 
-Notes:
+`set_learning_rates()` 校验并统一替换各组学习率；其他算法选项属于不可变拓扑。`SingleDeviceStrategy::prepare()` 可在首次更新前同步模型的 dtype/device 放置，开始更新后不得随意更换参数、组顺序或状态布局。优化器和参与者的调用需由训练 owner 串行执行。
 
-- **AdamW** applies decoupled weight decay (`param *= 1 - lr * wd`) like
-  `torch.optim.AdamW`; the delegated adapter owns this behavior directly.
-- **RMSprop momentum** follows the `torch::optim` C++ semantics: the buffer
-  accumulates the normalized gradient `grad / avg` and the step is
-  `-lr * buffer`. The delegated adapter owns that exact LibTorch behavior.
-- **Adagrad** eagerly initializes each sum accumulator, preserves independent per-parameter step counters when gradients are absent, and checkpoints both values exactly.
-- **NAdam** follows the documented momentum schedule, including `mu_next` and a float32-compatible cumulative momentum product. It supports coupled NAdam, decoupled NAdamW, and maximize mode with exact per-parameter recovery.
-- **Adadelta** follows the documented two-accumulator update, coupled weight decay, and maximize semantics. Lazy per-parameter steps, squared-gradient averages, and accumulated-delta averages are recovered exactly.
-- **LAMB** applies bias-corrected moments and update-direction weight decay before one tensor-level trust ratio. Its weight-norm cap, zero-norm fallback, lazy per-parameter steps, and two moment tensors are recovered exactly.
-- Delegated SGD, Adam, AdamW, RMSprop, and Adagrad, plus native NAdam, Adadelta, and LAMB, use `set_learning_rates()` as their only mutable hyperparameter operation.
+## 学习率调度
 
-## Learning-rate schedulers
+| 调度器 | 配置与行为 |
+| --- | --- |
+| [StepLR](step_lr_scheduler.md) | `step_size`、`gamma`，按 epoch 周期衰减 |
+| [Exponential/MultiStep/Cosine/WarmRestarts](epoch_lr_scheduler.md) | 指数、指定 epoch、余弦及带重启余弦 |
+| [Linear/Warmup/Constant/Polynomial](linear_lr_scheduler.md) | 线性预热、固定因子与多项式衰减 |
+| [Plateau/OneCycle/Cyclic/Lambda](event_lr_scheduler.md) | metric、batch 或显式 callable 驱动 |
+| [Sequential/Chained](composite_lr_scheduler.md) | 按序选择或组合子调度器，统一提交学习率 |
 
-The migrated `jyppx::liuding::optim::LrScheduler` hierarchy depends only on
-`OptimizerRateControl`. Its `step()` path previews and validates a complete
-state/rate transition before one atomic optimizer update. The generic
-`LrSchedulerCheckpointParticipant` persists a typed descriptor tree, complete
-counter tree and all current group rates.
+调度器依赖 `OptimizerRateControl`。一次 step 先预览完整状态和各组学习率，校验成功后统一提交；失败保留原计数与学习率。epoch 调度在整轮完成后推进，batch 调度在成功更新后推进，metric 调度使用有限验证指标。
 
 ```cpp
 #include <jyppx/liuding/optim/epoch_lr_scheduler.hpp>
@@ -49,41 +55,10 @@ auto scheduler = std::make_shared<jyppx::liuding::optim::ExponentialLrScheduler>
 scheduler->step();  // after one completed epoch
 ```
 
-| Migrated scheduler | Typed options | Behavior |
-|--------------------|---------------|----------|
-| `StepLrScheduler` | `step_size`, `gamma` | periodic multiplicative decay |
-| `ExponentialLrScheduler` | `gamma` | multiplies current rates every epoch |
-| `MultiStepLrScheduler` | `milestones`, `gamma` | decays at positive strictly ordered epochs |
-| `CosineAnnealingLrScheduler` | `t_max`, `eta_min` | chainable recursive cosine trajectory |
-| `CosineAnnealingWarmRestartsLrScheduler` | `t_0`, `t_mult`, `eta_min` | cosine cycles with exact growing restart state |
-| `LinearLrScheduler` | `start_factor`, `end_factor`, `total_iters` | construction-time factor interpolation |
-| `WarmupLrScheduler` | `start_factor`, `warmup_iters` | linear warmup to captured base rates |
-| `ConstantLrScheduler` | `factor`, `total_iters` | constant factor prefix then base rates |
-| `PolynomialLrScheduler` | `total_iters`, `power` | closed-form decay toward zero |
-| `ReduceLrOnPlateauScheduler` | metric direction, patience, cooldown, thresholds | metric-triggered per-group decay |
-| `OneCycleLrScheduler` | maxima, total steps, phase geometry | bounded batch-level one-cycle schedule |
-| `CyclicLrScheduler` | base/max rates, half-cycle sizes, scale profile | repeating batch-level triangular cycles |
-| `LambdaLrScheduler` | stable callable ID and functions | identity-bearing user-defined epoch factors |
-| `SequentialLrScheduler` | children, `milestones` | selects one ordered child per event |
-| `ChainedLrScheduler` | ordered children | previews every child and commits once |
+接入 Trainer 时，将调度器交给 [training::SchedulerAdapter](scheduler_adapter.md) 并绑定到对应的 `OptimizerExecutionBinding`；不要在外部重复 step。`cycle_momentum` 不受支持，因为当前优化器可变控制只包含学习率。
 
-The obsolete scheduler headers and implementations have been removed. Their direct descriptor-first replacements do not accept old map checkpoints. Momentum cycling is explicitly rejected until optimizer hyperparameters have an atomic control and participant contract.
+## 完整恢复
 
-```cpp
-#include <jyppx/liuding/optim/event_lr_scheduler.hpp>
+优化器使用各自的 `*OptimizerCheckpointParticipant`，保存参数/组拓扑、不可变选项、更新计数、当前学习率及算法状态。调度器使用 `LrSchedulerCheckpointParticipant`，保存完整描述符树、计数树和学习率。恢复先验证全部候选状态，再替换现存状态；要求匹配 schema、拓扑和声明的 LibTorch 版本。
 
-auto plateau = std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
-    delegated_sgd,
-    jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
-        .factor = 0.5,
-        .patience = 2,
-        .min_learning_rates = {1e-6}});
-// after each validation:
-plateau->step(val_loss);
-```
-
-The migrated plateau scheduler exposes `has_best()`, `best()`,
-`bad_observations()`, and `cooldown_remaining()`. Legacy `state_dict()` maps
-are not accepted. The checkpoint participant only accepts the current
-descriptor/control schema and restores optimizer rates atomically after
-complete preflight.
+将模型、优化器、调度器、数据、RNG 和训练控制状态一起登记到[检查点协调器](checkpoint_coordinator.md)。仅记录学习率或保存模型权重不足以继续原训练任务。

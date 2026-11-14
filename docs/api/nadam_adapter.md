@@ -1,11 +1,8 @@
-# API: Native NAdam Adapter
+# NAdam 优化器
 
-`#include <jyppx/liuding/optim/nadam_adapter.hpp>`
+公共头文件为 `<jyppx/liuding/optim/nadam_adapter.hpp>`，类型为 `optim::NAdamOptimizerAdapter`，链接 `jyppx::liuding::optim`。
 
-`NAdamOptimizerAdapter` provides current-only NAdam and NAdamW updates through
-a JYPPX-owned tensor kernel. LibTorch does not publish NAdam in its C++ optimizer API, so this adapter follows the documented `torch.optim.NAdam` single-tensor algorithm instead of exposing or forwarding the removed legacy implementation.
-
-Construction requires a stable optimizer ID, ordered group IDs, globally unique parameter IDs, and typed `NAdamAdapterOptions`. Betas, epsilon, weight decay, momentum decay, decoupled-decay mode, and maximize mode are immutable topology. Only the complete vector of learning rates may change after construction.
+使用原生 Tensor 内核，支持 NAdam 与解耦衰减 NAdamW。beta、epsilon、weight_decay、momentum_decay、decoupled_weight_decay 和 maximize 不可变；maximize 在正则化和矩更新前反转梯度。
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::liuding::optim::NAdamOptimizerAdapter>(
@@ -22,19 +19,12 @@ auto optimizer = std::make_shared<jyppx::liuding::optim::NAdamOptimizerAdapter>(
          .options = {.learning_rate = 2e-3}}});
 ```
 
-`step()` evaluates an optional closure and validates every gradient before the
-first mutation. Undefined gradients are skipped and therefore retain their
-own parameter step and cumulative momentum product. Dense gradients must
-match parameter dtype, device, and shape; sparse gradients are rejected.
-Setting `decoupled_weight_decay` selects NAdamW behavior, while `maximize`
-negates gradients before regularization and moment updates.
+参数绑定和调用生命周期遵循[优化器公共约定](optim.md#优化器选择)。构造时提供稳定 optimizer ID、组 ID 和唯一参数 ID；`step()` 先执行可选 closure，再检查完整梯度集合。未定义梯度跳过且保留对应参数步数；稀疏或 shape/dtype/device 不匹配的梯度在更新前拒绝。`completed_steps()` 只在更新成功后推进，`set_learning_rates()` 统一校验全部组后提交。
 
-`NAdamOptimizerCheckpointParticipant` stores current-only schema version 1:
+首次更新前可通过 `SingleDeviceStrategy::prepare()` 同步模型参数放置；参数身份、shape、stride、组顺序和选项保持固定。
 
-- stable group and parameter topology, all immutable NAdam options, tensor descriptors, and the exact LibTorch version;
-- successful adapter steps, current rates, per-parameter state presence, update steps, and cumulative momentum products;
-- raw first- and second-moment tensors in stable parameter order.
+## 检查点
 
-Restore validates all metadata and materializes every candidate tensor before replacing state, so malformed input leaves the optimizer unchanged. No legacy map checkpoint, forwarding header, native archive, or pointer key is accepted.
+`NAdamOptimizerCheckpointParticipant` 使用 schema1，固定完整参数拓扑、算法选项、运行库版本，保存成功更新计数、各组当前学习率及各参数状态存在位、独立步数、累计动量乘积及一二阶矩。
 
-Numerical coverage includes an independent scalar reference over long multi-group trajectories, NAdamW and maximize modes, missing-gradient resume, CPU bfloat16, and real CUDA float32/float16 when CUDA is available. Because LibTorch has no C++ NAdam baseline, `bench_nadam_native_throughput` records absolute median time per step rather than presenting a misleading adapter-to-LibTorch ratio.
+恢复先验证 manifest、拓扑、字段大小及全部候选 Tensor，成功后才替换状态；失败保留原状态。格式为有界的 storage-neutral 字段，不接受 pickle、LibTorch archive 或其他优化器状态。保存和恢复期间暂停训练修改；完整任务恢复还需模型、数据、RNG 与调度器，见[协调器](checkpoint_coordinator.md)。

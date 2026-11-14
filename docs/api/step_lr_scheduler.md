@@ -1,18 +1,6 @@
-# API: Descriptor-First StepLR Scheduler
+# StepLR 调度器
 
-The migrated scheduler path lives directly in `jyppx::liuding::optim` and is exported by the focused `jyppx::liuding::optim` CMake target.
-
-```cpp
-#include <jyppx/liuding/optim/step_lr_scheduler.hpp>
-```
-
-## Stable scheduler descriptor
-
-`StepLrScheduler` controls any optimizer implementing `OptimizerRateControl`.
-The current delegated SGD adapter implements that narrow interface. Scheduler
-topology records the algorithm type, step mode, typed options, stable optimizer
-identity, ordered group IDs, group signature, optional callable identity,
-ordered child descriptors, and a diagnostic fingerprint.
+公共头文件为 `<jyppx/liuding/optim/step_lr_scheduler.hpp>`，链接 `jyppx::liuding::optim`。`StepLrScheduler` 通过 `OptimizerRateControl` 控制优化器；`step_size` 为正整数，`gamma` 为有限非负数，按完整 epoch 周期衰减。
 
 ```cpp
 auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
@@ -22,34 +10,14 @@ auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
         .step_size = 10,
         .gamma = 0.1});
 
-// Call once after each completed epoch. scheduler->step();
+// 每个 epoch 完成后调用一次。
+scheduler->step();
 ```
 
-The descriptor stores configuration values with explicit types rather than a
-`map<string, double>`. `StepLR` uses `SchedulerStepMode::epoch`; its typed
-configuration contains `step_size`, `gamma`, and construction-time base rates. The complete canonical descriptor is compared during restore. Its compact fingerprint is diagnostic metadata and is never the sole compatibility check.
+描述符记录算法、step mode、typed 选项、基础学习率、optimizer/group 身份及完整子树。恢复比较完整规范描述符；短指纹只用于诊断。一次 `step()` 先计算候选学习率与计数，验证完成后统一提交；失败不留下部分更新。
 
-## Exact checkpoint participant
+## 保存与恢复
 
-```cpp
-auto participant = std::make_shared<
-    jyppx::liuding::optim::LrSchedulerCheckpointParticipant>(scheduler);
-registry.register_participant(participant);
-```
+`LrSchedulerCheckpointParticipant` 的 participant schema 为3，描述符 schema 为1。`topology` 保存完整描述符和身份，`control` 保存状态树和当前组学习率。读取检查 manifest、版本、资源上限、计数、拓扑及完整学习率后提交；只接受当前格式和 exact 策略。
 
-Participant schema version 3 owns two bounded fields. The canonical scheduler descriptor remains schema version 1:
-
-| Field | Contents |
-|---|---|
-| `topology` | complete canonical descriptor and scheduler identity |
-| `control` | complete mutable scheduler-state tree and current group rates |
-
-Restore validates the manifest, current-format magic, version, resource limits, complete topology, counter, and all rates before mutation. Rate commit uses the optimizer's atomic rate-control contract, and scheduler state is changed only after that commit succeeds. The same participant supports descriptor-first composite trees. Legacy native archives and untyped scheduler maps are not accepted.
-
-The scheduler and participant are not internally synchronized. Training must serialize optimizer steps, scheduler steps, direct learning-rate changes, and checkpoint operations.
-
-## Migration status
-
-`StepLrScheduler` is the first leaf on the descriptor-first path. The migrated
-`SequentialLrScheduler` and `ChainedLrScheduler` compose it through the same
-transaction hooks. The replaced legacy composite implementation and forwarding headers were removed; remaining legacy scheduler algorithms stay separate until their own complete migration slices.
+参数更新、调度和检查点操作由同一 owner 串行执行。Trainer 集成使用[SchedulerAdapter](scheduler_adapter.md)，组合方式见[Sequential/Chained](composite_lr_scheduler.md)，其他算法见[优化器与调度总览](optim.md)。

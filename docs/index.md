@@ -4,6 +4,8 @@
 
 ## 教程
 
+完整可运行程序见 [C++ 示例索引](../examples/README.md)，配置模板见 [recipes](../recipes/README.md)。
+
 1. [基础训练与可独立构建的 C++ 示例](tutorials/01_basic_training.md)
 2. [数据加载、worker 预取与断点恢复](tutorials/02_data_loading.md)
 3. [优化器、调度与新进程状态恢复](tutorials/03_optimizers.md)
@@ -41,7 +43,7 @@
 - 模型与训练：[视觉训练套件](api/vision/index.md)、[骨干模型](api/models.md)、[权重导入](api/model_weight_import.md)
 - 模型交付：[模型包](api/model_bundle.md)、[ONNX 导出与推理](api/onnx.md)、[互操作后端](api/interop_backends.md)
 - 恢复与实验：[检查点参与者](api/checkpoint_participant.md)、[协调器](api/checkpoint_coordinator.md)、[持久化检查点与自定义状态示例](api/durable_checkpoint.md)、[本地运行存储](api/local_run_storage.md)、[训练遥测](api/training_telemetry.md)、[评估](api/evaluation.md)
-- 可选预览：[Serving](api/serving.md)、[原生 TensorBoard](api/native_tensorboard.md)、[离线 OTLP 协议准备](api/otlp_projection.md)
+- 可选组件：[Serving](api/serving.md)、[原生 TensorBoard](api/native_tensorboard.md)、[离线 OTLP 协议准备](api/otlp_projection.md)
 - 图像输出：[绘制](api/vision_render.md)
 
 ## 开发维护

@@ -1,11 +1,8 @@
-# API: Delegated Adam Adapter
+# Adam 优化器
 
-`#include <jyppx/liuding/optim/adam_adapter.hpp>`
+公共头文件为 `<jyppx/liuding/optim/adam_adapter.hpp>`，类型为 `optim::AdamOptimizerAdapter`，链接 `jyppx::liuding::optim`。
 
-`AdamOptimizerAdapter` owns `torch::optim::Adam` and delegates every numerical
-update to the supported LibTorch implementation. Construction requires a stable optimizer ID, ordered group IDs, globally unique parameter IDs, and typed `AdamAdapterOptions`. The adapter does not expose the native optimizer, mutable parameter groups, or pointer-keyed state.
-
-During `SingleDeviceStrategy::prepare()`, the same model-owned tensors may be moved in place before the first update. The strategy synchronizes only fresh dtype/device placement metadata; identity, shape, stride, group order, and options remain fixed. Any later synchronization attempt is rejected once a step or native Adam state exists.
+数值更新委派给 `torch::optim::Adam`。beta、epsilon、weight_decay 与 AMSGrad 属于不可变算法配置。
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
@@ -22,17 +19,12 @@ auto optimizer = std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
                     .amsgrad = false}}});
 ```
 
-`step()` executes an optional closure first, then validates all gradients
-before any update. Undefined gradients are skipped. Dense gradients must match
-their parameter dtype, device, and shape; sparse gradients are explicitly
-unsupported. `completed_steps()` advances only after LibTorch returns
-successfully. `set_learning_rates()` validates the complete group-rate vector
-before committing it atomically.
+参数绑定和调用生命周期遵循[优化器公共约定](optim.md#优化器选择)。构造时提供稳定 optimizer ID、组 ID 和唯一参数 ID；`step()` 先执行可选 closure，再检查完整梯度集合。未定义梯度跳过且保留对应参数步数；稀疏或 shape/dtype/device 不匹配的梯度在更新前拒绝。`completed_steps()` 只在更新成功后推进，`set_learning_rates()` 统一校验全部组后提交。
 
-`AdamOptimizerCheckpointParticipant` stores current-only schema version 1:
+首次更新前可通过 `SingleDeviceStrategy::prepare()` 同步模型参数放置；参数身份、shape、stride、组顺序和选项保持固定。
 
-- stable group and parameter topology, immutable Adam options, tensor descriptors, and exact LibTorch version;
-- successful adapter steps, current group rates, state-presence flags, and each initialized parameter's native Adam step;
-- raw first moment, second moment, and optional AMSGrad maximum tensors in stable parameter order.
+## 检查点
 
-Checkpoint fields are storage-neutral and bounded by explicit resource limits. Restore validates and allocates every candidate state tensor before swapping the native state map, so malformed or incompatible input leaves the optimizer unchanged. No native archive or legacy map reader is accepted.
+`AdamOptimizerCheckpointParticipant` 使用 schema1，固定完整参数拓扑、算法选项、运行库版本，保存成功更新计数、各组当前学习率及各参数独立步数、一阶矩、二阶矩及可选 AMSGrad 最大值。
+
+恢复先验证 manifest、拓扑、字段大小及全部候选 Tensor，成功后才替换状态；失败保留原状态。格式为有界的 storage-neutral 字段，不接受 pickle、LibTorch archive 或其他优化器状态。保存和恢复期间暂停训练修改；完整任务恢复还需模型、数据、RNG 与调度器，见[协调器](checkpoint_coordinator.md)。

@@ -1,45 +1,30 @@
-# Dice loss
+# Dice 损失
 
-Status: `native target` in the default `jyppx::liuding::nn` component.
+包含 `<jyppx/liuding/nn/loss/dice_loss.hpp>`，链接 `jyppx::liuding::nn`。输入始终是 logits，调用前不再应用 sigmoid 或 softmax。
 
-Header: `#include <jyppx/liuding/nn/loss/dice_loss.hpp>`
+| 项目 | 接口约束 |
+| --- | --- |
+| binary | logits 与二值标签同为 `(N,...)`，sigmoid 生成一个隐式类别通道 |
+| multiclass | logits 为 `(N,C,...)`，整数类别标签为 `(N,...)`，使用 softmax |
+| multilabel | logits 与二值标签同为 `(N,C,...)`，各通道独立 sigmoid |
+| 统计范围 | 每个样本独立计算；类别轴后的空间维度展平 |
+| macro | 先计算各选定类别损失，再在样本内取平均 |
+| micro | 合并所选类别的交集和总量，再计算每个样本的损失 |
+| 背景 | `include_background=false` 排除显式通道0；binary 不支持该设置 |
+| 忽略 | `ignore_index` 仅用于 multiclass；忽略位置不计入统计且梯度为0 |
+| 空类别 | `include_empty_classes=false` 排除目标总量为0的类别；无可选类别时该样本贡献0 |
+| 数值参数 | `smooth` 有限非负，`epsilon` 有限且为正 |
+| reduction | `none` 返回 `(N)`；`mean`、`sum` 仅归约样本维 |
+| 输入 | 拒绝空 batch、类别或空间维；logits 和 target 必须位于相同 CPU/CUDA 设备 |
+| 错误 | 无效契约抛 `InvalidArgument`，后端异常保留嵌套原因 |
 
-Link target: `jyppx::liuding::nn`
-
-## Semantic matrix
-
-| Concern | Contract |
-|---|---|
-| Binary | Logits and binary targets share shape `(N, ...)`; sigmoid creates one implicit class channel |
-| Multiclass | Logits use `(N, C, ...)`; integral targets use `(N, ...)`; softmax creates mutually exclusive probabilities |
-| Multilabel | Logits and binary targets share shape `(N, C, ...)`; sigmoid is applied independently per channel |
-| Batch boundary | Dice statistics are computed independently per sample; batch items are never pooled together |
-| Spatial boundary | Every dimension after the explicit class axis is flattened into the per-class spatial domain |
-| Macro average | Compute one loss per selected class, then average selected classes within each sample |
-| Micro average | Pool selected class intersections and cardinalities, then compute one loss per sample |
-| Background | `include_background=false` removes explicit channel zero; binary mode rejects this option because it has no explicit class axis |
-| Ignore | `ignore_index` is multiclass-only; ignored locations contribute neither probabilities nor targets, and receive zero gradient |
-| Empty class | `include_empty_classes=false` excludes channels with zero target mass; a sample with no selected class contributes zero |
-| Smooth | Finite non-negative value added to the numerator and denominator |
-| Epsilon | Finite positive lower clamp for the complete denominator |
-| Reduction | `none` returns `(N)`; `mean` and `sum` reduce only across batch items |
-| Empty input | Any empty batch, class, or spatial dimension is rejected |
-| Device | Input and target must use the same CPU or CUDA device |
-| Errors | Invalid contracts raise `jyppx::liuding::InvalidArgument`; backend failures retain a nested cause |
-
-## Formula
-
-For each selected sample/class pair:
+对所选样本/类别计算：
 
 ```text
 dice = (2 * sum(probability * target) + smooth)
        / clamp_min(sum(probability) + sum(target) + smooth, epsilon)
 loss = 1 - dice
 ```
-
-Macro and micro aggregation use the boundaries in the semantic matrix. The input is always interpreted as logits; callers must not pre-apply sigmoid or softmax.
-
-## API forms
 
 ```cpp
 jyppx::liuding::nn::DiceLossOptions options;
@@ -53,7 +38,3 @@ auto loss = jyppx::liuding::nn::functional::dice_loss(logits, target, options);
 jyppx::liuding::nn::DiceLoss criterion(options);
 auto module_loss = criterion.forward(logits, target);
 ```
-
-## Verification
-
-The focused target covers hand-computed binary, multiclass, and multilabel references; macro/micro behavior; background and empty-class selection; ignore masking and zero ignored gradients; all-ignored samples; every batch reduction; non-contiguous spatial logits; backward finiteness; structured configuration and tensor-contract failures; module parity; and installed package consumption through `jyppx::liuding::nn`. A CUDA lane additionally compares float16 multiclass output with a CPU float32 reference and verifies finite backward gradients plus zero gradients at ignored locations.

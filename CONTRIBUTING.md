@@ -2,23 +2,13 @@
 
 提交问题时，请提供复现步骤、构建配置、LibTorch/编译器版本，以及必要的错误输出。修改代码时，围绕一个明确问题提交可审查的改动，并说明行为变化、验证结果和已知限制。
 
-开发计划编号与产品版本号分别维护。功能开发、模块升级和分支合并沿用当前产品版本，不自动修改 CMake、兼容清单或打包版本；产品版本调整按用户明确确定的版本安排执行。尚未发布的变更记入 `CHANGELOG.md` 的 `Unreleased`。
+产品版本只按明确的发布安排修改。功能开发、模块调整和分支合并不自动修改 CMake、兼容清单或打包版本；尚未发布的用户可见变更记入 `CHANGELOG.md` 的 `Unreleased`。
 
 ## 构建与验证
 
 项目使用 C++20 和 CMake 3.18+。先查看 [compatibility.json](compatibility.json) 和 [dependency-manifest.json](dependency-manifest.json)，准备对应的编译器、LibTorch 和依赖；已验证的版本组合与待验证组合分别记录，不能从版本范围推导支持。Windows 官方 Release LibTorch 要求匹配 Release CRT 和 `_ITERATOR_DEBUG_LEVEL=0`。
 
-兼容矩阵中的 `verified_lanes` 仅记录各自源码、组件 profile、设备和实际测试范围；开发切片通过不代表当前完整支持矩阵或 GA。`pending_lanes` 是尚未验证的精确候选，继承所属版本组的 LibTorch 版本，但必须显式声明自己的 `distribution`、环境和所需验证，保持 `status=candidate`、`verification_status=unverified`，不得填写测试成绩、验证证据或验证提交；只有真实验证完成后才能登记到 `verified_lanes`。
-
-LibTorch 2.14.1+cpu / GCC 11.4.0 / Ubuntu 22.04.5 x86_64 的选定 Debug coverage profile 已在干净提交 `4136aab` 上验证，包含原覆盖率策略和独立安装 SDK 消费者；2039 项合同分阶段为 1847 通过、192 条件跳过。该 profile 关闭 examples/docs 并排除 packaging 标签，不授予被跳过路径、其他平台/设备或完整发布资格；具体范围见兼容矩阵对应的 `verified_lanes`。启用通用 `onnx_export` 的 profile 要求精确 LibTorch 2.14.1，不能为复用历史 coverage 树降级依赖。
-
-同一 CPU/编译器组合的当前 Release SDK 共236件，包含明确的混合来源：230件（含17库、程序及基础二进制构建来源）保持干净提交 `42af0a6`，四个数据集模板头来自 `b3dc310`，共享采样内联头来自 `91aeccf`，ONNX导出静态库来自 `da65017`。导出库包含后缀flatten、形状算子及mean/sum的keepdim、归约前dtype和整数提升修复；正式安装消费者覆盖101次真实CPU ORT运行及3类动态可变秩拒绝，无源码头覆盖，235其他安装件保持。组件消费、分布式采样、委派内存与其他回归的身份和范围统一见兼容矩阵；`c444816` 的2189项完整选定合同保持历史资格。该混合安装不代表当前提交的全量SDK重建或完整支持矩阵，基础安装指纹不随后续来源元数据改变。
-
-Windows Release SDK 的基础安装已在干净提交 `93da49f` 完成18库/246件安装、独立八Core消费者及分阶段完整选定2123项CTest（2044通过、79条件跳过、0未解决失败），安装CLI的CPU/CUDA doctor通过。固定MSVC19.44.35227/CUDA12.9/sm86/LibTorch2.14.1+cu126与RTX3060 Laptop、driver576.02；两组件矩阵及用户暂停传输合同另列，实际安装指纹保持上述提交。一次模型元数据测试在断言通过后挂于LibTorch退出清理，定向复验正常退出；原异常保留，未宣称已修复，仍是发布资格限制。此结果不授予条件跳过路径或完整v1.0发布资格。
-
-当前Windows安装在上述基础上，ONNX导出静态库为 `09a5497`，数据静态库及Sampler/BatchSampler/DataPipeline三个公开头为 `4810958`；其余241/246件保持基础安装，构建指纹仍为 `93da49f`。ONNX已有820次CPU ORT安装运行及3类动态拒绝，Double Erf因CPU缺内核明确拒绝；本次新增96个LayerNorm Float/Double、可选仿射及归一化维度场景，另96次原生LibTorch与独立公式核对，仿射状态保持。最终84项源码合同、3项共享检查与1项正式消费零skip；既有数据管线和其他算子保持各自资格。现有消费者与39个共享DLL复用，无源码头覆盖；完整证据见兼容矩阵。该混合安装不代表当前main完整Windows SDK或GPU资格；Ubuntu环境与本次修复资格待既有主机身份变化核对后另验。
-
-分类评估示例已用上述Windows正式SDK独立编译，覆盖连续推理、首批检查点、新进程续评、协作取消、配置漂移拒绝及完成态报告重建；8条示例合同和3项共享检查零skip。实际9次CPU Linear forward、0训练更新，整体/来源指标及数据/模型/配置SHA经独立参考核对；三路线的最终评估状态及五份报告逐字节相同，完成态重放不调用模型或数据源。此验证不更新SDK，246安装文件、18框架库及39共享DLL保持；不据此授予代表性任务质量、GPU或完整当前main资格。运行与边界见[示例说明](examples/evaluation/classification/README.md)。
+兼容矩阵中的 `verified_lanes` 仅记录各自源码、组件 profile、设备和实际测试范围；局部验证通过不代表完整支持矩阵或正式发布资格。`pending_lanes` 是尚未验证的精确候选，继承所属版本组的 LibTorch 版本，但必须显式声明自己的 `distribution`、环境和所需验证，保持 `status=candidate`、`verification_status=unverified`，不得填写测试成绩、验证证据或验证提交；只有真实验证完成后才能登记到 `verified_lanes`。
 
 在仓库根目录分别运行以下两条命令，检查兼容矩阵和依赖声明：
 

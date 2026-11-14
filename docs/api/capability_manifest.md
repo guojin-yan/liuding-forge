@@ -1,32 +1,15 @@
-# Capability Manifest
+# 能力清单
 
-Header: `jyppx/foundation/capability.hpp`<br> Target: `jyppx::liuding::foundation`
+公共头文件为 `<jyppx/liuding/foundation/capability.hpp>`，链接 `jyppx::liuding::foundation`。`CapabilityManifest` 使用 schema1 描述一个实际构建或配置实例的能力；`BuildFingerprint` 标识二进制和后端构建，两者分别记录身份与能力。
 
-`CapabilityManifest` is the machine-readable schema-v1 contract for reporting
-what an exact JYPPX build and configured runtime object can do. It complements
-`BuildFingerprint`: the fingerprint identifies the binary and backend build,
-while capability entries describe verified feature scope without inferring support from a library name or successful compilation.
+`CapabilityDescriptor` 包含唯一 feature ID、正版本号、status（available/experimental/unsupported）、implementation（native/delegated/adapted/unsupported）、source（build/runtime/configured-instance）、backend、devices、dtypes、schemas、operations、数值限制与说明。
 
-Each `CapabilityDescriptor` has a unique feature ID and positive feature version. It separately records evidence status (`available`, `experimental`, or `unsupported`), implementation kind (`native`, `delegated`, `adapted`, or
-`unsupported`), observation source (`build`, `runtime`, or
-`configured-instance`), backend, devices, dtypes, schemas, executable
-operations, numeric limits, and human-readable limitations.
+`make_capability_manifest()` 接受显式构建指纹，`make_current_capability_manifest()` 绑定当前指纹；二者验证并规范化完整条目。重复 feature ID、集合值或限额名会拒绝，unsupported 条目不能声明可执行 operations。字符串与集合受固定资源预算约束。
 
-Use `make_capability_manifest()` with an explicit build fingerprint when reading stored evidence. Use `make_current_capability_manifest()` for live diagnostics. Both validate and canonicalize all entries. Duplicate feature IDs, collection values, and limit names are rejected, as are unsupported features that claim executable operations. Collections and strings have fixed resource bounds.
+`capability_manifest_json()` 验证副本并按条目、集合、限额和说明生成确定性紧凑 JSON，不修改调用者对象。数值限额保持 JSON number。
 
-`capability_manifest_json()` validates a copy and emits deterministic compact
-JSON. Feature entries, token collections, numeric limits, and limitations are
-sorted without modifying the caller's object. Limits remain JSON numbers.
+## 构建能力与运行实例
 
-`current_capability_manifest()` queries the exact package build without asking
-upper-layer targets to register into foundation. It reports one build-source entry for each of the twelve entity components. Components disabled at CMake configure time remain visible as `unsupported`, while enabled components are
-`available` except for the experimental data_image, models and
-serving profiles. `current_capability_manifest_json()` exposes the same inventory as
-deterministic JSON. Aggregate targets are package conveniences and are not
-reported as entity capabilities.
+`current_capability_manifest()` 返回 foundation 中显式登记的16个构建组件项，包括未开启的 unsupported 项；它不是全部 CMake target 的自动枚举。Models、Serving、图像、ONNX 和签名项按实现中的 experimental 标记报告，聚合 target 不独立登记；Vision 模型/任务组合另用[视觉 catalog](vision/index.md)查询。`current_capability_manifest_json()` 返回同一清单的规范 JSON。
 
-Domain targets do not define competing manifest types. They convert their own
-validated descriptors into foundation entries. The first integration is
-`describe_data_capability()`, which maps an existing configured
-`DataCapability`; future optimizer, scheduler, metric, strategy, runtime, and
-tool integrations use the same foundation schema.
+领域组件将自身描述转换为同一 foundation schema，例如 `describe_data_capability()` 描述配置后的数据能力。构建项存在不证明某个模型、dtype、设备或操作已经执行，应结合所选实例与[兼容矩阵](../../compatibility.json)判断。

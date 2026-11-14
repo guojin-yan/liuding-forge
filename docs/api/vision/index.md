@@ -1,6 +1,6 @@
 # 视觉模型训练套件
 
-视觉套件在同一个 C++ SDK 下提供模型选择、数据导入、训练与续训、验证、预测、参数搜索、权重转换及 ONNX 交付。当前功能处于开发阶段，尚未发布，产品版本配置沿用 `0.3.0`；架构实现、权重可用性、任务精度、恢复一致性与设备资格分别记录，`catalog` 中的资格字段不能用编译通过替代。仓库不附带预训练权重。
+视觉套件在同一个 C++ SDK 下提供模型选择、数据导入、训练与续训、验证、预测、参数搜索、权重转换及 ONNX 交付。产品尚未发布，源码版本为 `0.3.0`；架构实现、权重可用性、任务精度、恢复一致性与设备资格分别记录，`catalog` 中的资格字段不能用编译通过替代。仓库不附带预训练权重。
 
 ## 模型和组件
 
@@ -12,7 +12,7 @@
 | 既有骨干 | 复用 models 注册表 | classify、classify_multilabel |
 | 扩展视觉模型 | FCOS/BiFPN/ViT-Adapter、RetinaNet、SSD、Fast R-CNN、FCN/DeepLabv3、RT-DETR、YOLO-World/YOLOE、SimMIM、深度、ReID | 见[扩展任务](extensions.md) |
 
-原始 YOLOv6/v7、YOLOv5u、Ultralytics v6 适配版、YOLOv9/v10 不在本轮范围。Fast R-CNN、开放词汇、跟踪与新增训练策略的具体原生 profile 见[扩展任务](extensions.md)；任意骨干/Neck/Head 自由组合不在支持范围。已有骨干各自的输入尺寸、预训练与资格约束继续适用，注册表可查询不代表任意尺寸都能训练。
+模型选择以 `catalog` 返回的 architecture/task/variant 为准。Fast R-CNN、开放词汇、跟踪与新增训练策略的具体原生 profile 见[扩展任务](extensions.md)；任意骨干/Neck/Head 自由组合不在支持范围。已有骨干各自的输入尺寸、预训练与资格约束继续适用，注册表可查询不代表任意尺寸都能训练。
 
 代码按 `vision/models`、`vision/ops`、`vision/tasks/data`、`vision/tasks/training`、`vision/tasks/workflow` 集中组织。五个默认关闭的组件分别导出 `jyppx::liuding::vision_ops`、`models_yolo`、`models_rcnn`、`models_vision`、`vision_tasks`；RCNN 还依赖既有 `models`。统一工具使用独立开关 `JYPPX_LIUDING_BUILD_VISION_CLI`，不需要开启其他全部 CLI。
 
@@ -27,7 +27,7 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 ## 配方与统一入口
 
-[套件配方目录](../../../recipes/vision/suite/)包含各家族、五种任务和调参的起点。它们是参数模板，需修改类别数、数据路径、设备和预算，不是已取得 COCO/ImageNet 精度的训练方案。旧的 [YOLOv8 检测示例](../../../examples/vision/yolo_training.cpp)使用单独的示例格式，继续用于小数据演示；原任务使用 `schema_version: 1`，新增任务使用 schema2；[扩展配方](../../../recipes/vision/extensions/)集中存放新增模型起点。
+[套件配方目录](../../../recipes/vision/suite/)包含各家族、五种任务和调参的起点。它们是参数模板，需修改类别数、数据路径、设备和预算，不是已取得 COCO/ImageNet 精度的训练方案。旧的 [YOLOv8 检测示例](../../../examples/vision/README.md)使用单独的示例格式，继续用于小数据演示；原任务使用 `schema_version: 1`，新增任务使用 schema2；[扩展配方](../../../recipes/vision/extensions/)集中存放新增模型起点。
 
 ```powershell
 liuding-forge-vision catalog --output catalog.json

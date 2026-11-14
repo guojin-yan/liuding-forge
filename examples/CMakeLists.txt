@@ -529,17 +529,3 @@ if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo)
     jyppx_apply_instrumentation(jyppx_liuding_yolo_training)
     jyppx_add_torch_runtime_dependency(jyppx_liuding_yolo_training)
 endif()
-
-if(TARGET jyppx::liuding::models_vision AND TARGET jyppx::liuding::vision_tasks)
-    add_executable(jyppx_liuding_vision_extension_smoke EXCLUDE_FROM_ALL vision/extension_smoke.cpp)
-    target_link_libraries(jyppx_liuding_vision_extension_smoke PRIVATE
-        jyppx::liuding::vision_tasks jyppx::liuding::models_vision jyppx::liuding::vision_ops
-        jyppx::liuding::interop nlohmann_json::nlohmann_json)
-    jyppx_apply_instrumentation(jyppx_liuding_vision_extension_smoke)
-    jyppx_add_torch_runtime_dependency(jyppx_liuding_vision_extension_smoke)
-    if(TARGET jyppx_liuding_onnx_runtime)
-        target_compile_definitions(jyppx_liuding_vision_extension_smoke PRIVATE JYPPX_VISION_SMOKE_ONNX=1)
-        target_link_libraries(jyppx_liuding_vision_extension_smoke PRIVATE jyppx::liuding::onnx_runtime)
-        jyppx_add_onnx_runtime_dependency(jyppx_liuding_vision_extension_smoke)
-    endif()
-endif()

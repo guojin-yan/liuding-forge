@@ -1,100 +1,49 @@
-# TorchScript compatibility runtime
+# TorchScript 兼容运行时
 
-`jyppx/interop/torchscript_compatibility.hpp` provides real official
-`torch::jit::load` and `forward` execution for **explicitly trusted existing
-TorchScript archives**. It is deprecated compatibility support and requires the optional `interop -> nn` closure. It does not implement trace/export, discover plugins, resolve a model factory, or add executable formats to the data-only model bundle.
-
-This chapter's source and tests require integration and unified platform validation before any supported release claim. Presence of a backend descriptor or this source file is not execution evidence.
+公共头文件为 `<jyppx/liuding/interop/torchscript_compatibility.hpp>`。`TorchScriptCompatibilityRuntime` 通过 LibTorch JIT 加载并执行明确受信的既有归档；该接口属于 deprecated 兼容支持，需要 interop 与 nn，不提供 tracing/export 或插件发现。通用导出使用 [ONNX](onnx.md)。
 
 ```cpp
-using namespace jyppx::liuding;
-using namespace jyppx::liuding::interop;
+#include <jyppx/liuding/interop/torchscript_compatibility.hpp>
 
-nn::InvocationSchema input{
-    .positional = {ValueSchema::tensor(), ValueSchema::tensor()},
-    .keyword = {{"scale", ValueSchema{.kind = ValueKind::floating,
-                                     .required = false}}}};
-TorchScriptLoadOptions options;
-options.trust_source = true;  // Explicit executable producer/source approval.
-options.device = Device(c10::kCPU);
-auto runtime = TorchScriptCompatibilityRuntime::load(
+namespace forge = jyppx::liuding;
+namespace interop = forge::interop;
+
+forge::nn::InvocationSchema input{
+    .positional = {forge::ValueSchema::tensor(), forge::ValueSchema::tensor()},
+    .keyword = {{"scale", forge::ValueSchema{
+        .kind = forge::ValueKind::floating, .required = false}}}};
+interop::TorchScriptLoadOptions options;
+options.trust_source = true;
+options.device = forge::Device(c10::kCPU);
+
+auto runtime = interop::TorchScriptCompatibilityRuntime::load(
     archive_bytes, trusted_sha256, input,
-    ValueSchema::tuple({ValueSchema::tensor(), ValueSchema::tensor()}), options);
+    forge::ValueSchema::tuple({forge::ValueSchema::tensor(),
+                              forge::ValueSchema::tensor()}), options);
 auto result = runtime.invoke({.positional = {x, y}, .keyword = {}});
 runtime.close();
 ```
 
-The complete bytes are privately snapshotted and the **same snapshot** is hashed and passed to LibTorch's stream loader. A matching digest establishes byte identity, not trust in the producer. `trust_source` defaults to false and is required even for inspection, because loading an executable archive is not a data-only operation. Callers must exclude mutation while the source snapshot is made. No path is reopened after verification. Host-registered operators are resolved by official LibTorch; this adapter never loads a plugin from a bundle.
+## 加载与调用
 
-| Boundary | Exact supported contract |
-|---|---|
-| Device | `cpu` with no index or an actually available explicit `cuda:N`; no implicit CUDA device, MPS, meta or fallback |
-| Tensor inputs | Defined contiguous dense strided tensors on that exact device; bool, uint8, int8, int16, int32, int64, float16, bfloat16, float32, float64; no quantized/sparse/complex/conj/negative-view tensors |
-| Tensor outputs/state | Same dtype/device/layout families; outputs may have dense strided views and are copied to contiguous independent storage |
-| Scalars | Exact JIT `int`, `float`, `bool`, `str`, `None`; int-to-float conversion is not inferred |
-| Tuple | Unnamed fixed tuple with an exact schema for each element |
-| List | Official typed homogeneous `List[T]` with one matching element schema; empty lists must still have the correct type |
-| Dictionary | Official typed `Dict[str,T]`; every permitted key is in a closed schema and every field matches homogeneous `T`; no undeclared keys |
-| Optional | `Optional[T]` uses `nullable=true` and the matching non-null category; optionality is not inferred from a missing argument |
-| Excluded | `Any`, object/custom classes, named tuples, device IValues, futures, variadic methods, keyword-only JIT arguments and open/extra-key schemas |
+库先复制完整输入字节，再对同一私有快照计算摘要并交给 JIT stream loader，不重新打开路径。`trust_source` 默认 false，检查制品同样要求受信加载；SHA-256 只确认字节，生产者信任由调用方决定。快照期间保持输入静止，制品必须与所链接 LibTorch 兼容。
 
-These are boundary encodings. They do not claim every graph/operator supports every dtype/device. Unsupported kernels raise a backend error, with no implicit cast, transfer, backend switch, precision change or floating fallback. Ambient autocast must be disabled on the runtime device; an active context is rejected without changing caller state. The official JIT artifact itself must be compatible with the linked LibTorch lane; the adapter does not assert cross-version/ABI compatibility without fixture evidence.
+位置 schema 是实际 forward 参数的必需前缀，其余参数使用真实 JIT 名称声明 keyword。只有归档确有合法默认值且 schema 的 required=false 才允许省略；默认值加载时验证并复制，每次调用再独立快照。未知/缺失参数、隐式 int-to-float 或设备回退均拒绝。
 
-`InvocationSchema::positional` is an exact required prefix of the actual forward
-arguments. Every remaining argument must appear in `keyword` under its **real
-JIT name**; extra/missing schema entries fail load. An argument may be omitted
-only when its keyword schema has `required=false` and the artifact has a real
-default. That default is validated and snapshotted during load, then copied for
-each invocation. A defaulted argument can instead be declared required. A
-positional default is still explicitly supplied because the prefix is fixed.
-All runtime argument names, container types, scalar kinds, tensor constraints
-and results are checked. Default values are not copied into inspect metadata.
+| 输入/输出 | 支持边界 |
+| --- | --- |
+| 设备 | 无索引 CPU 或实际可用的显式 cuda:N；拒绝隐式 CUDA、MPS、meta 和 fallback |
+| Tensor | 输入须 contiguous dense strided；输出可为稠密视图并复制为独立连续存储；支持 bool、uint8、int8/16/32/64、float16、bfloat16、float32/64 |
+| 标量 | 精确 int、float、bool、str、None |
+| 容器 | 固定 unnamed tuple、同类型 List[T]、封闭 schema 的 Dict[str,T]、显式 nullable 的 Optional[T] |
+| 不支持 | sparse/quantized/complex/conj/negative view、Any/custom class、named tuple、future、可变参数和 keyword-only JIT 方法 |
 
-Each input tensor and mutable container is copied before execution. Shared
-storage/identity relationships between fields are intentionally not preserved;
-graphs depending on caller-visible aliasing are outside this value contract.
-Inputs must remain quiescent during copying. Outputs are independent inference
-snapshots, without autograd, and can outlive close. In-place output mutation must
-follow LibTorch inference-tensor rules. Scripted code can mutate its private
-model state, but returned storage cannot expose that private state.
+边界类型可表示不代表所有 JIT 算子均支持对应 dtype/device。运行设备的环境 autocast 必须关闭；内核不支持时直接失败，不自动转换。
 
-Calls on one runtime serialize. Close waits for the active call and releases the
-module/defaults; repeated close is valid. Move and destruction require exclusive
-ownership. Calls rejected before forward leave the runtime ready. Any exception,
-result mismatch, resource rejection, cancellation or deadline after entering
-forward closes it; partial scripted private-state changes are not rolled back.
-Calls after close fail. Backend diagnostics are retained as nested exceptions
-and are not echoed into top-level errors. The producer must ensure that graphs
-and host operators do not start untracked background mutations or access shared
-external mutable state; call serialization is not a sandbox for such code.
+## 状态与资源
 
-Stop tokens and absolute steady-clock deadlines are cooperative checks while
-waiting for the runtime and before/after backend work. They cannot preempt
-archive parsing, forward, copies, synchronization, kernels or a stuck operator.
-CUDA success includes device synchronization, which may also wait for unrelated
-device work. On an execution error draining is best effort; a failed CUDA context
-requires recovery by the process owner. A hard deadline or hostile model needs
-an externally isolated runner.
+输入及可变容器在执行前复制，不保留字段间共享存储关系；输出为无 autograd 的独立推理快照，可在 close 后使用。脚本可修改私有模型状态，调用方须保证图和宿主算子不启动未跟踪的后台修改；串行调用不构成沙箱。
 
-Limits bound compressed archive bytes, known parameter/buffer logical bytes,
-input/output snapshot logical tensor bytes, rank, arguments, strings and
-traversal/type metadata. Shared storage is conservatively charged for every
-occurrence. Known state is counted **after loading**, and output is bounded
-**after forward**, before snapshot publication. Embedded constants, temporary
-workspaces, archive decompression and arbitrary operator allocations are not
-prebounded process memory. Unknown dynamic attributes are not counted as named
-parameters/buffers. Inspect reports that narrow accounting explicitly.
+同一 runtime 串行执行。`close()` 等待当前调用并释放模型和默认值，可重复调用；move/析构需独占所有权。forward 前拒绝保持 ready，进入 forward 后的异常、结果不匹配、资源拒绝或取消会关闭实例，不回滚脚本的部分私有修改。后端诊断保留为嵌套原因。
 
-`tests/unit/interop/test_torchscript_compatibility.cpp` uses official C++ JIT
-definition/save/load fixtures, without Python, to exercise numerical execution, default/keyword binding, all ten dtype identity paths, typed containers, Optional/None, corruption/trust, state accounting, resources, failure closure, storage ownership, cancellation and concurrent private state. Define
-`JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA=1` only for a real CUDA lane; those tests require
-availability and never silently skip.
-
-The optional `scripts/interop/verify_torchscript_compatibility.py` requires an
-independently locked Python/PyTorch environment and a separately compiled test
-target with `JYPPX_TORCHSCRIPT_PYTHON_INTEROP=1`. It installs nothing, generates
-an official scripted artifact, verifies Python eager/scripted results, runs the
-real C++ fixture test and records artifact/executable digests and exact versions.
-Pass exact `--expected-python-version`, `--expected-torch-version`, the actual
-`--jyppx-commit`, `--cpp-test-executable`, and `--work-dir`; `--cuda` additionally
-requires both real CUDA and `JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA=1`. Missing or skipped tests fail. No Python interoperability evidence is claimed until this opt-in workflow actually passes. Do not install Torch into the telemetry sidecar env.
+stop/deadline 在锁等待和后端工作前后协作检查，不能抢占归档解析、forward、拷贝或 kernel。CUDA 成功返回包括设备同步。limits 约束归档字节、已知模型参数/缓冲、输入输出快照与遍历元数据；状态在加载后计数，输出在 forward 后计数，不能限制任意算子 workspace、解压或进程 RSS。

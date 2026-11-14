@@ -4,7 +4,7 @@
 
 通过 `<jyppx/liuding/foundation/version.hpp>` 中的 `jyppx::liuding::build_info()`、`jyppx::liuding::current_build_fingerprint()` 或 `jyppx::liuding::build_fingerprint_json()` 读取提交、编译器、系统架构、LibTorch 版本与 ABI/构建变体、加速器和依赖清单 SHA-256。运行时加速器可用性仍由原接口报告；多配置构建通过私有 `JYPPX_LIUDING_BUILD_TYPE` 编译定义记录实际编译配置。
 
-CMake 还安装 `share/jyppx/build-provenance.json`，固定五个字段：整数 `schema_version=1`、`project_version`、含可选 `+dirty` 的原始 `git_commit`、`dependency_lock_sha256` 和 `configuration`。其来源与私有头相同，配置值由 `$<CONFIG>` 展开。只有 foundation 归档成功构建后的 `POST_BUILD` 步骤才保存对应配置的记录；安装只复制该记录。重新配置而未构建时保留上次记录，Debug 构建也不会更新 Release 记录；没有成功构建记录的配置安装失败。首次引入该格式的私有 schema 宏会触发 `version.cpp` 重新编译；删除记录后，仅重新配置不会补回它。
+CMake 还安装 `share/jyppx/build-provenance.json`，固定五个字段：整数 `schema_version=1`、`project_version`、含可选 `+dirty` 的原始 `git_commit`、`dependency_lock_sha256` 和 `configuration`。其来源与私有头相同，配置值由 `$<CONFIG>` 展开。只有 foundation 归档成功构建后的 `POST_BUILD` 步骤才保存对应配置的记录；安装只复制该记录。重新配置而未构建时保留上次记录，Debug 构建也不会更新 Release 记录；没有成功构建记录的配置安装失败。删除记录后，仅重新配置不会补回它。
 
 来源值取自 CMake 配置时的快照。改变提交、工作树状态或依赖清单后，重新配置同一个构建目录并增量构建；来源变化会重编 `version.cpp`、更新 foundation 并重链接相关二进制。Git 状态包括未跟踪文件；存在改动或状态查询失败时追加 `+dirty`，提交不可用时记录 `unknown`，缺少依赖清单时记录 `unlocked`。普通源码、公开版本和组件变化仍按正常依赖关系重编。
 

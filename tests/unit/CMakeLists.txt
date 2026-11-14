@@ -1033,3 +1033,19 @@ if(TARGET jyppx::liuding::telemetry_http)
         message(FATAL_ERROR "Native HTTP wire acceptance requires the locked independent JYPPX_TELEMETRY_PYTHON checker")
     endif()
 endif()
+
+if(TARGET jyppx::liuding::models_vision AND TARGET jyppx::liuding::vision_tasks)
+    add_executable(jyppx_test_vision_extension_probe EXCLUDE_FROM_ALL vision/extension_probe.cpp)
+    set_target_properties(jyppx_test_vision_extension_probe PROPERTIES
+        OUTPUT_NAME liuding-forge-test-vision-extension-probe)
+    target_link_libraries(jyppx_test_vision_extension_probe PRIVATE
+        jyppx::liuding::vision_tasks jyppx::liuding::models_vision jyppx::liuding::vision_ops
+        jyppx::liuding::interop nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_test_vision_extension_probe)
+    jyppx_add_torch_runtime_dependency(jyppx_test_vision_extension_probe)
+    if(TARGET jyppx_liuding_onnx_runtime)
+        target_compile_definitions(jyppx_test_vision_extension_probe PRIVATE JYPPX_VISION_SMOKE_ONNX=1)
+        target_link_libraries(jyppx_test_vision_extension_probe PRIVATE jyppx::liuding::onnx_runtime)
+        jyppx_add_onnx_runtime_dependency(jyppx_test_vision_extension_probe)
+    endif()
+endif()

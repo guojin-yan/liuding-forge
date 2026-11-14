@@ -28,12 +28,12 @@ pwsh -NoProfile -File scripts/benchmarks/Run-Baseline.ps1 `
 
 ## 图像读取到训练更新
 
-启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE=ON` 与 benchmark 后，编译 `jyppx_bench_image_training`。输入是至少两个非空类别的本地 ImageFolder 目录，每个类别下放 JPEG/PNG 文件。下面的 runner 先读取所有选中图像计算内容摘要，使本轮明确为 warm-cache 测量，再启动一个独立预热进程与五个独立采样进程；`--output` 必须指向代码仓库外的新文件。
+启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE=ON` 与 benchmark 后，编译 `jyppx_bench_image_training`。输入是至少两个非空类别的本地 ImageFolder 目录，每个类别下放 JPEG/PNG 文件。下面的 runner 先读取所有选中图像计算内容摘要，使每次明确采用 warm-cache 测量，再启动一个独立预热进程与五个独立采样进程；`--output` 必须指向代码仓库外的新文件。
 
 ~~~powershell
-cmake --build out/build/config-windows --config Release --target jyppx_bench_image_training --parallel 2
+cmake --build out/build/benchmark-release --config Release --target jyppx_bench_image_training --parallel 2
 python scripts/benchmarks/run_image_training.py `
-  --binary out/build/config-windows/tests/benchmarks/Release/liuding-forge-bench-image-training.exe `
+  --binary out/build/benchmark-release/tests/benchmarks/Release/liuding-forge-bench-image-training.exe `
   --image-root F:/datasets/classification-train `
   --output F:/benchmarks/image-training-run.json `
   --batch-size 8 --image-size 32 --epochs 1 --threads 1
@@ -52,7 +52,7 @@ python scripts/benchmarks/run_image_training.py `
 
 CUDA LibTorch 构建可显式选择 `--device cuda:0`：CPU worker 组批后通过框架的 pin/transfer 阶段传输图像与标签，模型和优化器在同一 GPU 上更新；计时在 `Trainer::fit()` 前后同步 CUDA，并分别记录该区间 LibTorch allocator 的 allocated/reserved 显存峰值。CPU 模式的显存字段明确为不适用。模型均为随机初始化，不下载预训练权重，只用于性能测量和参数更新检查，不报告分类准确率或收敛质量。
 
-精度默认 `--precision fp32`。CUDA 可选 `--precision cuda-fp16`（FP32 参数，FP16 autocast）或 `--precision cuda-fp16-storage`（FP16 参数，FP16 autocast）；两者均使用动态 GradScaler，初始 scale 为 128，并校验所有预期 SGD 更新实际发生。FP16 参数存储没有额外的 FP32 主参数，数值与内存语义不同，比较时应使用同一精度模式。DINOv2 Large/Giant、DINOv3 ViT-L/L+/H+ 与 ConvNeXt-B/L 需要显式选择模型并单独串行运行；6 GiB GPU 上的 Giant 仅验证过最小输入的 FP16 参数存储路径。H+ 的 Ubuntu CPU FP32 和 CUDA FP16 参数存储路径已分别验证完整默认骨干在 224×224、batch 1、两个 worker 下完成两张合成图的两次无动量 SGD 更新，CUDA 使用 RTX 2060 6 GiB；带动量恢复的资源限制见[模型组件](../api/models.md#训练状态恢复)。7B 尚未接入该基准。报告记录完整参数元素数、精度、参数 dtype、初始/最终 scale 和优化步数；微型随机输入结果不代表真实任务质量或性能优势。
+精度默认 `--precision fp32`。CUDA 可选 `--precision cuda-fp16`（FP32 参数，FP16 autocast）或 `--precision cuda-fp16-storage`（FP16 参数，FP16 autocast）；两者均使用动态 GradScaler，初始 scale 为 128，并校验所有预期 SGD 更新实际发生。FP16 参数存储没有额外的 FP32 主参数，数值与内存语义不同，比较时应使用同一精度模式。大型变体需要显式选择并串行运行，按实际参数、精度、输入尺寸和优化器状态准备资源；7B 不在该基准入口中。报告记录完整参数元素数、精度、参数 dtype、初始/最终 scale 和优化步数；微型随机输入结果不代表真实任务质量或性能优势。
 
 `--workers 0` 是内联加载，`--workers 1..16` 使用有界 worker 预取，`--prefetch-batches 1..4` 控制在途批次数；比较不同配置时分别运行 runner 并保留各自结果。输出分别包含源索引/可选缓存准备时间、完整 fit 时间、含运行时和模型准备的总工作负载时间，以及两种时间口径各自的吞吐、常驻 Tensor 逻辑字节、`DataPipeline::next()` 消费端耗时、各 producer 阶段累计工作时间和进程寿命内峰值 RSS；训练后参数摘要用于核对三种模式的计算结果。并行时 producer 阶段可能重叠，累计时间不能直接相加为训练耗时，`next()` 耗时也不是纯队列等待；Tensor 缓存模式的读取阶段不进行文件解码，预缩放缓存的训练阶段也不重复执行固定 resize。CUDA allocator 峰值包含计时开始时仍驻留的模型/优化器资源及训练期分配，不包含驱动/context 或模型准备阶段的峰值。当前不测冷缓存、其他视觉任务或等价 PyTorch 基线，不能据此宣称速度、内存或显存优势。
 

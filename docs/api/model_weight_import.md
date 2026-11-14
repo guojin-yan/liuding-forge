@@ -16,4 +16,4 @@
 
 LibTorch 失败转换为框架错误并保留原异常为嵌套原因。有类型的后端内存不足和主机 `bad_alloc` 转为 `ResourceExhausted`，CUDA 同步失败转为 `DeviceError`，其他 LibTorch 失败转为 `BackendError`；分类不依赖后端错误文本。顶层消息和详情不复制原始后端诊断，嵌套原因只应在适当的诊断上下文中检查。
 
-完整支持范围仍待 Windows 与 Ubuntu/CUDA 的联合验收。
+设备及依赖组合以[兼容矩阵](../../compatibility.json)为准；导入前核对所用模型、dtype、映射和资源预算。

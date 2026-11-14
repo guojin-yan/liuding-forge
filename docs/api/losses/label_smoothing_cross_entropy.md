@@ -1,60 +1,28 @@
-# Label-smoothed cross entropy
+# 标签平滑交叉熵
 
-Status: `delegated adapter` in the default `jyppx::liuding::nn` component.
+包含 `<jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>`，链接 `jyppx::liuding::nn`。`nn::functional::label_smoothing_cross_entropy` 将 Tensor 数学运算委派给 `torch::nn::functional::cross_entropy`，数值和梯度由所链接的 LibTorch 决定。
 
-Header: `#include <jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>`
+类别索引目标按 `label_smoothing=epsilon` 与均匀类别分布混合。`epsilon=0` 是普通交叉熵，`epsilon=1` 仅使用均匀分布。
 
-Link target: `jyppx::liuding::nn`
-
-## Purpose
-
-`jyppx::liuding::nn::functional::label_smoothing_cross_entropy` gives training code a
-stable JYPPX entry point while delegating all tensor mathematics to
-`torch::nn::functional::cross_entropy`. JYPPX does not maintain a duplicate
-kernel or a separately evolving formula.
-
-For `C` classes and smoothing value `epsilon`, the class-index target is mixed with the uniform class distribution using LibTorch's `label_smoothing` option.
-`epsilon = 0` is ordinary cross entropy; `epsilon = 1` uses only the uniform
-distribution.
-
-## Semantic matrix
-
-| Concern | Contract |
-|---|---|
-| Classification | Delegated adapter; numerical authority is the linked LibTorch build |
-| Input | Floating-point logits shaped `(C)`, `(N, C)`, or `(N, C, d1, ..., dK)` |
-| Target | Class indices shaped `()`, `(N)`, or `(N, d1, ..., dK)` |
-| Smoothing | Finite value in the closed interval `[0, 1]` |
-| Reduction | `none`, `mean`, or `sum` |
-| Ignore index | LibTorch default `-100`; not configurable in this focused adapter |
-| Class weights | Not exposed; use LibTorch directly when weights are required |
-| Device | CPU and CUDA when supported by the linked LibTorch build |
-| Dtype | Follows LibTorch cross entropy; float32/float64 are baseline, CUDA float16 is tested when available |
-| Empty input | Delegated to LibTorch; `none` preserves an empty target shape |
-| Non-contiguous input | Supported when LibTorch accepts the same logical shape |
-| Gradient | Autograd graph and backward values are those of LibTorch cross entropy |
-| State | None; the module stores only smoothing and reduction configuration |
-| Errors | JYPPX validates configuration and defined tensors; backend failures retain the nested LibTorch cause |
-
-## API forms
+| 项目 | 接口约束 |
+| --- | --- |
+| logits | 浮点 `(C)`、`(N,C)` 或 `(N,C,d1,...,dK)` |
+| target | 类别索引 `()`、`(N)` 或 `(N,d1,...,dK)` |
+| smoothing | 有限且在 `[0,1]` 内 |
+| reduction | `none`、`mean` 或 `sum` |
+| ignore_index | 固定为 LibTorch 默认值 `-100` |
+| 类别权重 | 此适配器不暴露该选项 |
+| 设备与 dtype | 遵循所链接 LibTorch 的交叉熵实现及实际 CPU/CUDA 能力 |
+| 空输入与布局 | 由 LibTorch 决定；`none` 保留空目标形状，可接受后端支持的非连续输入 |
+| 状态与错误 | 模块仅存配置；库校验配置及已定义 Tensor，后端异常保留嵌套原因 |
 
 ```cpp
 namespace F = jyppx::liuding::nn::functional;
 
 auto loss = F::label_smoothing_cross_entropy(logits, target, 0.1, "mean");
 
-jyppx::liuding::nn::LabelSmoothingCrossEntropy criterion(0.1, "mean"); auto module_loss = criterion.forward(logits, target);
+jyppx::liuding::nn::LabelSmoothingCrossEntropy criterion(0.1, "mean");
+auto module_loss = criterion.forward(logits, target);
 ```
 
-Use LibTorch's cross-entropy API directly when class weights, a custom ignore
-index, or probability targets are part of the training contract. The JYPPX
-adapter intentionally stays narrow instead of partially duplicating those
-options.
-
-## Verification
-
-The target test suite compares forward and backward results with LibTorch for
-all reductions, unbatched and spatial inputs, non-contiguous tensors, boundary
-smoothing values, empty unreduced input, invalid configuration, and CUDA
-float16 when a CUDA runtime is available. The installed-package smoke test
-also compiles and runs a consumer linked only to exported component targets.
+需要类别权重、自定义 ignore index 或概率目标时，直接使用 LibTorch 交叉熵接口。

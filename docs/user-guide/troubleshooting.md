@@ -1,34 +1,28 @@
-# Troubleshooting Guide
+# 故障排查
 
-This guide covers common configuration, training, and deployment failures. When reporting a problem, include the CMake command, LibTorch version, device, and first exception message.
+报告问题时提供 CMake 配置、LibTorch 版本、设备、实际启动命令和首个异常。环境组合以[兼容矩阵](../../compatibility.json)为准。
 
-## Build issues
+## 构建问题
 
-### LibTorch cannot be found
+### 找不到 LibTorch
 
-If CMake reports `Could NOT find Torch`, point `CMAKE_PREFIX_PATH` at the
-`libtorch` directory containing `share/cmake/Torch/TorchConfig.cmake`:
+将 `CMAKE_PREFIX_PATH` 指向包含 `share/cmake/Torch/TorchConfig.cmake` 的 LibTorch 目录；必要时显式设置 `Torch_DIR`：
 
-```bash
-cmake -S . -B out/build/release -DCMAKE_PREFIX_PATH=/opt/libtorch \ -DTorch_DIR=/opt/libtorch/share/cmake/Torch
+```sh
+cmake -S . -B out/build/release -DCMAKE_PREFIX_PATH=/path/to/libtorch -DTorch_DIR=/path/to/libtorch/share/cmake/Torch
 ```
 
-Reuse the existing build directory and reconfigure with explicit
-`CMAKE_PREFIX_PATH` and `Torch_DIR` when changing LibTorch, then rebuild the
-affected targets. A compiler or generator change requires a separate build directory. The bundled layout is detected automatically when installed in
-`third_party/install/libtorch`.
+保留已有兼容缓存的生成器、编译器和依赖路径。改变编译器或生成器时使用新的构建目录；修改依赖后重建受影响目标。默认依赖布局可使用 `third_party/install/libtorch`。
 
-### MSVC crashes in a Torch DLL
+### MSVC 在 Torch DLL 内崩溃
 
-Official Windows LibTorch packages use the release dynamic CRT. JYPPX selects
-`/MD` and `_ITERATOR_DEBUG_LEVEL=0` for every configuration. Do not override
-those settings or mix Debug and Release LibTorch binaries. Reconfigure from a clean build directory after changing the toolchain.
+Windows 官方 LibTorch 二进制使用 Release 动态 CRT。本项目选择 `/MD` 和 `_ITERATOR_DEBUG_LEVEL=0`，所有配置须保持一致；避免混用 Debug/Release 的 LibTorch 和不匹配的标准库布局。
 
-## Runtime issues
+## 运行问题
 
 ### Windows 训练完成后进程不退出
 
-Windows 的 LibTorch 2.14.1 OpenMP 版本需要在主线程进入训练或配置线程数量前调用 `jyppx::liuding::initialize_runtime()`。该入口初始化辅助 Caffe2 线程池，避免 Windows 终止其他线程后，其 DLL 退出清理再次等待已终止线程持有的锁。框架 CLI 已接入；直接使用 C++ SDK 的程序应在 `main` 开始时调用：
+在主线程首次配置或使用 LibTorch、启动 worker 之前调用 `jyppx::liuding::initialize_runtime()`。该入口针对 Windows LibTorch 2.14.1 的适用 OpenMP 配置初始化辅助线程池，规避 DLL 退出期间的锁等待。CLI 已调用；直接消费 SDK 的应用应在 `main` 开始时调用：
 
 ```cpp
 #include <jyppx/liuding/core/runtime.hpp>
@@ -37,41 +31,28 @@ Windows 的 LibTorch 2.14.1 OpenMP 版本需要在主线程进入训练或配置
 int main() {
   jyppx::liuding::initialize_runtime();
   at::set_num_threads(4);
-  // 在这里创建模型并执行训练。
+  // 创建模型与管线，然后训练。
 }
 ```
 
-初始化保留原有 intra-op 和 inter-op 配置，重复调用不会覆盖后续设置；OpenMP/MKL 仍按调用方设置并行计算，辅助 pthreadpool 内的工作改为同步执行。其他运行时配置无需调整。若程序或其他库已先初始化多线程辅助池，该入口不能事后修复；应调整启动顺序，不能用强制退出或忽略超时替代正常资源释放。
+重复调用不会覆盖后续线程设置，OpenMP/MKL 仍按调用方配置计算。若其他代码已提前创建多线程辅助池，应调整启动顺序；该入口不能事后修复已创建的池。
 
-### CUDA out of memory
+### CUDA 显存不足
 
-Reduce `batch_size`, use `TrainerOptions::accumulate_steps`, or configure a CPU
-`SingleDeviceStrategy`. A smaller pipeline `prefetch_batches` value limits
-queued batches. Release references to old batches before the next iteration.
+减小 batch，使用 `TrainerOptions::accumulate_steps`，或将 `SingleDeviceStrategy` 显式配置为 CPU。减少 `prefetch_batches` 可限制在途批次数；及时释放旧批次和不再使用的输出。预取容量与 Tensor 字节预算不是全部进程显存的硬上限。
 
-### Loss becomes NaN or Inf
+### loss 为 NaN 或 Inf
 
-Check inputs and targets with `jyppx::liuding::is_finite`, lower the learning rate, and
-inspect normalization divisors. With AMP, use `GradScaler`; an overflow sets
-`found_inf()` and skips the optimizer step while backing off the scale.
+核对输入、标签、归一化分母及学习率，可用 `jyppx::liuding::is_finite` 检查 Tensor。CUDA FP16 配置需要启用的 GradScaler 及其参与者；溢出周期跳过优化器更新并降低 scale，计数和调度不得当作成功更新推进。见[混合精度教程](../tutorials/05_mixed_precision.md)。
 
-### DataPipeline order or worker failures
+### 数据顺序或 worker 异常
 
-DataPipeline output order follows the sampler even when workers finish out of order. Use `SequentialSampler` to isolate ordering bugs, or use a fixed sampler seed and explicit `set_epoch()` calls for repeatable shuffled runs. A worker's non-JYPPX exception is reported as `jyppx::liuding::BackendError` by `next()`, so catch it at the job boundary and reproduce with `num_workers = 0`. Dataset access and captured factory state must be thread-safe when workers are enabled.
+DataPipeline 按 sampler 顺序提交。先用 `num_workers=0` 排查 factory，再以固定 seed 和显式 `set_epoch()` 检查并发路径；worker 访问的数据和捕获对象必须线程安全。非框架异常会由 `next()` 转为 `BackendError`。不要在多个 owner 中并发修改同一管线。
 
-### Checkpoint does not load
+### 检查点恢复失败
 
-Prepare a fresh domain with identical Trainer options and participant IDs, topology, model shapes, optimizer groups, scheduler tree, callbacks, data and RNG scope. Then pass a complete `CheckpointStateSource` to
-`restore_checkpoint()`. Each participant accepts only its declared current
-schema and any explicitly supported N-1 reader. Unknown versions, incompatible
-topology and partial participant sets are rejected. Keep the original domain
-and checkpoint available for rollback; use an explicit offline migration or
-start a new checkpoint lineage when no supported reader exists.
+新建与原任务兼容的域，保持模型形状、参与者 ID、优化器组、scheduler 树、精度、数据身份、worker 拓扑和 RNG 范围一致。将完整 `CheckpointStateSource` 交给 `restore_checkpoint()`；未知 schema、不兼容拓扑和缺失参与者会被拒绝。没有受支持的读取或迁移路径时，保留原应用和检查点用于回退，或建立新的训练任务。
 
-## Performance diagnosis
+## 性能排查
 
-Warm up for one epoch before measuring. Compare `num_workers = 0, 1, 2, 4`
-and adjust total `prefetch_batches`; too many workers add context-switch
-overhead.
-The benchmark executables under `tests/benchmarks` print CSV that can be saved
-with the commit and compared across machines.
+固定模型、数据、输入形状、dtype、设备、线程和依赖，每次只调整一个参数，分别记录预热与测量。先比较内联及少量 worker，再调整预取；CUDA 计时须明确同步边界。操作方法见[性能调优](performance_tuning.md)和[benchmark 指南](../benchmarks/README.md)。

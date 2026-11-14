@@ -225,9 +225,14 @@ Compose pipeline({
 
 ## Samplers
 
-`#include <jyppx/liuding/data/samplers/...>`
+采样器位于 `jyppx::liuding::data::samplers`，按所用类型包含对应头文件；下列具体采样器均继承 `Sampler`。
 
-下列具体采样器均继承 `Sampler`。
+| 头文件 | 类型 |
+| --- | --- |
+| `<jyppx/liuding/data/samplers/sequential_sampler.hpp>` | `SequentialSampler` |
+| `<jyppx/liuding/data/samplers/random_sampler.hpp>` | `RandomSampler` |
+| `<jyppx/liuding/data/samplers/batch_sampler.hpp>` | `BatchSampler` |
+| `<jyppx/liuding/data/samplers/weighted_random_sampler.hpp>` | `WeightedRandomSampler`、`SubsetRandomSampler`、`DistributedSampler` |
 
 ```cpp
 class Sampler { public:
@@ -253,6 +258,6 @@ class DistributedSampler;     // rank/world_size sharding
 
 `BatchSampler` 将 `set_epoch()`、epoch 能力和状态保存/恢复转发给底层 sampler；配置身份同时绑定底层类型/配置、批大小及尾批策略。底层缺少稳定身份时不提升恢复等级；底层支持状态、身份与确定性 batch factory 时，管线可按原合同精确恢复已提交游标及后续 epoch。旧版未记录该配置身份的 BatchSampler 管线状态会被视为拓扑不兼容，须使用原版本恢复。
 
-`DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` 按显式 rank/world_size 划分 epoch，不丢弃尾部时会补齐各 rank 的样本数；每个 epoch 调用一次 `set_epoch()`。状态为 `save_state()` 生成的规范无符号十进制，接受 0 至最大 `uint64_t`，拒绝符号、空白、前导零、尾字节及溢出；拒绝时当前 epoch 和后续顺序保持不变。既有合法状态格式保持可读。rank/world_size 由外部启动器或任务配置提供，v1.0 未提供进程组 API。
+`DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` 按显式 rank/world_size 划分 epoch，不丢弃尾部时会补齐各 rank 的样本数；每个 epoch 调用一次 `set_epoch()`。状态为 `save_state()` 生成的规范无符号十进制，接受 0 至最大 `uint64_t`，拒绝符号、空白、前导零、尾字节及溢出；拒绝时当前 epoch 和后续顺序保持不变。既有合法状态格式保持可读。rank/world_size 由外部启动器或任务配置提供，当前库未提供进程组 API。
 
-Pass a custom sampler to the `DataPipeline` constructor for index strategies the built-ins do not cover, such as weighted sampling.
+内置策略不能满足需求时，可将自定义 `Sampler` 传给 `DataPipeline`；其配置身份、epoch 与状态接口需符合所需的恢复等级。

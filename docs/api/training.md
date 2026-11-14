@@ -69,7 +69,9 @@ auto diagnostics = std::make_shared<jyppx::liuding::training::TrainingDiagnostic
         .measure_data_wait = true,
     });
 request.diagnostics = diagnostics;
-// trainer.prepare(request); trainer.fit();
+// request 的模型、数据源和优化器等依赖需先配置完整。
+trainer.prepare(request);
+trainer.fit();
 const auto statistics = diagnostics->snapshot();
 ```
 

@@ -6,6 +6,6 @@
 
 对象数、顶点/关键点/RLE run 数、像素数、输出字节和 raster 操作数均有单次调用上限。raster 预算覆盖基础像素转换、整图 overlay 扫描和可见绘制像素，支持 `stop_token` 取消。无效通道/尺寸、非有限热图、超限几何和超预算调用会在返回结果前失败。
 
-该切片不包含文字和字体、mosaic、PNG/JPEG 编码与文件 sink、CUDA 绘制、模型后处理或 metric。调用方需要自行选择可视化颜色和结果保存策略；不得将绘制能力视为图像编码或完整可视化支持。
+该组件不包含文字和字体、mosaic、PNG/JPEG 编码与文件 sink、CUDA 绘制、模型后处理或 metric。调用方需要自行选择可视化颜色和结果保存策略；不得将绘制能力视为图像编码或完整可视化支持。
 
 构建时显式启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE=ON` 与 `JYPPX_LIUDING_BUILD_VISION_RENDER=ON`，安装后通过 `find_package(jyppx CONFIG REQUIRED COMPONENTS vision_render)` 发现，并链接 `jyppx::liuding::vision_render`。

@@ -1,12 +1,18 @@
-# Performance Tuning Guide
+# 性能调优
 
-JYPPX performance depends on the input pipeline, batch shape, device, and optimizer state. Change one setting at a time and record throughput with the LibTorch and compiler versions.
+固定数据、模型、batch 形状、精度、设备、优化器和依赖版本，每次只修改一个参数；预热与正式采样分开，保存实际构建指纹和工作负载。基准运行方法见 [benchmark 指南](../benchmarks/README.md)。
 
-## DataPipeline optimization
+## 数据管线
 
-Start with `num_workers = 0` as a baseline. Increase it until the device is fed continuously; a useful starting point is logical CPU cores minus two, capped by the number of batches that can be in flight. `prefetch_batches` is the total scheduled-but-uncommitted batch capacity for the pipeline. Start with two to four batches and increase it only when measurements show consumer starvation; larger values consume memory and enlarge bounded replay work.
+先用 `num_workers=0` 建立内联基线，再逐步增加少量 worker；按端到端吞吐判断收益。`prefetch_batches` 是已调度但未提交的总批次容量，不是每个 worker 的容量或内存硬上限。增加预取会占用更多内存并增加需要重放的工作。
 
-If the desired effective batch does not fit device memory, use accumulation:
+固定 sampler seed，显式设置 epoch；随机 factory 使用稳定的 `DataWorkerContext` 和样本身份，避免可变全局 RNG。只读 Tensor 可共享，需要原位修改的样本由调用方复制。
+
+CUDA 输入可使用 `pin_memory` 和显式 `target_device`。worker 负责验证/pin，`next()` 的调用线程负责传输；`non_blocking` 不创建隐式 stream，也不代替跨 stream 生命周期同步。边界见[数据 API](../api/data.md)与[批次变换](../api/batch_consumer_transform.md)。
+
+## 训练配置
+
+有效 batch 超过设备容量时，使用梯度累积，并按任务核对损失归一化：
 
 ```cpp
 jyppx::liuding::training::TrainerOptions options;
@@ -14,59 +20,20 @@ options.accumulate_steps = 4;
 options.gradient_clip_norm = 1.0;
 ```
 
-Use a fixed sampler seed and pass the logical epoch to `set_epoch()` for deterministic shuffled experiments. A deterministic batch factory must derive random work from `DataWorkerContext::worker_seed`. Custom datasets should return cloned samples when a shared backing tensor could be mutated.
+通过 `TrainerOptions::precision` 显式选择精度。CUDA FP16 需要启用的 GradScaler 及其检查点参与者；BF16 不使用 loss scaling。溢出跳步不推进成功更新计数或 batch 调度器，见[混合精度教程](../tutorials/05_mixed_precision.md)。改变 batch、精度或参数布局时重新核对误差与任务质量。
 
-For CUDA input, return CPU tensors from the batch factory and enable
-`pin_memory` with a CUDA `target_device`. Workers validate and pin batches;
-the thread calling `next()` performs the device transfer on its current CUDA
-stream. Install a custom stream guard around `next()` when input copies must be
-ordered on a non-default training stream. `non_blocking` requests asynchronous
-transfer but does not create or synchronize a hidden stream.
+## 选择测量入口
 
-## Training optimization
+| CMake target | 用途 |
+| --- | --- |
+| `jyppx_bench_data_pipeline` | worker、factory 耗时、取批延迟和在途队列 |
+| `jyppx_bench_trainer_throughput` | 固定训练负载吞吐 |
+| `jyppx_bench_image_training` | 图像读取、缓存、变换、组批到真实训练更新 |
+| `jyppx_bench_memory_usage` | 数据 worker 配置的驻留内存观测 |
+| `jyppx_bench_optimizer_convergence` | 固定优化器工作负载 |
+| `jyppx_bench_cuda_training` | CUDA FP32 或带 GradScaler 的 FP16 训练 |
+| `jyppx_bench_cuda_optimizer` | 排除模型与数据加载的 CUDA 优化器计时 |
 
-Use Adam or AdamW as a robust baseline and tune learning rate before changing
-momentum or betas. Larger batches may permit a larger learning rate, but check
-the first epochs rather than assuming linear scaling. Use `drop_last` when a
-model requires equal batch shapes.
+目标定义见 [tests/benchmarks/CMakeLists.txt](../../tests/benchmarks/CMakeLists.txt)，程序文件使用 `liuding-forge-bench-*` 前缀。启用 `JYPPX_LIUDING_BUILD_BENCHMARKS` 及对应组件后显式构建；CUDA 基准使用 `scripts/benchmarks/run_cuda_baseline.py` 采样。
 
-Select precision explicitly through `TrainerOptions::precision`. CUDA float16
-requires an enabled `GradScaler` and its checkpoint participant in
-`FitRequest`; CPU/CUDA bfloat16 deliberately run without loss scaling. There
-is no implicit `use_amp` option. Overflowed float16 updates do not advance the Trainer global step or scheduler and publish `optimizer.applied=0`.
-
-## Profiling and memory
-
-Profile a complete epoch, separating pipeline wait from forward/backward time. The DataPipeline benchmark simulates preprocessing:
-
-```text
-out/build/baseline-release/tests/benchmarks/Release/liuding-forge-bench-data-pipeline.exe \
-  --work-ms 2 --batches 64 --batch-size 32 --workers 4
-```
-
-Run each worker count in a separate process when comparing peak memory. The CSV also reports p50/p95 batch latency, sampled outstanding queue depth, aggregate factory worker utilization, peak active workers, and resident-memory delta. Queue depth is diagnostic: lower is not automatically better because an empty queue may indicate consumer starvation.
-
-`bench_trainer_throughput` reports samples per second for batch sizes 16, 32,
-64, and 128. `bench_optimizer_convergence` emits 100 loss values for SGD,
-Adadelta, Adagrad, Adam, AdamW, LAMB, NAdam, and RMSprop.
-`bench_sgd_adapter_overhead` and
-`bench_adam_adapter_overhead` measure the local median cost of adapter
-preflight relative to direct LibTorch execution. The equivalent
-`bench_adamw_adapter_overhead` covers decoupled AdamW, while
-`bench_rmsprop_adapter_overhead` covers centered RMSprop with momentum and
-`bench_adagrad_adapter_overhead` covers decayed Adagrad with a nonzero initial
-accumulator. The supported LibTorch C++ candidates expose neither NAdam, Adadelta, nor LAMB, so `bench_nadam_native_throughput`, `bench_adadelta_native_throughput`, and
-`bench_lamb_native_throughput` report
-absolute median time per step instead of invalid adapter/native ratios.
-`bench_memory_usage` reports resident bytes for worker counts 0, 1, 4, and 8.
-Compare PyTorch with the same seed, model, tensors, dtype, and steps. These are engineering measurements, not universal limits.
-
-For a real-GPU end-to-end baseline, build `jyppx_bench_cuda_training` (which outputs `liuding-forge-bench-cuda-training`) against CUDA LibTorch and invoke it through `scripts/benchmarks/run_cuda_baseline.py`. The frozen workload covers FP32 with one SGD optimizer and FP16 autocast with two disjoint SGD optimizers plus one Trainer-owned GradScaler cycle. Each process verifies the committed Trainer and optimizer steps before publishing throughput, mean step time, peak allocated VRAM, and peak reserved VRAM. Timing is enclosed by CUDA synchronization. The runner keeps raw process output, samples transient GPU state, requires at least five stable samples per mode, and binds references to the complete build/workload/GPU environment.
-
-For optimizer-only diagnosis, build `jyppx_bench_cuda_optimizer` (which outputs `liuding-forge-bench-cuda-optimizer`) and pass
-`--suite optimizer` to the same runner. This removes data loading, model
-forward/backward, and Trainer orchestration from the timed region while keeping
-real CUDA synchronization and allocator peaks. It runs all eight optimizers by
-default. Compare each mode only with a reference created from the same mode and
-environment key; absolute timings across algorithms reflect different update
-semantics and state sizes and are not directly interchangeable.
+分别记录源准备、完整 fit 与端到端耗时。producer 的累计并行时间不能相加为墙钟时间，`next()` 耗时也不等于纯队列等待。CUDA 计时明确同步边界；allocator allocated/reserved、进程 RSS 和逻辑 Tensor 字节是不同口径。只比较相同环境与工作负载的结果，微型随机数据不提供实际任务质量或跨机器性能结论。

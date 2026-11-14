@@ -6,7 +6,9 @@ secret-reference validation as `config lint`. It does not infer historical
 formats or change an application's configuration in place.
 
 ```text
-liuding-forge config migrate --input config.json --plan migration.json --to-version 2 --format json liuding-forge config migrate --mode apply --input config.json --plan migration.json --to-version 2 --output migrated-config --format json liuding-forge config migrate --mode rollback --receipt migrated-config --plan migration.json --output restored-config --format json
+liuding-forge config migrate --input config.json --plan migration.json --to-version 2 --format json
+liuding-forge config migrate --mode apply --input config.json --plan migration.json --to-version 2 --output migrated-config --format json
+liuding-forge config migrate --mode rollback --receipt migrated-config --plan migration.json --output restored-config --format json
 ```
 
 The default mode is `preview`, which accepts no `--output`. `apply` and
@@ -34,7 +36,12 @@ The following complete plan changes the timeout unit and supplies a new value
 only when it is absent. The reverse step is independently declared:
 
 ```json
-{ "schema_version": 1, "plan_id": "example-timeout-v1-v2", "feature_id": "CONFIG-MIGRATION", "schema_id": "example.training", "schemas": [
+{
+  "schema_version": 1,
+  "plan_id": "example-timeout-v1-v2",
+  "feature_id": "CONFIG-MIGRATION",
+  "schema_id": "example.training",
+  "schemas": [
     {
       "schema_version": 1,
       "schema_id": "example.training",

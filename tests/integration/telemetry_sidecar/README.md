@@ -4,7 +4,7 @@
 
 `NativeOtlpCollectorInterchange` 使用 `tests/scripts/test_native_otlp_collector.py` 检查原生 API、SQLite CLI重放与真实 Collector；TensorBoard与离线 OTLP的独立官方读写参考位于 `tests/reference/telemetry`，不安装到 SDK。启用 `JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY` 时必须提供锁定的测试 CPython、Collector及原生 telemetry组件，不静默跳过。
 
-历史运行结果仍绑定原源码和原协议，不转授当前 HTTPS、持久 ACK或完整章节资格。
+这些测试分别检查原生协议与 Collector 互通；HTTPS 信任、远端持久 ACK 和跨进程去重不由进程测试代替。
 
 `NativeOtlpCollectorDurableQueue` 使用同一锁定 Collector 和原生 HTTP harness，验证 `collector-durable-queue.yaml` 中无前置 batch processor、`file_storage`、`fsync: true` 与持久 sending queue 的组合。日志、指标及其源审计、追踪各有持久恢复和非持久丢失对照，共六场景；指标核对 gauge 值、定义和完整源审计，追踪核对时间锚点与确定性 trace/span ID。下游先持续返回 503，原生客户端确认接受并完成进程内重复检查后，测试直接强杀 Collector，再以原队列重启；不重放客户端，要求该事件的所有请求完整到达下游，并再次重启检查已完成项不再发送。相同配置去掉 queue 的 storage 后作为非持久对照，确认已获协议响应的事件在该崩溃观察中丢失。
 

@@ -179,7 +179,7 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 
 跨 job 的检查与准入用同一非继承文件锁串行化；占用先于 attempt/intent 持久化。预算不足返回 `resource_unavailable`（退出码 7），尚未创建 attempt 或启动程序；锁繁忙返回 `resource_busy`，可稍后用 `local recover` 继续。即使没有声明 `resources`、容量池尚未启用，同一 STORE 的新增 attempt 也参与该短临界区，避免首次启用容量时遗漏同时启动的任务；竞争失败不会创建 attempt 或启动程序，也不会静默等待或自动重试。恢复复用原占用身份，父调用者崩溃或未知 attempt 不释放容量。启用容量后，未声明资源的新增 attempt 返回 `resource_request_required`；启用前仍未确认的旧 attempt 返回 `resource_unmanaged_attempt`。旧结果没有原生清理确认时，请使用独立 STORE，不能据终态或空锁推断资源可释放。
 
-释放记录同时绑定 lease、intent、worker、result 与双流摘要，并要求原生清理确认。Windows 要求 leader 已退出且 Job 活跃进程为零；Ubuntu 要求直接子进程已回收且原进程组不存在。组内尚未回收的僵尸也会保守保留占用；清理未确认返回 `resource_cleanup_unconfirmed`（退出码 7），不会强制解锁、重启或扩大容量。跨机器共享 STORE、其他 STORE、外部程序及逃离 POSIX 原进程组的进程不在该准入范围。系统级 RSS/显存硬限额与真实 GPU 资源资格仍待完成。
+释放记录同时绑定 lease、intent、worker、result 与双流摘要，并要求原生清理确认。Windows 要求 leader 已退出且 Job 活跃进程为零；Ubuntu 要求直接子进程已回收且原进程组不存在。组内尚未回收的僵尸也会保守保留占用；清理未确认返回 `resource_cleanup_unconfirmed`（退出码 7），不会强制解锁、重启或扩大容量。跨机器共享 STORE、其他 STORE、外部程序及逃离 POSIX 原进程组的进程不在该准入范围。逻辑预约不限制实际 RSS 或显存；进程树内存限制另用[操作系统内存限制](#操作系统内存限制)，真实 GPU 选择另用下面的 NVIDIA 准入字段。
 
 ### NVIDIA GPU 实际准入与 CUDA 放置
 
@@ -188,10 +188,12 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 可在 `local_run_spec` 或搜索 `execution` 中声明下面的字段，并将 `resources.request.gpu.id` 和对应 `capacity.gpus` 键设为同一完整 UUID。该容量池的全部 GPU 键均须使用完整物理 UUID，不接受缩写或逻辑别名；旧 STORE 的容量含别名时须使用新 STORE，以免同一物理设备被不同名称重复预约。
 
 ```json
-"cuda_device": {
-  "uuid": "GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "minimum_compute_capability": [7, 5],
-  "minimum_free_memory_bytes": 1073741824
+{
+  "cuda_device": {
+    "uuid": "GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "minimum_compute_capability": [7, 5],
+    "minimum_free_memory_bytes": 1073741824
+  }
 }
 ```
 
@@ -199,7 +201,7 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 
 运行器将子进程的 `CUDA_VISIBLE_DEVICES` 设置为完整 UUID，使遵守 CUDA 可见性约定的程序将该设备作为 `cuda:0` 使用；父进程环境不变。该覆盖参与完整有效环境摘要，不得同时由显式 `environment` 或 `environment_refs` 设置。每个已启动 attempt 的 `cuda_placement` 收据保留 `nvml_prelaunch` 来源、UUID、逻辑设备 0、总/空闲显存和计算能力；缺失、与计划不符或不满足准入的收据拒绝重放，旧逻辑计划不补造收据。
 
-显存数据是启动前的时点观察；NVML 物理总量与 CUDA runtime 可用总量可能不同。该检查不预留或限制实际 VRAM，CUDA 可见性约定也不是设备访问沙箱，程序自行改写环境或使用其他驱动接口可绕过它。当前 Ubuntu 验收包含原生 CUDA 子进程实际 UUID/分配、CPU 亲和性/环境摘要/OS 内存限制组合，以及有界 grid/random 的逐 trial 绑定；Windows、私有工作缓冲、GPU 硬限额与完整拓扑资格仍分别验收。
+显存数据是启动前的时点观察；NVML 物理总量与 CUDA runtime 可用总量可能不同。该检查不预留或限制实际 VRAM，CUDA 可见性约定也不是设备访问沙箱，程序自行改写环境或使用其他驱动接口可绕过它。CPU 放置、环境绑定、OS 内存边界与 NVIDIA UUID 选择是各自独立的配置；实际可用组合以兼容矩阵为准，不能从启动前显存观察推导训练期间的显存硬上限。
 
 ## 训练输入与显式恢复
 
@@ -240,7 +242,7 @@ worker启动前观察本attempt的全部声明引用不存在，并将该事实�
 
 worker 在 attempt 上绑定 `local.training.inputs`，把其摘要写入 intent/result，并通过 `JYPPX_LIUDING_LOCAL_TRAINING_SHA256` 告知 C++ 训练程序。确认结果、终态重放和跨 job 释放资源时，运行器仍在 64 KiB 上限内读取并校验该清单的 CAS、规范内容和有效输入身份；引用摘要相同不能替代内容校验，缺失或损坏会停止推进。应用应按该摘要读取 attempt 清单，按 `.N` 的 job 引用加载输入，再用自己的 checkpoint coordinator 执行 `exact_only` 恢复。运行器只做身份、CAS 和生命周期校验；把任意字节标为 checkpoint 不能替代应用对模型、优化器、RNG 等完整状态的检查。[原生学习例](../../examples/experiment/README.md#失败后自动从-checkpoint-续训)演示 20 步 checkpoint、声明退出码和后续 40 步原生 SGD。
 
-ImageFolder ResNet18、`paired-affine` 多输入输出和迁移学习配方已提供原生接线：`recipe local-spec` 封存实际配置/数据并生成三项 typed 输出的计划；`recipe local-run` 只在拥有运行权的 attempt 内执行，完成后流式发布完整 checkpoint、权重和结果。可选 `--pause-after` 用声明的普通退出码 75 接入本节既有 `retry_resume`，恢复前核对保留 workspace 的完整 checkpoint 身份。运行步骤和范围见[图像配方教程](../tutorials/image_classification_recipe.md#8-交给本地执行器并确认训练产物)；多输入输出步骤见[多输入输出教程](../tutorials/multi_io_recipe.md)；迁移学习的权重描述冻结及步骤见[迁移学习教程](../tutorials/transfer_learning_recipe.md)，当前接线验收使用CPU冻结ResNet50小任务，完整迁移设备/任务矩阵单独验收。声明配方的 workspace 丢失后可按原输入身份重建；显式环境引用及 Windows Job/Linux 委派 cgroup v2 内存限额已接通。完整环境认证及其他任务/设备的资源矩阵仍待验收。
+ImageFolder ResNet18、`paired-affine` 多输入输出和迁移学习配方已提供原生接线：`recipe local-spec` 封存实际配置/数据并生成三项 typed 输出的计划；`recipe local-run` 只在拥有运行权的 attempt 内执行，完成后流式发布完整 checkpoint、权重和结果。可选 `--pause-after` 用声明的普通退出码 75 接入本节既有 `retry_resume`，恢复前核对保留 workspace 的完整 checkpoint 身份。运行步骤和范围见[图像配方教程](../tutorials/image_classification_recipe.md#8-交给本地执行器并确认训练产物)；多输入输出步骤见[多输入输出教程](../tutorials/multi_io_recipe.md)；迁移学习的权重描述冻结及步骤见[迁移学习教程](../tutorials/transfer_learning_recipe.md)；权重导入、冻结策略和设备选择遵循所用配方的接口。声明配方的 workspace 丢失后可按原输入身份重建；显式环境引用及 Windows Job/Linux 委派 cgroup v2 内存限额已接通。完整环境认证及其他任务/设备的资源矩阵仍待验收。
 
 训练超时保留 `timed_out` 与空原生退出码；只有进程树清理和结果均已确认，才释放逻辑预约。已有 `latest.jyck` 不会把超时改为可重试退出。若持久 owner worker 在提交结果前被强杀，attempt 保持 `recovery_required`，即使后来已无 OS 进程，`recover`、`execute` 或提交取消请求也不能补造结果或释放预约。Windows 的 kill-on-close Job 会随 worker 退出回收其 trainer；Linux worker 为同步启动的直接子进程启用父线程死亡信号，使受信任、同凭据执行的原生 trainer 随之终止。Linux 上 dispatch 调用者退出时，持久 worker 仍独立运行；该保护不覆盖任意 fork 孙进程、特权或凭据切换，以及主动清除信号的程序，也不能代替结果与清理确认。
 

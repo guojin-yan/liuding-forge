@@ -37,7 +37,7 @@ Intel EULA 第 3.1(xi) 条限制将其 Materials 直接或间接用于特定 Saa
 
 CUDA/cuDNN 并非一概禁止商业使用，但受各自 NVIDIA 协议的用途、平台和再分发条件限制。cuDNN 补充条款允许符合协议的应用分发 runtime `.dll` / `.so`，其开发用途限 NVIDIA GPU 系统；CUDA 需按相应可再分发清单核对实际文件。尚未确认 `nvperf_host.dll` 的具体分发授权范围，不能仅因它出现在开发运行目录就认定可随包转发。旧 NvToolsExt 的专有声明也不能替代对适用 NVIDIA 协议的核对。
 
-cuDNN 版本化 LICENSE 从官方 9.10.2.21 归档通过 HTTP Range 取得；索引中的整个归档摘要来自 NVIDIA 官方版本清单，本次未下载并重算该完整归档，也未逐个与该厂商包核对 cuDNN DLL 的 SHA-256。这一证据边界与上述已完整匹配的 DLL 不同。当前声明和依赖清单只列已识别条款，并非可任选其一或已穷尽 LibTorch 静态嵌入组件及全部第三方 notice，相关依赖继续为 `pending`。
+cuDNN 版本化 LICENSE 从官方 9.10.2.21 归档通过 HTTP Range 取得；索引中的整个归档摘要来自 NVIDIA 官方版本清单，本项目未重算该完整归档摘要，也未逐个与该厂商包核对 cuDNN DLL 的 SHA-256。这一证据边界与上述已完整匹配的 DLL 不同。当前声明和依赖清单只列已识别条款，并非可任选其一或已穷尽 LibTorch 静态嵌入组件及全部第三方 notice，相关依赖继续为 `pending`。
 
 Ubuntu 开发构建独立锁定 Linux `2.14.1+cu126` 官方包，SHA-256 为 `78409e1d17eb439efab01bbdde385ef3531ac3fc651ceda1117317ae9903dc7c`。该摘要经过本地完整归档复核，不是厂商另行发布的摘要；二进制附带组件的 notice 审查仍为 `pending`，开发构建结果不代表 GA 资格。
 
@@ -187,7 +187,7 @@ DINOv3 协议覆盖模型代码、权重及其他 DINO Materials，不仅限于�
 
 ## Reference Projects
 
-Git 仓库外 `refer/` 目录中的项目是研究输入，不因存放于本机就成为随本仓库分发的依赖；是否产生许可义务取决于实际使用或复用内容。已识别的参考项目包括 Ultralytics（AGPL-3.0）、YoloSharp/SwapFighter（Apache-2.0）及 ggml（MIT）。实际复制、翻译、修改、链接或再分发时，应记录具体来源、适用版本和许可，并完成相应审查；不能据“仅作参考”推定复用内容已获宽松许可。
+模型配置、算子和参考测试实际使用的上游来源见[模型来源与许可](third_party/licenses/MODEL_PROVENANCE.md)及相关清单。复制、翻译、修改、链接或再分发材料时，应保留具体版本、版权和适用许可；存放位置或“仅作参考”的称呼不能替代授权判定。
 
 ## 数据集与模型权重
 

@@ -18,11 +18,11 @@ model bundle 默认保存数据与描述，不从包中执行任意脚本或动�
 
 `BackendRegistry` 需要显式注册。descriptor 只声明能力，不能证明依赖已安装或模型执行成功；缺少实际环境 probe 时为 `conditional`，超出 source/format/operation、dtype/device/options 范围时为 `unsupported`。旧 sidecar 的 request/probe/candidate 元数据契约仍可解析，候选校验要求请求、制品、环境与独立证据精确绑定；JSON 成功与协议测试不能证明当前导出能力，也不代表继续提供 Python 生产导出入口。
 
-`onnx_export` 提供类似 `torch.onnx.export` 的通用 C++ 入口：传入用户自定义模型或 callable、example inputs、输入输出名称和动态 batch 声明，由原生 trace 前端捕获图，经算子级 registry/lowering 转为 ONNX，再交给 LibTorch 2.14.1 官方 serializer。接口支持多输入输出；新增网络只要组合已支持的标准算子，就复用同一导出器，无需逐模型手写整图。自定义或尚不支持的算子可注册 C++ lowering 扩展，缺少转换规则时返回明确的算子与失败原因。Linear、ResNet18 是首批 FP32/opset 17/自包含制品的验收模型，不构成模型白名单。
+`onnx_export` 提供类似 `torch.onnx.export` 的通用 C++ 入口：传入用户自定义模型或 callable、example inputs、输入输出名称和动态 batch 声明，由原生 trace 前端捕获图，经算子级 registry/lowering 转为 ONNX，再交给 LibTorch 2.14.1 官方 serializer。接口支持多输入输出；新增网络只要组合已支持的标准算子，就复用同一导出器，无需逐模型手写整图。自定义或尚不支持的算子可注册 C++ lowering 扩展，缺少转换规则时返回明确的算子与失败原因。可导出的模型由实际算子组合与所选配置决定，不使用模型名称白名单。
 
-`onnx_export` 与 `onnx_runtime` 独立可选、默认 OFF。运行显式选择 execution provider，非 CPU provider 默认禁止 CPU fallback；CPU 是首批执行证据门槛，其他 provider 的可用性、算子执行与数值结果分别验收。trace 会实际执行 example forward，只覆盖捕获路径，调用方须遵守状态与副作用约束；不承诺 PyTorch 全算子或将任意 `.pt` 文件直接转换为 ONNX。构建选项、接口与限制见 [ONNX 导出与运行](onnx.md)。
+`onnx_export` 与 `onnx_runtime` 独立可选、默认 OFF。运行显式选择 execution provider，非 CPU provider 默认禁止 CPU fallback；各 provider 的可用性、算子执行与数值结果分别核对。trace 会实际执行 example forward，只覆盖捕获路径，调用方须遵守状态与副作用约束；不承诺 PyTorch 全算子或将任意 `.pt` 文件直接转换为 ONNX。构建选项、接口与限制见 [ONNX 导出与运行](onnx.md)。
 
-ONNX 产品导出、用户 API、安装与运行路径不依赖 Python；独立 Python checker 或参考数据差分仅用于验收。仓库内存量遥测、数据准备和 Hugging Face 转换工具的 Python 产品路径仍待原生迁移，不能据此宣称全功能 C++ 闭环已经完成。
+产品 ONNX 导出、遥测、数据准备与 DINOv2-S 转换均提供原生 C++ 入口，安装后的 SDK 和工具不需要 Python。Python 仅用于仓库维护、独立 checker 和测试参考，见[维护脚本](../../scripts/README.md)。
 
 `TorchScriptCompatibilityRuntime` 使用官方 `torch::jit::load`/`forward`，加载前快照并校验精确字节，且必须显式设置 `trust_source=true`。摘要不认证可执行制品的生产者，inspect 同样需要受信加载。调用接受连续的位置参数前缀与精确关键字名，省略参数须有制品内经校验的默认值。运行复用 `nn::Invocation`/`ValueSchema`；nn 关闭时不提供该适配器。
 

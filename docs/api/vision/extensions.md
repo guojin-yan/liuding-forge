@@ -67,7 +67,7 @@ schema2 的 `extension.training_manifest`、`validation_manifest` 指向 `vision
 
 可用 `calibrate --recipe multilabel.json --weights student.safetensors --sha256 HASH --output thresholds.json` 在显式验证 split 生成阈值与验证身份，再将输出 `extension_patch` 写入配方的 `extension`；阈值随推理及 bundle 配方保存。多标签默认 BCE，可设置 `extension.asymmetric_multilabel=true` 使用 ASL。未知类别不产生监督梯度。验证报告 mAP、micro/macro F1；阈值校准 API 要求显式验证集身份，训练集不能自动充当校准集。
 
-分类蒸馏在配方中指定 `teacher_architecture`、`teacher_weights` 和 `teacher_sha256`。教师冻结、eval、无梯度，与学生共享同一增强视图；单标签采用温度缩放 KL，多标签采用 Bernoulli KL。特征蒸馏首批限定 ResNet 全局特征，学生的显式 projection 在优化器和 EMA 之前注册。教师状态参加完整检查点，导出只保留学生推理状态。
+分类蒸馏在配方中指定 `teacher_architecture`、`teacher_weights` 和 `teacher_sha256`。教师冻结、eval、无梯度，与学生共享同一增强视图；单标签采用温度缩放 KL，多标签采用 Bernoulli KL。特征蒸馏限定 ResNet 全局特征，学生的显式 projection 在优化器和 EMA 之前注册。教师状态参加完整检查点，导出只保留学生推理状态。
 
 ViT/Swin 可显式设置 `activation_recomputation`。原生 autograd 包装保留 RNG/autocast，支持输入本身无需梯度的参数训练；拒绝有 running stats 的训练 BN/IN 与状态副作用，不支持高阶梯度。它是激活重计算，与训练文件检查点不同。
 

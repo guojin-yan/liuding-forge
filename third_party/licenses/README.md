@@ -25,7 +25,7 @@
 
 已检查的 Windows LibTorch 归档缺少许可/notice 文件。Windows 2.14.1 cu126 安装现在附带上述新增运行库原文；已匹配部分 DLL 的来源，但完整静态嵌入组件、Intel 各部分独立授权及需要依赖其 EULA 的分发范围和下游合同等仍未闭合，相关状态继续为 `pending`。具体适用条件见根目录 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)；当前安装后的 CMake 包仍要求调用方另行提供 Torch。
 
-索引中 `artifact_sha256` 记录原文所在制品的身份。cuDNN 9.10.2.21 的该字段是厂商声明的整包摘要，原文通过官方归档的 HTTP Range 取得，未重算完整归档摘要；其他本轮新增来源包已作本地完整摘要复核。原文文件自身的长度和摘要均由本地实际字节计算。libuv 的旧 MSVC 头、MiniZip 辅助文件及 Intel 第三方通知的留存范围不用于推断每一项都已编入当前 LibTorch。
+索引中 `artifact_sha256` 记录原文所在制品的身份。cuDNN 9.10.2.21 的该字段是厂商声明的整包摘要，原文通过官方归档的 HTTP Range 取得，未重算完整归档摘要；其他来源包的摘要身份保留在对应清单中。原文文件自身的长度和摘要均由本地实际字节计算。libuv 的旧 MSVC 头、MiniZip 辅助文件及 Intel 第三方通知的留存范围不用于推断每一项都已编入当前 LibTorch。
 
 `optional-sidecar/` 保留从已核对 Werkzeug 3.1.9、protobuf 6.33.5、Pillow 13.0.0 和 setuptools 83.0.0 wheel 中抽取的 24 份原始许可/notice，包括 setuptools 的内置 vendor 声明，以及分别保留的 Pillow Windows/Linux 原文。Pillow 13.0.0 主许可为 MIT-CMU，内置组件另有条款；这些记录不表示整个可选 Python 环境及传递许可已审查完成。
 

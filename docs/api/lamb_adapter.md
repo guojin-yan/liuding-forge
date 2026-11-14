@@ -1,14 +1,8 @@
-# API: Native LAMB Adapter
+# LAMB 优化器
 
-`#include <jyppx/liuding/optim/lamb_adapter.hpp>`
+公共头文件为 `<jyppx/liuding/optim/lamb_adapter.hpp>`，类型为 `optim::LambOptimizerAdapter`，链接 `jyppx::liuding::optim`。
 
-`LambOptimizerAdapter` provides a current-only Layer-wise Adaptive Moments
-optimizer through a JYPPX-owned tensor kernel. The kernel uses bias-corrected Adam moments, adds weight decay to the complete update direction, and then applies a per-parameter-tensor trust ratio.
-
-Construction requires a stable optimizer ID, stable group IDs, globally unique parameter IDs, and typed `LambAdapterOptions`. Both beta values must be in
-`[0, 1)`, epsilon must be positive, and learning rate and weight decay must be
-non-negative. `maximize` negates the objective gradient before moments are
-updated.
+使用原生 Tensor 内核。先计算带 bias correction 的 Adam 矩，再向更新方向加入衰减，最后按每个绑定 Tensor 计算 trust ratio：`min(||parameter||,10)/||direction||`，任一范数为零时使用 1。两个 beta 在 `[0,1)`，epsilon 为正，学习率与衰减非负。
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::liuding::optim::LambOptimizerAdapter>(
@@ -23,23 +17,12 @@ auto optimizer = std::make_shared<jyppx::liuding::optim::LambOptimizerAdapter>(
                      .weight_decay = 1e-2}}});
 ```
 
-The trust ratio is `min(||parameter||, 10) / ||direction||`. It falls back to
-1 when either norm is zero. These details are frozen API semantics and covered
-by independent reference tests. The ratio is calculated once per bound tensor,
-so callers should bind tensors at the layer granularity required by their
-training design.
+参数绑定和调用生命周期遵循[优化器公共约定](optim.md#优化器选择)。构造时提供稳定 optimizer ID、组 ID 和唯一参数 ID；`step()` 先执行可选 closure，再检查完整梯度集合。未定义梯度跳过且保留对应参数步数；稀疏或 shape/dtype/device 不匹配的梯度在更新前拒绝。`completed_steps()` 只在更新成功后推进，`set_learning_rates()` 统一校验全部组后提交。
 
-Only learning rates are mutable after construction. `set_learning_rates()`
-validates the complete replacement before changing any group. Parameters with
-undefined gradients are skipped and retain independent state steps. Sparse or
-descriptor-mismatched gradients are rejected before any parameter changes.
+首次更新前可通过 `SingleDeviceStrategy::prepare()` 同步模型参数放置；参数身份、shape、stride、组顺序和选项保持固定。
 
-`LambOptimizerCheckpointParticipant` stores current-only schema version 1:
+## 检查点
 
-- stable group and parameter topology, immutable options, tensor descriptors, and the compile-time LibTorch version;
-- completed adapter steps, mutable group learning rates, per-parameter state presence, and independent update steps;
-- the `exp_avg` and `exp_avg_sq` tensors for every initialized parameter.
+`LambOptimizerCheckpointParticipant` 使用 schema1，固定完整参数拓扑、算法选项、运行库版本，保存成功更新计数、各组当前学习率及各参数状态存在位、独立步数、`exp_avg` 和 `exp_avg_sq`。
 
-Fresh parameters have explicit empty lazy-state fields. Restore validates all metadata and tensor bytes, materializes a complete replacement state map, and commits with a nothrow swap. It does not accept legacy maps or another algorithm's state.
-
-The focused quality gate covers a 512-step multi-group tensor reference, regularization, maximize mode, trust-ratio edge cases, missing-gradient resume, malformed-state rollback, CPU bfloat16, and real CUDA float32/float16 when CUDA is available. `bench_lamb_native_throughput` reports absolute median time per step because LibTorch does not expose a comparable public C++ LAMB optimizer.
+恢复先验证 manifest、拓扑、字段大小及全部候选 Tensor，成功后才替换状态；失败保留原状态。格式为有界的 storage-neutral 字段，不接受 pickle、LibTorch archive 或其他优化器状态。保存和恢复期间暂停训练修改；完整任务恢复还需模型、数据、RNG 与调度器，见[协调器](checkpoint_coordinator.md)。
