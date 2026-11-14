@@ -3,7 +3,6 @@
   "scope": "optional-safetensors-official-python-interoperability-test",
   "required_by_core_build": false,
   "required_by_installed_cpp_sdk": false,
-  "recorded_at_utc": "2026-10-21T11:03:24Z",
   "requirements_file": "scripts/interop/requirements-safetensors.lock",
   "package": {
     "name": "safetensors",
@@ -29,7 +28,7 @@
     "implementation": "CPython",
     "python_minor": "3.11",
     "pointer_bits": 64,
-    "patch_version_policy": "Exact portable interpreter distributions, versions and digests are pinned separately in scripts/interop/optional-runtime-provenance.json. This safetensors package lock selects CPython 3.11 only.",
+    "patch_version_policy": "Use a compatible 64-bit CPython 3.11 interpreter. Record the actual distribution, patch version, and test results with each external validation run.",
     "abi_note": "cp38-abi3 is the extension's stable ABI tag, not a requirement to run Python 3.8. CPython 3.11 supports that ABI, subject to the package's Requires-Python >=3.9 metadata."
   },
   "artifacts": [
@@ -44,19 +43,11 @@
       "size_bytes": 320192,
       "yanked": false,
       "wheel_tag": "cp38-abi3-win_amd64",
-      "cache_path": "out/deps/safetensors-0.6.2/safetensors-0.6.2-cp38-abi3-win_amd64.whl",
-      "download_size_verified": true,
-      "download_sha256_verified": true,
-      "wheel_metadata_inspected": true,
       "license_file": {
         "path_in_wheel": "safetensors-0.6.2.dist-info/licenses/LICENSE",
         "size_bytes": 11558,
         "sha256": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6"
-      },
-      "install_verified": true,
-      "python_import_verified": true,
-      "cpp_python_bidirectional_verified": false,
-      "raw_api_presence_verified": true
+      }
     },
     {
       "id": "safetensors-0.6.2-cpython311-ubuntu-x86_64",
@@ -70,41 +61,16 @@
       "size_bytes": 485835,
       "yanked": false,
       "wheel_tag": "cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64",
-      "cache_path": "out/deps/safetensors-0.6.2/safetensors-0.6.2-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-      "download_size_verified": true,
-      "download_sha256_verified": true,
-      "wheel_metadata_inspected": true,
       "license_file": {
         "path_in_wheel": "safetensors-0.6.2.dist-info/licenses/LICENSE",
         "size_bytes": 11357,
         "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
-      },
-      "install_verified": true,
-      "python_import_verified": true,
-      "cpp_python_bidirectional_verified": false,
-      "raw_api_presence_verified": true
+      }
     }
   ],
-  "validation": {
-    "status": "official-wheel-integrity-metadata-installation-and-import-verified",
-    "pypi_release_snapshot_cache": "out/deps/safetensors-0.6.2/pypi-release.json",
-    "pypi_release_snapshot_sha256": "b7fd4627f413e4cf8ba1e2bb06829bb0ca01376800fba543dff0be15cbca1141",
-    "environment_provenance": "scripts/interop/optional-runtime-provenance.json",
-    "execution_deferred_to": "one integrated chapter validation on Windows and Ubuntu with the existing persistent build directories",
-    "packages_installed_by_this_preparation": true,
-    "imports_verified_by_this_preparation": true,
-    "framework_tests_run_by_this_preparation": false,
-    "cpp_python_bidirectional_verified": false,
-    "local_cpython311_discovery": {
-      "confirmed_path": "F:\\GitSpace\\jyppx-training-framework\\jyppx-training-framework\\out\\envs\\telemetry-py311\\Scripts\\python.exe",
-      "status": "prepared-and-confirmed-portable-official-nuget-distribution",
-      "system_python_modified": false,
-      "windowsapps_alias_is_not_interpreter_evidence": true
-    },
-    "remote_cpython311_discovery": {
-      "confirmed_path": "/home/ygj/jyppx-config-gate/out/envs/telemetry-py311/bin/python",
-      "status": "prepared-and-confirmed-portable-python-build-standalone-distribution",
-      "system_python_modified": false
-    }
+  "validation_policy": {
+    "scope": "Pinned optional test inputs; this metadata does not qualify any current environment or C++ interoperability result.",
+    "record_actual_interpreter_and_results": true,
+    "output_location": "Ignored out/ validation directories or an external evidence directory."
   }
 }

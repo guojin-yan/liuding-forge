@@ -53,6 +53,11 @@ if(Python3_Interpreter_FOUND)
             "${CMAKE_SOURCE_DIR}/tests/scripts/test_torch_runtime_staging.py")
     set_tests_properties(TorchRuntimeStagingContract PROPERTIES
         LABELS "hygiene;dependency;runtime" TIMEOUT 180)
+    add_test(NAME RepositoryHygieneToolUnitTests
+        COMMAND ${Python3_EXECUTABLE} -I -B
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_repository_hygiene.py")
+    set_tests_properties(RepositoryHygieneToolUnitTests PROPERTIES
+        LABELS "hygiene;repository" TIMEOUT 60)
     add_test(
         NAME CompatibilitySource
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/compatibility.py

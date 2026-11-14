@@ -171,11 +171,34 @@ foreach(path IN LISTS tracked_files)
         list(APPEND violations
              "retired v1.0 distributed placeholder: ${path}")
     endif()
-    if(path MATCHES "^(build[^/]*/|out/|Testing/|data/|runs/|artifacts/|test-output/)")
+    if(path MATCHES "^(build[^/]*/|out/|Testing/|data/|runs/|artifacts/|test-output/|outputs/|experiments/)")
         list(APPEND violations "tracked generated/runtime path: ${path}")
     endif()
-    if(path MATCHES "^[^/]+[.](log|out|err|tmp|bak)$")
-        list(APPEND violations "tracked root runtime artifact: ${path}")
+    if(path MATCHES "(^|/)(CMakeFiles|Testing|__pycache__|[.]pytest_cache|[.]mypy_cache|[.]ruff_cache|[.]venv|venv|node_modules|[.]idea|[.]vscode)/" OR
+       path MATCHES "(^|/)(CMakeCache[.]txt|cmake_install[.]cmake)$" OR
+       path MATCHES "^third_party/(downloads|install|libtorch)/")
+        list(APPEND violations "tracked build/cache/dependency path: ${path}")
+    endif()
+    string(TOLOWER "${path}" lower_path)
+    if(lower_path MATCHES "[.](log|out|err|tmp|bak|dmp|prof|profraw|profdata|gcda|gcno|pyc|pyo)$" OR
+       lower_path MATCHES "(^|/)events[.]out[.]tfevents[.]")
+        list(APPEND violations "tracked runtime artifact: ${path}")
+    endif()
+    if(lower_path MATCHES "[.](exe|dll|pdb|obj|lib|o|a|dylib|whl|nupkg|zip|7z|tgz)$" OR
+       lower_path MATCHES "[.]so([.][0-9.]+)?$" OR
+       lower_path MATCHES "[.]tar([.](gz|xz|bz2|zst))?$")
+        list(APPEND violations "tracked binary or downloaded archive: ${path}")
+    endif()
+    if(lower_path MATCHES "[.](pt|pth|onnx|safetensors|ckpt|checkpoint)$" AND
+       NOT path MATCHES "^tests/(fixtures|reference_data)/")
+        list(APPEND violations "tracked model/checkpoint outside reviewed fixtures: ${path}")
+    endif()
+    if(path MATCHES "^(scripts|recipes)/.*[.]json$" AND
+       EXISTS "${source_root}/${path}")
+        file(READ "${source_root}/${path}" portable_metadata)
+        if(portable_metadata MATCHES "\"[ \t]*([A-Za-z]:[/\\\\]|/home/|/Users/|file://)")
+            list(APPEND violations "machine-local path in portable metadata: ${path}")
+        endif()
     endif()
 endforeach()
 

@@ -67,7 +67,10 @@ __pycache__/
 *$py.class
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .ipynb_checkpoints/
+.venv/
 venv/
 env/
 
@@ -95,6 +98,7 @@ third_party/libtorch/
 *.tmp
 *.bak
 *.swp
+*.dmp
 
 # ============================================
 # Model files (examples - too large)

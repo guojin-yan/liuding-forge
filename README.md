@@ -123,7 +123,7 @@ benchmark 操作说明见 [docs/benchmarks/README.md](docs/benchmarks/README.md)
 
 ## 文档与仓库边界
 
-- [文档索引](docs/index.md)
+- [文档索引](docs/index.md)、[训练与搜索配方](recipes/README.md)、[开发维护脚本](scripts/README.md)
 - [基础训练教程](docs/tutorials/01_basic_training.md)
 - [数据加载教程](docs/tutorials/02_data_loading.md)
 - [优化器与调度器教程](docs/tutorials/03_optimizers.md)

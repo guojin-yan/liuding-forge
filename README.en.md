@@ -125,6 +125,8 @@ See [docs/benchmarks/README.md](docs/benchmarks/README.md) for benchmark operati
 
 Start with the [documentation index](docs/index.md), [tutorials](docs/tutorials/), [image classification and process restart](docs/tutorials/image_classification_recipe.md), [paired-input classification/regression and recovery](docs/tutorials/multi_io_recipe.md), [API reference](docs/api/), [CLI guide](docs/user-guide/cli.md), and [benchmark instructions](docs/benchmarks/README.md).
 
+See [training and search recipes](recipes/README.md) for native CLI configuration templates and [development scripts](scripts/README.md) for maintenance, validation, and release tools.
+
 The repository contains source code, tests, build/CI configuration, scripts, shipped operation instructions, and required machine-readable configuration. Delivery reports, dependency and license audits, historical benchmark results, validation logs, and raw acceptance evidence are archived outside the code repository under v1.0-plan/06_records/. Builds, run logs, and temporary products belong under the ignored out/ directory.
 
 ## License and contribution

@@ -8,11 +8,16 @@
 - 实现：src/jyppx/liuding/<component>/
 - 测试：tests/<level>/<component>/
 - 构建辅助：cmake/ 和 scripts/
+- 训练、搜索与数据/权重配置模板：[recipes/](../../recipes/README.md)
 - 产品工具：tools/，包括 CLI 和可选运行时适配器
 - 脚本测试：tests/scripts/；运行时后端与发布验收：tests/integration/
 - 生成文件、依赖下载和隔离环境：被忽略的 out/
 
 tools/ 只保存随库交付的产品工具。构建检查、CI、coverage、性能基线和发布编排归 scripts/；对应测试和验收 fixture 归 tests/，不会安装到库中。可选运行时的依赖锁应与对应运行时放在一起，资格审查专用的锁文件归相应脚本和测试所有者维护。
+
+`.agents/` 保存仓库工作流，`.github/` 保存 CI 定义；`third_party/` 中受版本控制的内容仅包括构建所需的小型第三方源码、许可和固定来源清单。`third_party/downloads/`、`third_party/install/` 和 `out/` 中的本地依赖、构建与运行数据不进入 Git。
+
+判断文件是否必要时，检查它的构建、测试、安装或文档引用及人工维护用途。可重复执行的工具、配置模板、固定依赖 URL/摘要、许可原文和经审阅的测试数据保留；未接入的预研草稿和一次性环境准备记录移出仓库。依赖元数据不得混入某台机器的解释器路径、pip 安装报告或一次执行的通过状态。
 
 开发交付报告、依赖审计、历史 benchmark 结果、验证日志和原始验收证据统一放在外部 v1.0-plan/06_records/。仓库保留开发人员运行所需的脚本和简洁操作说明，但不得在 docs/ 中提交带日期的报告、本地测量结果或一次性验证证据。
 
@@ -38,4 +43,4 @@ Windows 构建树共享 LibTorch DLL 时优先使用同卷硬链接。`liuding-f
 ctest --test-dir <build-dir> -C Release -R RepositoryHygiene --output-on-failure
 ~~~
 
-门禁拒绝顶层数字目录、旧式顶层构建树、根目录日志和临时文件、被 Git 跟踪的构建/运行时路径、未经登记且超过 5 MiB 的测试数据、缺失法律文件，以及偏离 Apache-2.0-only 的项目许可证元数据。门禁也会拒绝没有完整版本化实现批准的退役占位 API。被 .gitignore 忽略不代表可以污染源码树。
+门禁拒绝顶层数字目录、旧式顶层构建树、嵌套缓存与 CMake 生成物、被跟踪的运行输出、编译二进制和下载归档。模型/检查点文件只允许进入经过审阅且不超过 5 MiB 的测试夹具目录；`scripts/` 与 `recipes/` 的 JSON 元数据不得包含本机盘符路径、用户 home 路径或 `file://` 下载地址。门禁还核对法律文件、Apache-2.0 项目许可元数据和退役占位 API。被 .gitignore 忽略不代表可以污染源码树。
