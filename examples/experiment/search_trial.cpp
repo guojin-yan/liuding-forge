@@ -6,6 +6,7 @@
 
 /** @file search_trial.cpp @brief Native training for bounded local search and
  * explicit checkpoint resume. */
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
@@ -694,6 +695,7 @@ int LocalTrain(std::uint64_t until,
   if (!fs::create_directory(work))
     throw std::runtime_error(
         "Attempt workspace already exists; do not relaunch it");
+  jyppx::liuding::initialize_runtime();
   at::set_num_threads(2);
   auto model = std::make_shared<torch::nn::LinearImpl>(1, 1);
   {
@@ -860,6 +862,7 @@ void Train(const std::map<std::string, std::string>& arguments) {
   run.tags = {{"example", "local-search"}, {"seed", text}};
   store.start(run);
   try {
+    jyppx::liuding::initialize_runtime();
     at::set_num_threads(2);
     torch::manual_seed(seed);
     auto model = std::make_shared<torch::nn::LinearImpl>(1, 1);

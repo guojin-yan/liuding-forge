@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 /** @file catalog.cpp @brief Bounded native model catalog and execution example.
  */
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/vision/models/yolo/model.hpp>
 #include <jyppx/liuding/vision/models/yolo/yolov5.hpp>
 #include <jyppx/liuding/vision/tasks/faster_rcnn.hpp>
@@ -17,6 +18,7 @@ namespace v = f::vision::tasks;
 namespace y = f::models::yolo;
 int main(int argc, char** argv) {
   try {
+    jyppx::liuding::initialize_runtime();
     at::set_num_threads(2);
     torch::manual_seed(7);
     const bool all = argc > 1 && std::string_view(argv[1]) == "--catalog";

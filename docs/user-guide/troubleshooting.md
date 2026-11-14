@@ -26,6 +26,23 @@ those settings or mix Debug and Release LibTorch binaries. Reconfigure from a cl
 
 ## Runtime issues
 
+### Windows 训练完成后进程不退出
+
+Windows 的 LibTorch 2.14.1 OpenMP 版本需要在主线程进入训练或配置线程数量前调用 `jyppx::liuding::initialize_runtime()`。该入口初始化辅助 Caffe2 线程池，避免 Windows 终止其他线程后，其 DLL 退出清理再次等待已终止线程持有的锁。框架 CLI 已接入；直接使用 C++ SDK 的程序应在 `main` 开始时调用：
+
+```cpp
+#include <jyppx/liuding/core/runtime.hpp>
+#include <ATen/Parallel.h>
+
+int main() {
+  jyppx::liuding::initialize_runtime();
+  at::set_num_threads(4);
+  // 在这里创建模型并执行训练。
+}
+```
+
+初始化保留原有 intra-op 和 inter-op 配置，重复调用不会覆盖后续设置；OpenMP/MKL 仍按调用方设置并行计算，辅助 pthreadpool 内的工作改为同步执行。其他运行时配置无需调整。若程序或其他库已先初始化多线程辅助池，该入口不能事后修复；应调整启动顺序，不能用强制退出或忽略超时替代正常资源释放。
+
 ### CUDA out of memory
 
 Reduce `batch_size`, use `TrainerOptions::accumulate_steps`, or configure a CPU

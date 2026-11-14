@@ -135,6 +135,15 @@ class CudaPlacementTests(ATTEMPTS.LocalAttemptTest):
                 process.kill()
                 out, err = process.communicate(timeout=10)
             self.assertEqual(process.returncode, 0, out + err)
+            # WDDM/NVML can publish the released context memory after the
+            # holder has exited. Keep the original admission threshold and
+            # wait for the observable prerequisite before the next launch.
+            def memory_released():
+                devices = self.invoke("local", "cuda-devices")["data"]["devices"]
+                free = next(d["free_memory_bytes"] for d in devices if d["uuid"] == self.uuid)
+                return free >= self.spec["cuda_device"]["minimum_free_memory_bytes"]
+            self.assertTrue(ATTEMPTS.wait_for(memory_released),
+                            "NVML did not report the holder's GPU memory release")
 
     def set_memory_margin(self) -> None:
         devices = self.invoke("local", "cuda-devices")["data"]["devices"]
@@ -164,12 +173,16 @@ class CudaPlacementTests(ATTEMPTS.LocalAttemptTest):
     def test_cuda_native_device_matches_uuid_and_mask_with_cpu_and_os_boundaries(self) -> None:
         self.native_fixture()
         self.spec["cpu_affinity"] = [ATTEMPTS.cpu_ids()[0]]
+        # The CUDA 12.9 Windows driver context exceeds 512 MiB of process
+        # commit even for this 64 KiB device allocation. Keep a hard 1 GiB
+        # boundary for the successful placement case.
+        host_limit = 1 << 30 if os.name == "nt" else 512 << 20
         if os.name == "nt":
-            self.spec["os_memory_limit"] = {"bytes": 512 << 20}
+            self.spec["os_memory_limit"] = {"bytes": host_limit}
         else:
             parent = os.environ.get("JYPPX_LIUDING_TEST_CGROUP_PARENT")
             self.assertTrue(parent, "CUDA resource acceptance requires a delegated memory parent")
-            self.spec["os_memory_limit"] = {"bytes": 512 << 20, "cgroup_parent": parent}
+            self.spec["os_memory_limit"] = {"bytes": host_limit, "cgroup_parent": parent}
         self.write_spec()
         # The effective hash must include the runner's UUID override.
         self.spec["environment_sha256"] = self.invoke(
@@ -189,7 +202,9 @@ class CudaPlacementTests(ATTEMPTS.LocalAttemptTest):
         # CUDA runtime usable memory and physical NVML memory are distinct counters.
         self.assertGreater(observed["total_memory_bytes"], 0)
         self.assertTrue(attempt["resource_released"])
-        self.assertEqual(attempt["result"]["memory_boundary"]["limit_bytes"], 512 << 20)
+        self.assertEqual(attempt["result"]["memory_boundary"]["limit_bytes"], host_limit)
+        if os.name == "nt":
+            self.assertLessEqual(attempt["result"]["memory_boundary"]["peak_bytes"], host_limit)
         self.assertEqual(attempt["result"]["cpu_affinity"]["cpu_ids"], self.spec["cpu_affinity"])
         print(json.dumps({"case": "native_cuda_placement", "nvml_prelaunch": receipt,
             "native_cuda": observed, "memory_boundary": attempt["result"]["memory_boundary"],

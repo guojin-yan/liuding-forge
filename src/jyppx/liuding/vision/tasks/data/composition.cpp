@@ -33,14 +33,12 @@ Tensor Chw(const im::VisionSample& s) {
                                                  : s.image.permute({2, 0, 1});
 }
 void Check(const im::VisionSample& s, std::uint64_t max_pixels,
-           std::size_t max_objects) {
+           std::size_t max_objects, bool transforms_targets = true) {
   if (!s.image.defined() || !s.image.is_cpu() ||
       s.image.scalar_type() != torch::kUInt8 ||
       s.pixels.color != im::PixelColorModel::rgb || !s.width || !s.height ||
-      s.width > 8192 || s.height > 8192 || s.paired_target || s.mask_target)
-    throw InvalidArgument(
-        "Composition requires bounded CPU RGB uint8 samples without "
-        "paired/semantic targets");
+      s.width > 8192 || s.height > 8192)
+    throw InvalidArgument("Composition requires bounded CPU RGB uint8 samples");
   auto t = Chw(s);
   if (t.dim() != 3 || t.size(0) != 3 || t.size(1) != s.height ||
       t.size(2) != s.width)
@@ -48,6 +46,9 @@ void Check(const im::VisionSample& s, std::uint64_t max_pixels,
   if (static_cast<std::uint64_t>(s.width) * s.height > max_pixels ||
       (s.annotation && s.annotation->objects.size() > max_objects))
     throw ResourceExhausted("Composition pixel/object budget exceeded");
+  if (transforms_targets && (s.paired_target || s.mask_target))
+    throw InvalidArgument(
+        "Composition cannot transform paired/semantic targets");
 }
 Matrix Multiply(const Matrix& a, const Matrix& b) {
   Matrix c{};
@@ -228,12 +229,12 @@ im::VisionSample augment_multisource(
     const LetterBoxOptions& letterbox, const im::SampleRandom& random,
     std::uint64_t epoch, std::stop_token stop) {
   auto identity = multisource_identity(o);
-  Check(primary, o.max_pixels, o.max_objects);
   Stop(stop);
-  if (epoch >= o.total_epochs - o.close_epochs ||
-      (o.mosaic_probability == 0 && o.mixup_probability == 0 &&
-       o.cutmix_probability == 0 && o.copypaste_probability == 0))
-    return primary;
+  const bool active = epoch < o.total_epochs - o.close_epochs &&
+                      (o.mosaic_probability > 0 || o.mixup_probability > 0 ||
+                       o.cutmix_probability > 0 || o.copypaste_probability > 0);
+  Check(primary, o.max_pixels, o.max_objects, active);
+  if (!active) return primary;
   if (static_cast<std::uint64_t>(letterbox.canvas.width) *
           letterbox.canvas.height >
       o.max_pixels)

@@ -129,7 +129,8 @@ struct OriginalV5Impl::Impl {
     owner.register_buffer(
         "anchors_pixels",
         torch::tensor(anchor_values)
-            .view({static_cast<I>(options.anchors.size()), 3, 2}));
+            .view({static_cast<I>(options.anchors.size()), 3, 2})
+            .clone());
   }
 };
 OriginalV5Impl::OriginalV5Impl(const OriginalV5Options& options)

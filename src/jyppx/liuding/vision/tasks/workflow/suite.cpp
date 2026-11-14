@@ -3,9 +3,12 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 #include "artifact_io.hpp"
+#include "batch_transfer.hpp"
 #include "evaluation_diagnostics.hpp"
 #include "history.hpp"
 #include "run_ledger.hpp"
+
+#include <ATen/Context.h>
 
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/foundation/random.hpp>
@@ -19,10 +22,13 @@
 #include <jyppx/liuding/training/file_checkpoint_store.hpp>
 #include <jyppx/liuding/training/scheduler_adapter.hpp>
 #include <jyppx/liuding/training/single_device_strategy.hpp>
+#include <jyppx/liuding/vision/tasks/data/extended.hpp>
+#include <jyppx/liuding/vision/tasks/data/sampling.hpp>
 #include <jyppx/liuding/vision/tasks/data/targets.hpp>
+#include <jyppx/liuding/vision/tasks/extended.hpp>
 #include <jyppx/liuding/vision/tasks/metrics.hpp>
-#include <jyppx/liuding/vision/tasks/training/ema.hpp>
 #include <jyppx/liuding/vision/tasks/training/distillation.hpp>
+#include <jyppx/liuding/vision/tasks/training/ema.hpp>
 #include <jyppx/liuding/vision/tasks/training/model_selection.hpp>
 #include <jyppx/liuding/vision/tasks/training/musgd.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/preflight.hpp>
@@ -31,9 +37,6 @@
 #include <torch/cuda.h>
 
 #include <algorithm>
-#include <jyppx/liuding/vision/tasks/data/extended.hpp>
-#include <jyppx/liuding/vision/tasks/data/sampling.hpp>
-#include <jyppx/liuding/vision/tasks/extended.hpp>
 #include <fstream>
 #include <limits>
 #include <nlohmann/json.hpp>
@@ -43,6 +46,35 @@ namespace {
 namespace image = data::image;
 using J = nlohmann::json;
 using I = std::int64_t;
+class DeterministicTraining final {
+ public:
+  explicit DeterministicTraining(bool enabled)
+      : cudnn_(at::globalContext().deterministicCuDNN()),
+        benchmark_(at::globalContext().benchmarkCuDNN()),
+        algorithms_(at::globalContext().deterministicAlgorithms()),
+        warn_only_(at::globalContext().deterministicAlgorithmsWarnOnly()) {
+    if (enabled) {
+      at::globalContext().setDeterministicCuDNN(true);
+      at::globalContext().setBenchmarkCuDNN(false);
+      at::globalContext().setDeterministicAlgorithms(true, false);
+    }
+  }
+  ~DeterministicTraining() {
+    at::globalContext().setDeterministicCuDNN(cudnn_);
+    at::globalContext().setBenchmarkCuDNN(benchmark_);
+    at::globalContext().setDeterministicAlgorithms(algorithms_, warn_only_);
+  }
+
+ private:
+  bool cudnn_, benchmark_, algorithms_, warn_only_;
+};
+training::FileCheckpointStoreOptions VisionCheckpointOptions() {
+  training::FileCheckpointStoreOptions options;
+  options.manifest_limits.max_manifest_bytes = 8U * 1024U * 1024U;
+  options.manifest_limits.max_nodes = 262144U;
+  options.manifest_limits.max_total_string_bytes = 8U * 1024U * 1024U;
+  return options;
+}
 std::string Hash(const std::string& s) {
   return sha256_hex(std::as_bytes(std::span(s)));
 }
@@ -61,8 +93,7 @@ struct Modes {
   }
 };
 void Move(image::ImageBatch& batch, const Device& device) {
-  batch.images = batch.images.to(device);
-  if (batch.labels.defined()) batch.labels = batch.labels.to(device);
+  batch = detail::transfer_task_batch(batch, device);
 }
 void SameClasses(const std::vector<image::VisionCategory>& a,
                  const std::vector<image::VisionCategory>& b) {
@@ -287,6 +318,7 @@ TrainResult train_vision(const TrainRequest& request) {
   const auto run_id =
       Hash(recipe_id + ":" + source.train_id + ":" + source.val_id + ":" +
            describe_binding(r.model).revision);
+  const DeterministicTraining deterministic(r.deterministic);
   torch::manual_seed(r.seed);
   auto binding = bind_task(r);
   binding.model->state().to(r.device);
@@ -511,7 +543,8 @@ TrainResult train_vision(const TrainRequest& request) {
   fit.strategy = std::make_shared<training::SingleDeviceStrategy>(
       training::SingleDeviceStrategyOptions{.device = r.device});
   if (r.precision == training::PrecisionMode::cuda_float16) {
-    fit.gradient_scaler = std::make_shared<training::amp::GradScaler>();
+    fit.gradient_scaler = std::make_shared<training::amp::GradScaler>(
+        training::amp::GradScalerOptions{.init_scale = r.initial_loss_scale});
     fit.gradient_scaler_checkpoint =
         std::make_shared<training::amp::GradScalerCheckpointParticipant>(
             fit.gradient_scaler);
@@ -530,7 +563,8 @@ TrainResult train_vision(const TrainRequest& request) {
                              eval_binding,
                              r](const training::CheckpointCoordinator& c) {
       if (selection->state().last_improved) {
-        training::FileCheckpointStore store(path / "best.checkpoint");
+        training::FileCheckpointStore store(path / "best.checkpoint",
+                                            VisionCheckpointOptions());
         c.save(store);
         save_vision_weights(*eval_binding.model, path / "best.safetensors",
                             {{"architecture", r.model.architecture},
@@ -542,16 +576,19 @@ TrainResult train_vision(const TrainRequest& request) {
           (selection->state().observations % r.save_interval_epochs) == 0) {
         training::FileCheckpointStore periodic(
             path / ("epoch-" + std::to_string(selection->state().observations) +
-                    ".checkpoint"));
+                    ".checkpoint"),
+            VisionCheckpointOptions());
         c.save(periodic);
       }
-      training::FileCheckpointStore store(path / "last.checkpoint");
+      training::FileCheckpointStore store(path / "last.checkpoint",
+                                          VisionCheckpointOptions());
       c.save(store);
     };
   training::Trainer trainer(options);
   trainer.prepare(std::move(fit));
   if (!request.resume.empty()) {
-    training::FileCheckpointStore store(request.resume);
+    training::FileCheckpointStore store(request.resume,
+                                        VisionCheckpointOptions());
     trainer.restore_checkpoint(store);
   }
   if (r.diagnostics && r.device.is_cuda())
@@ -559,10 +596,15 @@ TrainResult train_vision(const TrainRequest& request) {
   const auto fit_start = r.diagnostics
                              ? std::chrono::steady_clock::now()
                              : std::chrono::steady_clock::time_point{};
-  auto result =
-      request.pause_after_updates
-          ? trainer.fit_until(request.pause_after_updates, request.stop)
-          : trainer.fit(request.stop);
+  auto result = [&] {
+    // A completed checkpoint can republish its artifacts without entering fit
+    // or emitting training callbacks again.
+    if (trainer.phase() == training::TrainerPhase::completed)
+      return *trainer.terminal_result();
+    return request.pause_after_updates
+               ? trainer.fit_until(request.pause_after_updates, request.stop)
+               : trainer.fit(request.stop);
+  }();
   if (r.diagnostics && r.device.is_cuda())
     torch::cuda::synchronize(r.device.index());
   const auto fit_seconds =
@@ -571,7 +613,7 @@ TrainResult train_vision(const TrainRequest& request) {
                           .count()
                     : 0.;
   auto last = request.output / "last.checkpoint";
-  training::FileCheckpointStore store(last);
+  training::FileCheckpointStore store(last, VisionCheckpointOptions());
   trainer.save_checkpoint(store);
   trainer.close();
   Save(request.output / "training.json",
@@ -713,6 +755,14 @@ ProfiledPrediction predict_vision_profiled(
             .expand({batch.images.size(0), 2});
     invocation.positional = {
         batch.images, torch::empty({0, 6}, batch.images.options()), sizes};
+  } else if (binding.capability.requires_external_proposals) {
+    // Inference still needs proposals, but has no supervised box targets.
+    invocation =
+        make_extended_image_mapper(recipe.model.task, data, true)(envelope);
+    invocation.positional[2] = torch::empty({0, 6}, batch.images.options());
+  } else if (recipe.model.architecture.starts_with("rtdetr_")) {
+    invocation.positional = {batch.images,
+                             torch::empty({0, 6}, batch.images.options())};
   } else
     invocation = binding.image_mapper(envelope);
   sync();

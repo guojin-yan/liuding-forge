@@ -1234,7 +1234,8 @@ TEST(ImageBatchTest,
     dictionary.insert_or_assign(key, std::move(replacement));
     EXPECT_THROW(image_batch_from_value(value), InvalidArgument) << key;
   };
-  mutate("format", 2);
+  mutate("format", 0);
+  mutate("format", 4);
   mutate("layout", 77);
   mutate("extra", 1);
   mutate("images", batch.images.to(torch::kFloat32));

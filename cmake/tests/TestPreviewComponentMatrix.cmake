@@ -239,7 +239,11 @@ foreach(profile IN ITEMS core_before models serving vision_render all_previews c
                 "${CMAKE_COMMAND}" -S "${consumer_source_dir}"
                 -B "${consumer_build_dir}" ${generator_args}
                 "-UTorch_*" "-UTORCH_*" "-UCaffe2_*" "-Uc10_*" "-Ukineto_*"
+                "-UCMAKE_RUNTIME_OUTPUT_DIRECTORY*"
+                "-UCMAKE_LIBRARY_OUTPUT_DIRECTORY*"
+                "-UCMAKE_ARCHIVE_OUTPUT_DIRECTORY*"
                 "-DCMAKE_PREFIX_PATH=${install_dir}"
+                "-Djyppx_DIR:PATH=${install_dir}/lib/cmake/jyppx"
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
                 "-DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
                 "-DJYPPX_RUNTIME_STAGER=${source_dir}/cmake/StageTorchRuntime.cmake"
@@ -275,7 +279,11 @@ foreach(profile IN ITEMS core_before models serving vision_render all_previews c
                 -S "${source_dir}/cmake/tests/absent_component_consumer"
                 -B "${test_root}/absent/${component}" ${generator_args}
                 "-UTorch_*" "-UTORCH_*" "-UCaffe2_*" "-Uc10_*" "-Ukineto_*"
+                "-UCMAKE_RUNTIME_OUTPUT_DIRECTORY*"
+                "-UCMAKE_LIBRARY_OUTPUT_DIRECTORY*"
+                "-UCMAKE_ARCHIVE_OUTPUT_DIRECTORY*"
                 "-DCMAKE_PREFIX_PATH=${install_dir}"
+                "-Djyppx_DIR:PATH=${install_dir}/lib/cmake/jyppx"
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
                 "-DJYPPX_ABSENT_COMPONENT=${component}" ${config_args}
             RESULT_VARIABLE absent_result OUTPUT_VARIABLE absent_output

@@ -42,6 +42,8 @@ auto step = [](const jyppx::liuding::training::StepInput& input) {
 
 `fit()` 从准备或恢复状态执行一次，返回 `FitResult`。非有限 loss/梯度、空训练 epoch、外部优化/调度更新或缺失恢复状态会被拒绝。`StepOutput::metrics` 必须有限，epoch 结果按 `sample_count` 加权。
 
+`terminal_result()` 在 completed 或 cancelled 状态返回终态摘要，包含完成轮数、更新步数、训练/验证指标及回调停止原因；恢复终态检查点后同样可读。其他状态返回 `nullopt`。在 `close()` 前读取，不执行数据加载、模型计算、优化器更新或回调；已完成的视觉训练检查点据此重新生成结果和权重。
+
 `fit_until(absolute_step)` 可在未来的绝对优化步暂停，返回 `FitStatus::paused` 并保持 `TrainerPhase::running`。它等待梯度累积完成、批次回调与已有检查点请求提交；尾批更新会先完成 epoch。暂停不额外生成检查点或结束事件，可直接 `fit()` 继续，或显式 `save_checkpoint(sink)` 后关闭并在新执行域恢复。0 表示不设置暂停边界；非零值必须大于当前步数。已检测到的训练上限、取消和回调停止优先于暂停，取消仍为不可续训的终态。
 
 ## 检查点、回调与调度

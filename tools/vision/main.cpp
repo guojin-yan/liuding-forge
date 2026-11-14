@@ -2,15 +2,15 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
-#include <jyppx/liuding/experiment/local_execution/process.hpp>
-#include <jyppx/liuding/vision/tasks/data/context.hpp>
-#include <jyppx/liuding/vision/tasks/extended.hpp>
-#include <jyppx/liuding/vision/tasks/data/extended.hpp>
-#include <jyppx/liuding/vision/tasks/tracking/workflow.hpp>
-#include <jyppx/liuding/vision/tasks/tracking/metrics.hpp>
-
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
+#include <jyppx/liuding/experiment/local_execution/process.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
+#include <jyppx/liuding/vision/tasks/data/context.hpp>
+#include <jyppx/liuding/vision/tasks/data/extended.hpp>
+#include <jyppx/liuding/vision/tasks/extended.hpp>
+#include <jyppx/liuding/vision/tasks/tracking/metrics.hpp>
+#include <jyppx/liuding/vision/tasks/tracking/workflow.hpp>
 #include <jyppx/liuding/vision/tasks/training/weight_conversion.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/export.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/output.hpp>
@@ -589,6 +589,7 @@ int Run(const std::vector<std::string>& argv) {
 }
 int Entry(const std::vector<std::string>& argv) {
   try {
+    j::initialize_runtime();
     return Run(argv);
   } catch (const std::exception& error) {
     std::cerr << "vision: " << error.what() << '\n';

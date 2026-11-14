@@ -269,7 +269,10 @@ DetectionDatasetImport read_detection_dataset(
     result.annotations.format = image::AnnotationFormat::voc;
     for (const auto& xml : state.Scan(options.source, true)) {
       state.ChargeDocument(xml);
-      read.image_path = Utf8(xml.stem()) + ".jpg";
+      // The VOC document owns the image filename, including its extension and
+      // any path relative to image_root. An override here would silently point
+      // PNG images and nested datasets at unrelated JPEG paths.
+      read.image_path.clear();
       state.Append(result.annotations,
                    image::read_annotation_file(
                        xml, image::AnnotationFormat::voc, read, stop));

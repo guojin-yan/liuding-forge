@@ -7,6 +7,7 @@
 
 #include "mnist_data.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/liuding.hpp>
 
 #include <torch/nn/init.h>
@@ -205,6 +206,7 @@ int main(int argc, char** argv) {
     // Checkpoint topology requires a concrete device; the shorthand selects 0.
     if (device.is_cuda() && !device.has_index()) device.set_index(0);
     torch::manual_seed(2026);
+    jyppx::liuding::initialize_runtime();
     torch::set_num_threads(2);
     std::cout << "training on: " << device << '\n';
 

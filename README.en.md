@@ -98,6 +98,17 @@ find_package(jyppx CONFIG REQUIRED COMPONENTS sdk)
 target_link_libraries(my_app PRIVATE jyppx::liuding::sdk)
 ~~~
 
+Initialize the runtime on the main thread before configuring or using LibTorch or starting workers; the CLI already calls this entry point. It mitigates the exit hang in the current Windows LibTorch 2.14.1 OpenMP profile. See [troubleshooting](docs/user-guide/troubleshooting.md#windows-训练完成后进程不退出) for initialization order and scope.
+
+~~~cpp
+#include <jyppx/liuding/core/runtime.hpp>
+
+int main() {
+  jyppx::liuding::initialize_runtime();
+  // Create the model and data pipeline, then run training.
+}
+~~~
+
 Use `jyppx::liuding::foundation` for capability, error, RNG, and build-fingerprint contracts, and `jyppx::liuding::interop` for the bounded checkpoint artifact manifest codec. The installed public CLI is `liuding-forge`; the former `jyppx` CLI name is not installed.
 
 ### Run tests and benchmarks

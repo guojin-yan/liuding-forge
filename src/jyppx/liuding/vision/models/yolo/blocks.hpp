@@ -152,12 +152,14 @@ struct GhostBottleneck final : Unit {
 struct Attention final : Unit {
   U qkv, projection, positional;
   I channels, heads, key_width, value_width, areas;
+  bool area_attention;
   Attention(I dim, I num_heads, bool area = false, I area_count = 1)
       : channels(dim),
         heads(num_heads),
         key_width(dim / num_heads / (area ? 1 : 2)),
         value_width(dim / num_heads),
-        areas(area ? area_count : 1) {
+        areas(area ? area_count : 1),
+        area_attention(area) {
     if (heads < 1 || channels % heads || key_width < 1 || areas < 1)
       throw InvalidArgument("Invalid attention channel/head/area contract");
     qkv = register_module(
@@ -171,6 +173,21 @@ struct Attention final : Unit {
     if (n % areas || n / areas > 16384 ||
         batch * heads * (n / areas) > 268435456 / (n / areas))
       throw ResourceExhausted("Attention area or score element bound exceeded");
+    if (!area_attention) {
+      auto packed =
+          qkv->run(x).view({batch, heads, 2 * key_width + value_width, n});
+      auto q = packed.slice(2, 0, key_width);
+      auto k = packed.slice(2, key_width, 2 * key_width);
+      auto v = packed.slice(2, 2 * key_width);
+      auto scores = torch::matmul(
+          (q / std::sqrt(static_cast<double>(key_width))).transpose(-2, -1), k);
+      auto weights =
+          torch::softmax(scores.to(torch::kFloat32), -1).to(v.scalar_type());
+      auto attended = torch::matmul(v, weights.transpose(-2, -1))
+                          .reshape({batch, channels, h, w});
+      auto values = v.reshape({batch, channels, h, w});
+      return projection->run(attended + positional->run(values));
+    }
     auto packed = qkv->run(x)
                       .flatten(2)
                       .transpose(1, 2)

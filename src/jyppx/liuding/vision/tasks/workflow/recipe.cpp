@@ -2,6 +2,8 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "selection_metrics.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/recipe.hpp>
@@ -160,6 +162,8 @@ RecipeSpec parse_recipe(std::string_view text,
            "workers",
            "epochs",
            "seed",
+           "deterministic",
+           "initial_loss_scale",
            "device",
            "precision",
            "accumulate_steps",
@@ -358,6 +362,8 @@ RecipeSpec parse_recipe(std::string_view text,
       }
   }
   r.seed = j.value("seed", r.seed);
+  r.deterministic = j.value("deterministic", r.deterministic);
+  r.initial_loss_scale = j.value("initial_loss_scale", r.initial_loss_scale);
   r.device = Device(j.value("device", std::string("cpu")));
   r.accumulate_steps = j.value("accumulate_steps", r.accumulate_steps);
   if (j.contains("precision")) {
@@ -529,6 +535,9 @@ RecipeSpec parse_recipe(std::string_view text,
   return r;
 }
 void check_recipe(const RecipeSpec& r) {
+  if (!std::isfinite(r.initial_loss_scale) || r.initial_loss_scale <= 0)
+    throw InvalidArgument(
+        "Initial FP16 loss scale must be finite and positive");
   if ((r.schema_version != 1 && r.schema_version != 2) || r.model.architecture.empty() ||
       r.model.architecture.size() > 256 || r.model.num_classes < 1 ||
       r.model.num_classes > 10000 || static_cast<unsigned>(r.model.task) > 9 ||
@@ -627,23 +636,14 @@ void check_recipe(const RecipeSpec& r) {
   for (auto sigma : r.keypoint_sigmas)
     if (!std::isfinite(sigma) || sigma <= 0)
       throw InvalidArgument("Keypoint sigmas must be positive finite");
-  if (r.selection_metric != "auto" && r.selection_metric != "validation.loss" &&
-      r.selection_metric != "validation.map" &&
-      r.selection_metric != "validation.ap50" &&
-      r.selection_metric != "validation.top1" &&
-      r.selection_metric != "validation.top5")
-    throw InvalidArgument("Unknown vision selection metric");
+  if (r.selection_metric != "auto" &&
+      !detail::selection_metric_available(r, r.selection_metric))
+    throw InvalidArgument(
+        "Vision selection metric is unavailable for this task");
   if (!r.full_validation_metrics && r.selection_metric != "auto" &&
       r.selection_metric != "validation.loss")
     throw InvalidArgument(
         "Task metric selection requires full_validation_metrics");
-  if (((r.selection_metric == "validation.map" ||
-        r.selection_metric == "validation.ap50") &&
-       r.model.task == TaskKind::classify) ||
-      ((r.selection_metric == "validation.top1" ||
-        r.selection_metric == "validation.top5") &&
-       r.model.task != TaskKind::classify))
-    throw InvalidArgument("Selection metric is inapplicable to this task");
   if (r.data.multiscale &&
       std::ceil((std::max)(r.data.letterbox.canvas.width,
                            r.data.letterbox.canvas.height) *
@@ -736,6 +736,8 @@ std::string recipe_json(const RecipeSpec& r) {
       {"workers", r.workers},
       {"epochs", r.epochs},
       {"seed", r.seed},
+      {"deterministic", r.deterministic},
+      {"initial_loss_scale", r.initial_loss_scale},
       {"device", r.device.str()},
       {"precision", precisions.at(static_cast<std::size_t>(r.precision) - 1)},
       {"accumulate_steps", r.accumulate_steps},

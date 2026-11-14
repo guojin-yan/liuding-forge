@@ -83,6 +83,8 @@ YOLO split 支持图片目录或 UTF-8 图片列表；最后一个 `images` 路�
 
 支持梯度累积、裁剪、成功更新驱动的预热/余弦调度、显式 nominal/effective batch 的 decay 缩放、EMA、best/last/周期保存和早停。固定 `class_weights` 仅用于训练，验证损失清除类权重；数据统计只应来自训练集。调度器和 EMA 不随 AMP 跳步推进。
 
+`deterministic` 默认开启，在训练作用域要求确定性算法并关闭 cuDNN benchmark，结束后恢复调用方设置；缺少确定性实现的操作会明确失败，可显式关闭以运行此类模型。同一软硬件环境下的精确 CUDA 恢复还需设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`。`initial_loss_scale` 控制 CUDA FP16 的初始动态损失缩放，默认 65536；较短训练可显式降低它，避免初始化阶段多次溢出而尚未完成有效更新。两项设置都进入配方与恢复身份。
+
 `full_validation_metrics` 默认开启，验证损失之外再完整执行任务评估。自动选优使用分类 top1、检测/多标签 AP、语义 mIoU、深度 RMSE、ReID rank1 或重建 loss；关闭完整指标时使用验证损失。各任务分别使用框 AP、实例 mask AP、OKS AP 和精确四边形 AP，报告逐类与 PR 数据。诊断混淆矩阵另用明确的 box IoU/置信度口径，不将其当作 mask/pose/OBB AP。
 
 检测及几何任务同时报告 AP50，可通过 `validation.ap50` 选优或调参；评估报告保存 score/candidate/max_det、空类排除和密集目标容量诊断。指标的逐图逐类容量取配方的 `evaluation.max_detections`。姿态的 `keypoint_sigmas` 同时进入训练损失和 OKS，17 点人体模板显式采用 COCO sigmas；留空采用均匀 `1/K`，自定义骨架应提供自己的数值。分类 top1/top5 使用全部类别，不受展示过滤影响。

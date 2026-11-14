@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### 多模型训练套件
 
+- 修复 VOC 导入覆盖标注图片扩展名和子目录、原始 YOLOv5 anchor buffer 视图导致权重导入拒绝，以及已完成视觉检查点恢复时重复进入训练的问题；增加可读取恢复终态的 Trainer 摘要接口。
+- 补齐扩展任务的选优/搜索指标约束、分类模型固定输入元数据和 ViT token 金字塔的注册特征适配；修复 Fast R-CNN/RT-DETR 预测依赖训练标注、SSD buffer 视图妨碍权重导入及大型视觉检查点元数据预算不足的问题。文件检查点选项支持显式配置 manifest 限额。
+- 修复空间 attention 布局转换的反向差异；视觉验证、预测、校准和 batch 预检复用完整图像批次迁移，避免 CUDA 图片与 CPU 有效区域等张量混用。
+- 修复关闭或结束多图混合增强后仍拒绝语义掩码/配对目标的问题；关闭时保留原目标，继续检查样本预算、配置和取消请求。
+- 视觉训练配方增加确定性算法开关和初始 FP16 loss scale，配置进入恢复身份；训练结束恢复调用方的算法设置。补齐视觉任务对数据组件的公共直接依赖。
 - 扩展原生视觉模型包，增加多标签、蒸馏、激活重计算、SimMIM、FCOS/BiFPN/ViT-Adapter、RetinaNet、SSD、外部候选框 Fast R-CNN、语义分割、RT-DETR、开放词汇、深度与 ReID/跟踪接口；新增 schema2、typed payload 和多输入 bundle v3。官方权重、精度及设备矩阵独立登记。
 - 增加集中在 `vision/` 下的可选视觉算子、YOLO、Faster R-CNN 和任务工作流组件；统一 catalog、严格 JSON 配方及原生 CLI，提供 24 份训练模板和两份搜索模板。
 - 增加原始 YOLOv5 P5/P6、YOLOv8/11/12/26 的参考实际变体、ResNet50-FPN Faster R-CNN，以及检测/分类/实例分割/姿态/旋转框的任务绑定、loss、解码和指标。
@@ -25,6 +30,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - 增加直接从统一对象标注构造 ImageDataset 的入口，以及 COCO/VOC/YOLO 检测数据集组装；外部格式统一为现有 AnnotationIndex，缺失标签和类别冻结策略显式配置。
 ### SDK 修复与示例
 
+- 原生 OTLP HTTP 的 Windows 完成回调使用无等待的事件通知；取消测试在测量前固定并预热系统线程的 RPC/Winsock 缓存，继续逐轮核对精确句柄数、连接关闭和取消时限，避免线程池惰性初始化造成资源泄漏误报。
+- 增加显式运行时初始化入口，规避 Windows LibTorch 2.14.1 辅助 pthreadpool 在 DLL 退出清理时的锁等待；CLI 和多线程示例接入，保留 OpenMP/MKL 配置，并增加真实 CPU 反向传播后的正常退出及异常退出回归。
 - 增加可直接消费安装 SDK 的原生 C++ 分类评估示例，串联真实推理、来源统计、检查点、新进程续评、取消和完成态重放，生成保留 pass/fail/incomplete 语义的质量报告。
 - 修复通用 ONNX LayerNorm 的 Double 中间输入在较大公共偏移下产生错误方差的问题；保持 Double 计算并先中心化，补齐总体方差、可选仿射、单/双归一化维度及实际 CPU ORT 安装回归。
 - 修复通用 ONNX BatchNorm 推理导出拒绝可选仿射参数，以及内部多输出入口覆盖真实输出形状的问题；补齐缺省权重/偏置、归一化后展平、状态保持及实际 CPU ORT 安装回归。

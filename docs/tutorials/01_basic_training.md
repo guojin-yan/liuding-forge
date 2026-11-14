@@ -14,6 +14,8 @@ ctest --test-dir out/build/training-examples -C Release --output-on-failure -R '
 
 完整程序为 [examples/training/basic_trainer.cpp](../../examples/training/basic_trainer.cpp)，只链接 `training` 及其必需依赖；同目录其他示例还使用 `interop`。Linux 程序位于上述构建目录，Windows 多配置位于其 `Release/` 子目录。将匹配的 LibTorch 运行库加入系统搜索路径后，直接运行 `liuding-forge-example-basic-trainer`，输出以 `status=1 global_step=4 learning_rate=0.01 epochs=2 scheduler_steps=4` 开头，并显示训练及验证损失。
 
+自行编写 SDK 程序时，在 `main` 主线程首次配置或使用 LibTorch、启动 worker 之前调用 `jyppx::liuding::initialize_runtime()`；头文件及调用示例见[运行时初始化要求](../user-guide/troubleshooting.md#windows-训练完成后进程不退出)。框架 CLI 已接入，重复调用不会覆盖后续线程设置。
+
 ## 2. 适配模型并绑定参数
 
 示例创建输入 `[8,1]` 与目标 `2*x+1`，使用 `torch::nn::Linear(1,1)`，通过 `nn::adapt_tensor_holder` 包装为 `nn::ModelAdapter`。适配器保留底层模块，用 `state().named_parameters()` 取得模型拥有的 Tensor；为每个参数设置稳定 `parameter_id` 后，组成 `SgdParameterGroup` 并构造 `SgdOptimizerAdapter`。

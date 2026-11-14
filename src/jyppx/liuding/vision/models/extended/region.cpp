@@ -48,7 +48,8 @@ class Ssd:public torch::nn::Module{
       for(I ratio=2;ratio<=(i>0&&i<4?3:2);++ratio){double r=std::sqrt(ratio);wh.push_back({scales[i]*r,scales[i]/r});wh.push_back({scales[i]/r,scales[i]*r});}
       for(I y=0;y<grids[i];++y)for(I x=0;x<grids[i];++x)for(auto size:wh){double cx=(x+.5)*steps[i],cy=(y+.5)*steps[i],w=(std::min)(1.,size[0])*300,h=(std::min)(1.,size[1])*300;
         for(double v:{cx-w/2,cy-h/2,cx+w/2,cy+h/2})values.push_back(static_cast<float>(v));}}
-    defaults=register_buffer("default_boxes",torch::tensor(values).view({-1,4}));
+    defaults = register_buffer("default_boxes",
+                               torch::tensor(values).view({-1, 4}).clone());
     torch::NoGradGuard guard;for(const auto& branch:{extra.ptr(),cls.ptr(),box.ptr()})for(auto& m:branch->modules(false))if(auto c=std::dynamic_pointer_cast<torch::nn::Conv2dImpl>(m)){torch::nn::init::xavier_uniform_(c->weight);torch::nn::init::zeros_(c->bias);}
   }
   c10::IValue forward(const Tensor& x){if(x.dim()!=4||x.size(2)!=300||x.size(3)!=300||x.size(0)>64)throw InvalidArgument("SSD300 requires fixed RGB 300x300 images");

@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #include <jyppx/liuding/training/amp/autocast.hpp>
@@ -243,6 +244,7 @@ TEST(ModelsAmpCuda, DinoV2GiantHalfStorageDynamicScalerResourceGate) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  jyppx::liuding::initialize_runtime();
   torch::set_num_threads(2);
   torch::set_num_interop_threads(1);
   ::testing::InitGoogleTest(&argc, argv);

@@ -2,6 +2,8 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "batch_transfer.hpp"
+
 #include <jyppx/liuding/foundation/random.hpp>
 #include <jyppx/liuding/optim/adamw_adapter.hpp>
 #include <jyppx/liuding/training/amp/autocast.hpp>
@@ -136,8 +138,7 @@ std::string preflight_vision(const RecipeSpec& recipe,
         }
         auto batch = prepare_yolo_batch(samples, keys,
                                         yolo_evaluation_options(r.data), stop);
-        batch.images = batch.images.to(r.device);
-        if (batch.labels.defined()) batch.labels = batch.labels.to(r.device);
+        batch = detail::transfer_task_batch(batch, r.device, r.data.limits);
         data::BatchEnvelope envelope;
         envelope.value = data::image::image_batch_value(batch, r.data.limits);
         const auto invocation = binding.image_mapper(envelope);

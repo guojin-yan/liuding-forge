@@ -2,11 +2,15 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
-#include <jyppx/liuding/vision/tasks/extended.hpp>
-#include <jyppx/liuding/vision/tasks/data/extended.hpp>
+#include "batch_transfer.hpp"
+
 #include <jyppx/liuding/vision/tasks/advanced_metrics.hpp>
+#include <jyppx/liuding/vision/tasks/data/extended.hpp>
+#include <jyppx/liuding/vision/tasks/extended.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
+
 #include <torch/torch.h>
+
 #include <nlohmann/json.hpp>
 namespace jyppx::liuding::vision::tasks {
 std::string evaluate_extended_task(TaskBinding& binding,const data::image::ImageDataset& dataset,const RecipeSpec& recipe,std::string dataset_id,std::stop_token stop){
@@ -18,7 +22,12 @@ std::string evaluate_extended_task(TaskBinding& binding,const data::image::Image
   Tensor confusion;double loss_sum=0,error=0,squared=0,relative=0,delta=0;std::uint64_t pixels=0;
   if(recipe.model.task==TaskKind::semantic_segment){if(recipe.model.num_classes>4096)throw ResourceExhausted("Semantic confusion matrix bound exceeded");confusion=torch::zeros({recipe.model.num_classes,recipe.model.num_classes},torch::kInt64);}
   for(std::size_t i=0;i<dataset.size();++i){if(stop.stop_requested())throw Cancelled("Supplementary task evaluation cancelled");auto sample=dataset.get(i,stop);
-    auto b=prepare_yolo_batch(std::array{sample},std::array<im::ImageBatchKey,1>{{{.id=sample.image_path}}},options,stop);b.images=b.images.to(recipe.device);b.labels=b.labels.to(recipe.device);
+    auto b = detail::transfer_task_batch(
+        prepare_yolo_batch(
+            std::array{sample},
+            std::array<im::ImageBatchKey, 1>{{{.id = sample.image_path}}},
+            options, stop),
+        recipe.device, options.limits);
     data::BatchEnvelope envelope;envelope.value=im::image_batch_value(b);auto invocation=binding.image_mapper(envelope);auto target=binding.target_mapper(envelope);
     training::StepContext context;context.phase=training::StepPhase::validation;
     auto out=binding.step({*binding.model,envelope,invocation,target,context});loss_sum+=out.loss.item<double>();auto raw=raw_tensors(out.prediction->value);
@@ -42,7 +51,24 @@ std::string calibrate_vision_multilabel(TaskBinding& binding,const data::image::
   if(r.model.task!=TaskKind::classify_multilabel||identity.empty()||dataset.empty()||dataset.size()>67108864/static_cast<std::size_t>(r.model.num_classes))throw InvalidArgument("Calibration requires a bounded identified multilabel validation split");
   struct Modes{std::vector<std::pair<std::shared_ptr<torch::nn::Module>,bool>> state;~Modes(){for(auto& [m,mode]:state)m->train(mode);}} modes;for(auto& m:binding.model->state().shared_module()->modules())modes.state.emplace_back(m,m->is_training());binding.model->state().eval();torch::NoGradGuard guard;
   auto options=yolo_evaluation_options(r.data);options.classification.enabled=true;options.allow_unannotated_negatives=true;options.num_classes=r.model.num_classes;options.augmentation.dataset_id=identity;std::vector<Tensor> scores,labels,known;
-  for(std::size_t i=0;i<dataset.size();++i){if(stop.stop_requested())throw Cancelled("Multilabel calibration cancelled");auto sample=dataset.get(i,stop);std::array<data::image::ImageBatchKey,1> keys{{{.id=sample.image_path}}};auto batch=prepare_yolo_batch(std::span(&sample,1),keys,options,stop);batch.images=batch.images.to(r.device);data::BatchEnvelope envelope;envelope.value=data::image::image_batch_value(batch);auto owned_target=binding.target_mapper(envelope);auto target=owned_target->toTupleRef().elements();auto raw=raw_tensors(binding.model->invoke(binding.image_mapper(envelope)).value);scores.push_back(raw[0].sigmoid().cpu());labels.push_back(target[0].toTensor().cpu());known.push_back(target[1].toTensor().cpu());}
+  for (std::size_t i = 0; i < dataset.size(); ++i) {
+    if (stop.stop_requested())
+      throw Cancelled("Multilabel calibration cancelled");
+    auto sample = dataset.get(i, stop);
+    std::array<data::image::ImageBatchKey, 1> keys{{{.id = sample.image_path}}};
+    auto batch = detail::transfer_task_batch(
+        prepare_yolo_batch(std::span(&sample, 1), keys, options, stop),
+        r.device, options.limits);
+    data::BatchEnvelope envelope;
+    envelope.value = data::image::image_batch_value(batch);
+    auto owned_target = binding.target_mapper(envelope);
+    auto target = owned_target->toTupleRef().elements();
+    auto raw = raw_tensors(
+        binding.model->invoke(binding.image_mapper(envelope)).value);
+    scores.push_back(raw[0].sigmoid().cpu());
+    labels.push_back(target[0].toTensor().cpu());
+    known.push_back(target[1].toTensor().cpu());
+  }
   auto s=torch::cat(scores),y=torch::cat(labels),k=torch::cat(known);auto thresholds=calibrate_multilabel_thresholds(s,y,k,identity).contiguous();std::vector<double> values(thresholds.const_data_ptr<double>(),thresholds.const_data_ptr<double>()+thresholds.numel());
   return nlohmann::json{{"schema","vision.multilabel_calibration/v1"},{"validation_identity",identity},{"recipe_identity",recipe_identity(r)},{"extension_patch",{{"multilabel_thresholds",values},{"threshold_validation_identity",identity}}},{"metrics",multilabel_metrics(s,y,k,thresholds)}}.dump(2);
 }

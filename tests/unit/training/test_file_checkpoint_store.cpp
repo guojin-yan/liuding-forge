@@ -203,6 +203,25 @@ TEST_F(FileCheckpointStoreTest, RejectsArtifactExceedingConfiguredLimit) {
   EXPECT_FALSE(std::filesystem::exists(path_.string() + ".tmp"));
 }
 
+TEST_F(FileCheckpointStoreTest, AppliesManifestBudgetsOnWriteAndReopen) {
+  using namespace jyppx::liuding;
+  training::CheckpointParticipantRegistry registry;
+  register_counter(registry, 42);
+  training::CheckpointCoordinator coordinator(registry);
+  {
+    training::FileCheckpointStore store(path_);
+    coordinator.save(store);
+  }
+  training::FileCheckpointStoreOptions bounded;
+  bounded.manifest_limits.max_nodes = 1;
+  EXPECT_THROW((training::FileCheckpointStore(path_, bounded)),
+               ResourceExhausted);
+  std::filesystem::remove(path_);
+  training::FileCheckpointStore store(path_, bounded);
+  EXPECT_THROW(coordinator.save(store), ResourceExhausted);
+  EXPECT_FALSE(std::filesystem::exists(path_));
+}
+
 TEST_F(FileCheckpointStoreTest,
        RejectsDeclaredFieldAboveStoreLimitBeforeWriting) {
   jyppx::liuding::training::FileCheckpointStoreOptions options;

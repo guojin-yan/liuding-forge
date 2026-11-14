@@ -16,6 +16,10 @@ void catalog_classification(std::vector<CapabilityRecord>& entries) {
                          .task = TaskKind::classify,
                          .variant = "p5",
                          .component = "models"});
+      if (info.feature_input) {
+        entries.back().fixed_input_size = info.feature_input->fixed_size;
+        entries.back().minimum_input_size = info.feature_input->minimum_spatial;
+      }
       auto multi=entries.back();multi.task=TaskKind::classify_multilabel;
       multi.revision="models-registry/native-multilabel-v1";multi.output_contract="independent_logits/v1";entries.push_back(std::move(multi));
     }

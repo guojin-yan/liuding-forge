@@ -6,6 +6,7 @@
 /** @file yolo_training.cpp @brief Native YOLOv8 training over canonical
  * datasets. */
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/random.hpp>
@@ -750,6 +751,7 @@ int Main(int argc, Character* argv[]) {
     if (fs::exists(output))
       throw forge::InvalidArgument("Example output directory must be new");
     fs::create_directories(output);
+    jyppx::liuding::initialize_runtime();
     at::set_num_threads(2);
     at::set_num_interop_threads(1);
     if (fs::path(argv[1]) == fs::path("--smoke"))

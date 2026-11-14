@@ -9,8 +9,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h>
+#include "windows_runtime.hpp"
 #endif
+
+#include "../../cli/windows_handle_diagnostics.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/telemetry_http/otlp_http.hpp>
@@ -30,6 +32,55 @@ namespace forge = jyppx::liuding;
 namespace ex = forge::experiment;
 using Clock = std::chrono::steady_clock;
 using Ms = std::chrono::milliseconds;
+
+#ifdef _WIN32
+std::optional<forge::test::WindowsHandleSnapshot> baseline_snapshot;
+
+std::string handle_difference() {
+  try {
+    if (baseline_snapshot) {
+      const auto current = forge::test::CaptureWindowsSelfHandles();
+      std::ostringstream result;
+      result << "; "
+             << forge::test::WindowsHandleDifference(*baseline_snapshot,
+                                                     current);
+      using QueryThread = LONG(NTAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+      const auto query = reinterpret_cast<QueryThread>(GetProcAddress(
+          GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationThread"));
+      for (const auto& [value, metadata] : current.handles) {
+        if (metadata.type != "Thread" ||
+            baseline_snapshot->handles.contains(value))
+          continue;
+        const auto thread = reinterpret_cast<HANDLE>(value);
+        DWORD exit = 0;
+        GetExitCodeThread(thread, &exit);
+        result << " thread[id=" << GetThreadId(thread) << ",exit=" << exit;
+        void* start = nullptr;
+        HMODULE module = nullptr;
+        if (query && query(thread, 9U, &start, sizeof(start), nullptr) >= 0 &&
+            GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               static_cast<LPCWSTR>(start), &module)) {
+          wchar_t name[MAX_PATH]{};
+          GetModuleFileNameW(module, name, MAX_PATH);
+          result << ",start=" << std::filesystem::path(name).filename().string()
+                 << "+0x" << std::hex
+                 << reinterpret_cast<std::uintptr_t>(start) -
+                        reinterpret_cast<std::uintptr_t>(module)
+                 << std::dec;
+        }
+        result << ']';
+      }
+      return result.str();
+    }
+  } catch (const std::exception& error) {
+    return "; handle diagnostic failed: " + std::string(error.what());
+  }
+  return {};
+}
+#else
+std::string handle_difference() { return {}; }
+#endif
 
 void require(bool condition, const char* message) {
   if (!condition) throw forge::CompatibilityError(message);
@@ -68,7 +119,7 @@ std::size_t settled_handles(std::optional<std::size_t> expected) {
       throw forge::CompatibilityError(
           "Native HTTP handles did not return exactly; expected " +
           std::to_string(expected.value_or(previous)) + ", observed " +
-          std::to_string(count));
+          std::to_string(count) + handle_difference());
   }
 }
 }  // namespace
@@ -76,6 +127,9 @@ std::size_t settled_handles(std::optional<std::size_t> expected) {
 int main(int argc, char** argv) {
   try {
     if (argc != 3) return 2;
+#ifdef _WIN32
+    const forge::test::WindowsHttpRuntime runtime;
+#endif
     const std::string_view port_text(argv[1]), mode(argv[2]);
     unsigned port = 0U;
     const auto parsed = std::from_chars(
@@ -169,7 +223,17 @@ int main(int argc, char** argv) {
 #else
         const bool initialized = warmup_rounds >= 2U;
 #endif
-        if (initialized) baseline = handles;
+        if (initialized) {
+          baseline = handles;
+#ifdef _WIN32
+          try {
+            baseline_snapshot = forge::test::CaptureWindowsSelfHandles();
+          } catch (const std::exception&) {
+            // A racing diagnostic must not alter the measured contract.
+            baseline_snapshot.reset();
+          }
+#endif
+        }
         require(baseline || warmup_rounds < max_warmup_rounds,
                 "Native HTTP runtime did not stabilize within warmup bound");
       } else {

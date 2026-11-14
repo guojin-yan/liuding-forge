@@ -2,6 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/models/models.hpp>
 
 #include <torch/torch.h>
@@ -19,6 +20,7 @@ int main(int argc, char** argv) {
         (name != "vit_small_patch14_dinov2" && name != "dinov3_vits16"))
       throw std::invalid_argument(
           "Use vit_small_patch14_dinov2 or dinov3_vits16");
+    jyppx::liuding::initialize_runtime();
     torch::set_num_threads(2);
     torch::manual_seed(267);
     auto model = models::create_model(name);

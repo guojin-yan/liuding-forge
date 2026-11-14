@@ -98,6 +98,17 @@ find_package(jyppx CONFIG REQUIRED COMPONENTS sdk)
 target_link_libraries(my_app PRIVATE jyppx::liuding::sdk)
 ~~~
 
+在 `main` 主线程中，首次配置或使用 LibTorch、启动 worker 之前调用运行时初始化；CLI 已自动接入。该入口规避当前 Windows LibTorch 2.14.1 OpenMP 配置的退出挂起，调用顺序和适用范围见[故障排查](docs/user-guide/troubleshooting.md#windows-训练完成后进程不退出)。
+
+~~~cpp
+#include <jyppx/liuding/core/runtime.hpp>
+
+int main() {
+  jyppx::liuding::initialize_runtime();
+  // 创建模型、数据管线并执行训练。
+}
+~~~
+
 只需要基础能力、错误、RNG 和构建指纹时使用 `jyppx::liuding::foundation`；只需要 checkpoint artifact manifest codec 时使用 `jyppx::liuding::interop`。安装后的公开 CLI 名称为 `liuding-forge`，旧的 `jyppx` CLI 名称不会安装。
 
 ### 运行测试和 benchmark

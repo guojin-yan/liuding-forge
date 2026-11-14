@@ -139,8 +139,8 @@ if(JYPPX_LIUDING_BUILD_VISION_TASKS)
         $<INSTALL_INTERFACE:include>)
     target_link_libraries(jyppx_liuding_vision_tasks
         PUBLIC jyppx_liuding_core jyppx_liuding_nn jyppx_liuding_optim jyppx_liuding_training
-               jyppx_liuding_data_image
-        PRIVATE jyppx_liuding_foundation jyppx_liuding_data
+               jyppx_liuding_data_image jyppx_liuding_data
+        PRIVATE jyppx_liuding_foundation
                 jyppx_liuding_experiment jyppx_liuding_interop jyppx_liuding_vision_ops
                 $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_vision_tasks)

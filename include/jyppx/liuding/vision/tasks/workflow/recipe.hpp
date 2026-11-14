@@ -64,6 +64,9 @@ struct RecipeSpec {
   Device device{torch::kCPU};
   training::PrecisionMode precision = training::PrecisionMode::full;
   std::uint64_t seed = 0;
+  bool deterministic = true;  ///< Require deterministic training algorithms.
+  double initial_loss_scale =
+      65536.;  ///< Initial dynamic CUDA FP16 loss scale.
   std::uint64_t epochs = 100;
   std::size_t batch_size = 16;
   std::size_t workers = 0;

@@ -21,6 +21,7 @@
 
 // Core
 #include <jyppx/liuding/core/device.hpp>
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/core/tensor_utils.hpp>
 #include <jyppx/liuding/core/types.hpp>
 #include <jyppx/liuding/core/value_schema.hpp>

@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include "reference_file.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data_image/batch_geometry.hpp>
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 #include <jyppx/liuding/experiment/evaluation.hpp>
@@ -172,6 +173,7 @@ void task(bool dino, bool cuda) {
   if (!directory || !weights_directory)
     GTEST_SKIP() << "Explicit pinned external task data and weights required";
   if (cuda && !torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
+  jyppx::liuding::initialize_runtime();
   torch::set_num_threads(2);
   const bool old_conv = at::globalContext().allowTF32CuDNN(),
              old_mm = at::globalContext().allowTF32CuBLAS();

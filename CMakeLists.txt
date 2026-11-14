@@ -437,6 +437,7 @@ list(APPEND JYPPX_ENABLED_HEADER_DIRS foundation)
 if(JYPPX_LIUDING_BUILD_CORE)
     add_library(jyppx_liuding_core STATIC
         src/jyppx/liuding/core/device.cpp
+        src/jyppx/liuding/core/runtime.cpp
         src/jyppx/liuding/core/tensor_utils.cpp
         src/jyppx/liuding/core/value_schema.cpp
     )

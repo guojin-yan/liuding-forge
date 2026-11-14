@@ -16,6 +16,19 @@ jyppx_add_gtest(jyppx_test_core
     LINK_TARGET jyppx::liuding::core
     core/test_core.cpp
 )
+if(WIN32 AND Python3_Interpreter_FOUND)
+    add_executable(jyppx_test_runtime_lifecycle
+        "${PROJECT_SOURCE_DIR}/tests/integration/runtime/lifecycle.cpp")
+    target_link_libraries(jyppx_test_runtime_lifecycle PRIVATE jyppx::liuding::core)
+    jyppx_apply_instrumentation(jyppx_test_runtime_lifecycle)
+    jyppx_add_torch_runtime_dependency(jyppx_test_runtime_lifecycle)
+    add_test(NAME NativeTorchRuntimeExit
+        COMMAND "${Python3_EXECUTABLE}" -I -B
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_torch_runtime_exit.py"
+            --harness $<TARGET_FILE:jyppx_test_runtime_lifecycle>)
+    set_tests_properties(NativeTorchRuntimeExit PROPERTIES
+        LABELS "core;runtime;native;process;regression" TIMEOUT 180 RUN_SERIAL TRUE)
+endif()
 endif()
 
 if(TARGET jyppx::liuding::interop)
@@ -537,10 +550,10 @@ if(TARGET jyppx::liuding::models)
         target_compile_definitions(jyppx_test_models PRIVATE
             JYPPX_LIUDING_MODELS_CUDA_METRICS=1)
     endif()
-    if(JYPPX_LIUDING_MODELS_REFERENCE_DIR)
-        target_compile_definitions(jyppx_test_models PRIVATE
-            JYPPX_LIUDING_MODELS_PYTHON_INTEROP=1)
-    endif()
+    # Keep independent reference gates visible even when fixtures are absent.
+    # Each runtime gate reports its own missing asset/resource prerequisite.
+    target_compile_definitions(jyppx_test_models PRIVATE
+        JYPPX_LIUDING_MODELS_PYTHON_INTEROP=1)
     if(TARGET jyppx::liuding::training)
         jyppx_add_gtest(jyppx_test_models_amp
             LINK_TARGET jyppx::liuding::models
@@ -856,6 +869,100 @@ if(TARGET jyppx_dataset_preparation AND Python3_Interpreter_FOUND AND
     endif()
 endif()
 
+if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo
+   AND TARGET jyppx::liuding::models_vision)
+    jyppx_add_gtest(jyppx_test_vision_contracts
+        LINK_TARGET jyppx::liuding::vision_tasks
+        vision/test_contracts.cpp)
+    target_link_libraries(jyppx_test_vision_contracts PRIVATE
+        jyppx::liuding::vision_ops)
+    jyppx_add_gtest(jyppx_test_vision_models
+        LINK_TARGET jyppx::liuding::vision_tasks
+        vision/test_models.cpp)
+    add_executable(jyppx_test_vision_reference EXCLUDE_FROM_ALL
+        vision/reference_probe.cpp)
+    target_link_libraries(jyppx_test_vision_reference PRIVATE
+        jyppx::liuding::vision_tasks nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_test_vision_reference)
+    jyppx_add_torch_runtime_dependency(jyppx_test_vision_reference)
+    if(TARGET jyppx_vision_cli AND Python3_Interpreter_FOUND)
+        set(vision_workflow_options)
+        if(TARGET jyppx::liuding::onnx_export AND TARGET jyppx::liuding::onnx_runtime)
+            add_executable(jyppx_test_vision_export vision/export_probe.cpp)
+            target_link_libraries(jyppx_test_vision_export PRIVATE
+                jyppx::liuding::vision_tasks jyppx::liuding::onnx_runtime nlohmann_json::nlohmann_json)
+            jyppx_apply_instrumentation(jyppx_test_vision_export)
+            jyppx_add_torch_runtime_dependency(jyppx_test_vision_export)
+            list(APPEND vision_workflow_options --onnx --probe $<TARGET_FILE:jyppx_test_vision_export>)
+        endif()
+        add_test(NAME VisionCliCpuWorkflow
+            COMMAND "${Python3_EXECUTABLE}" -B
+                "${PROJECT_SOURCE_DIR}/tests/integration/vision/test_workflow.py"
+                --cli $<TARGET_FILE:jyppx_vision_cli> ${vision_workflow_options})
+        set_tests_properties(VisionCliCpuWorkflow PROPERTIES
+            LABELS "vision_tasks;training;integration;recovery;cpu" TIMEOUT 600 RUN_SERIAL TRUE)
+        foreach(extension_case IN ITEMS semantic depth reid simmim fast_rcnn rtdetr
+                fcos ssd text visual prompt_free text_segment world distillation)
+            add_test(NAME VisionExtensionCpu_${extension_case}
+                COMMAND "${Python3_EXECUTABLE}" -B
+                    "${PROJECT_SOURCE_DIR}/tests/integration/vision/test_extension_workflow.py"
+                    --cli $<TARGET_FILE:jyppx_vision_cli> --case ${extension_case}
+                    ${vision_workflow_options})
+            set_tests_properties(VisionExtensionCpu_${extension_case} PROPERTIES
+                LABELS "vision_tasks;training;integration;recovery;cpu" TIMEOUT 900 RUN_SERIAL TRUE)
+        endforeach()
+        foreach(spatial_task IN ITEMS detect segment pose obb)
+            set(spatial_architecture yolo26n)
+            set(spatial_extra)
+            if(spatial_task STREQUAL "detect")
+                set(spatial_architecture yolov8n)
+                list(APPEND spatial_extra --extended)
+            endif()
+            set(spatial_name "VisionSpatialCpu_${spatial_task}_${spatial_architecture}")
+            add_test(NAME ${spatial_name}
+                COMMAND "${Python3_EXECUTABLE}" -B
+                    "${PROJECT_SOURCE_DIR}/tests/integration/vision/test_spatial_workflow.py"
+                    --cli $<TARGET_FILE:jyppx_vision_cli>
+                    --architecture ${spatial_architecture} --task ${spatial_task}
+                    ${spatial_extra} ${vision_workflow_options})
+            set_tests_properties(${spatial_name} PROPERTIES
+                LABELS "vision_tasks;training;integration;recovery;cpu" TIMEOUT 600 RUN_SERIAL TRUE)
+        endforeach()
+        set(spatial_detection_architectures yolov5n)
+        if(TARGET jyppx::liuding::models_rcnn)
+            list(APPEND spatial_detection_architectures faster_rcnn_resnet50_fpn)
+        endif()
+        foreach(spatial_architecture IN LISTS spatial_detection_architectures)
+            set(spatial_name "VisionSpatialCpu_detect_${spatial_architecture}")
+            add_test(NAME ${spatial_name}
+                COMMAND "${Python3_EXECUTABLE}" -B
+                    "${PROJECT_SOURCE_DIR}/tests/integration/vision/test_spatial_workflow.py"
+                    --cli $<TARGET_FILE:jyppx_vision_cli>
+                    --architecture ${spatial_architecture} ${vision_workflow_options})
+            set_tests_properties(${spatial_name} PROPERTIES
+                LABELS "vision_tasks;training;integration;recovery;cpu" TIMEOUT 600 RUN_SERIAL TRUE)
+        endforeach()
+        if(JYPPX_LIUDING_TEST_CLI_CUDA)
+            add_test(NAME VisionSpatialCuda_detect_yolo26n_float16
+                COMMAND "${Python3_EXECUTABLE}" -B
+                    "${PROJECT_SOURCE_DIR}/tests/integration/vision/test_spatial_workflow.py"
+                    --cli $<TARGET_FILE:jyppx_vision_cli> --architecture yolo26n
+                    --device cuda:0 --precision cuda_float16 ${vision_workflow_options})
+            set_tests_properties(VisionSpatialCuda_detect_yolo26n_float16 PROPERTIES
+                LABELS "vision_tasks;training;integration;recovery;cuda" TIMEOUT 600 RUN_SERIAL TRUE)
+            foreach(precision IN ITEMS full cuda_float16)
+                add_test(NAME VisionCliCudaWorkflow_${precision}
+                    COMMAND "${Python3_EXECUTABLE}" -B
+                        "${PROJECT_SOURCE_DIR}/tests/integration/vision/test_workflow.py"
+                        --cli $<TARGET_FILE:jyppx_vision_cli> --device cuda:0
+                        --precision ${precision} ${vision_workflow_options})
+                set_tests_properties(VisionCliCudaWorkflow_${precision} PROPERTIES
+                    LABELS "vision_tasks;training;integration;recovery;cuda" TIMEOUT 600 RUN_SERIAL TRUE)
+            endforeach()
+        endif()
+    endif()
+endif()
+
 if(TARGET jyppx::liuding::telemetry_native)
     jyppx_add_gtest(jyppx_test_native_tensorboard
         LINK_TARGET jyppx::liuding::telemetry_native
@@ -892,6 +999,9 @@ if(TARGET jyppx::liuding::telemetry_http)
         "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_http/cancellation.cpp")
     target_link_libraries(jyppx_test_otlp_http_cancellation PRIVATE
         jyppx::liuding::telemetry_http Threads::Threads)
+    if(WIN32)
+        target_link_libraries(jyppx_test_otlp_http_cancellation PRIVATE Rpcrt4 Ws2_32)
+    endif()
     jyppx_apply_instrumentation(jyppx_test_otlp_http_cancellation)
     jyppx_add_torch_runtime_dependency(jyppx_test_otlp_http_cancellation)
     add_test(NAME NativeOtlpHttpCancellation

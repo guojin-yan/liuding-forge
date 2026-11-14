@@ -694,6 +694,14 @@ TEST(TrainerTest, CancellationAndCallbackStopTakePrecedenceOverPause) {
     EXPECT_EQ(result.global_step, 1U);
     EXPECT_EQ(trainer.phase(), cancel ? tr::TrainerPhase::cancelled
                                       : tr::TrainerPhase::completed);
+    const auto summary = trainer.terminal_result();
+    ASSERT_TRUE(summary.has_value());
+    EXPECT_EQ(summary->status, result.status);
+    EXPECT_EQ(summary->global_step, result.global_step);
+    EXPECT_EQ(summary->completed_epochs, result.completed_epochs);
+    EXPECT_EQ(summary->reason, result.reason);
+    EXPECT_EQ(summary->training_metrics, result.training_metrics);
+    EXPECT_EQ(summary->validation_metrics, result.validation_metrics);
     EXPECT_THROW(trainer.fit(), jyppx::liuding::NotReady);
     trainer.close();
   }
@@ -814,6 +822,14 @@ TEST(TrainerTest, ExactRollbackBudgetRestoresAndOneByteShortPreservesState) {
       }
       EXPECT_EQ(restored.phase(),
                 jyppx::liuding::training::TrainerPhase::completed);
+      const auto summary = restored.terminal_result();
+      ASSERT_TRUE(summary.has_value());
+      EXPECT_EQ(summary->status, expected.status);
+      EXPECT_EQ(summary->global_step, expected.global_step);
+      EXPECT_EQ(summary->completed_epochs, expected.completed_epochs);
+      EXPECT_EQ(summary->reason, expected.reason);
+      EXPECT_EQ(summary->training_metrics, expected.training_metrics);
+      EXPECT_EQ(summary->validation_metrics, expected.validation_metrics);
     }
   }
 }
@@ -829,7 +845,9 @@ TEST(TrainerTest, FitMapPipelinePublishesOrderedEventsAndMetrics) {
       std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
           callback});
   jyppx::liuding::training::Trainer trainer(options(2));
+  EXPECT_FALSE(trainer.terminal_result().has_value());
   trainer.prepare(make_request(domain, dispatcher));
+  EXPECT_FALSE(trainer.terminal_result().has_value());
   const auto result = trainer.fit();
 
   EXPECT_EQ(result.status, jyppx::liuding::training::FitStatus::completed);
@@ -843,6 +861,7 @@ TEST(TrainerTest, FitMapPipelinePublishesOrderedEventsAndMetrics) {
   EXPECT_EQ(dispatcher->last_event_index(), 58U);
   trainer.close();
   EXPECT_EQ(trainer.phase(), jyppx::liuding::training::TrainerPhase::closed);
+  EXPECT_FALSE(trainer.terminal_result().has_value());
 }
 
 TEST(TrainerTest, CommitsDisjointOptimizersAsOneLogicalStep) {

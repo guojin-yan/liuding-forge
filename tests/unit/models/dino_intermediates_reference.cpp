@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include "reference_file.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
 #include <jyppx/liuding/models/models.hpp>
@@ -79,6 +80,7 @@ int main(int argc, char** argv) {
     const auto output = std::filesystem::u8path(argv[3]);
     if (std::filesystem::exists(output))
       throw std::runtime_error("Output must be new");
+    jyppx::liuding::initialize_runtime();
     torch::set_num_threads(2);
     torch::set_num_interop_threads(1);
     const test::MappedReference state(

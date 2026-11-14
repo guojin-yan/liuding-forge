@@ -11,6 +11,9 @@
 #include <jyppx/liuding/deployment/bundle_signing/provider.hpp>
 #elif defined(JYPPX_CONSUMER_CORE)
 #include <jyppx/liuding/core/device.hpp>
+#include <jyppx/liuding/core/runtime.hpp>
+
+#include <ATen/Parallel.h>
 #elif defined(JYPPX_CONSUMER_INTEROP)
 #include <jyppx/liuding/interop/checkpoint_manifest.hpp>
 #elif defined(JYPPX_CONSUMER_DATA)
@@ -172,6 +175,10 @@ int main() {
   const auto signature = signer.sign_payload({});
   return signature.signature_hex.size() == 128U ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_CORE)
+  jyppx::liuding::initialize_runtime();
+  at::set_num_threads(2);
+  jyppx::liuding::initialize_runtime();
+  if (at::get_num_threads() != 2) return 1;
   return jyppx::liuding::parse_device("cpu").is_cpu() ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_INTEROP)
   const auto capability =

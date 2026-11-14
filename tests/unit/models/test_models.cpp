@@ -5,6 +5,7 @@
 
 #include "reference_file.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
 #include <jyppx/liuding/models/models.hpp>
@@ -3380,6 +3381,7 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtLargeResourceGate) {
 
 // Configure the test process before any LibTorch parallel work starts.
 int main(int argc, char** argv) {
+  jyppx::liuding::initialize_runtime();
   torch::set_num_threads(2);
   torch::set_num_interop_threads(1);
   ::testing::InitGoogleTest(&argc, argv);

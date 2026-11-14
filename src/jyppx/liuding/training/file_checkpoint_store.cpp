@@ -20,7 +20,7 @@ class FileCheckpointStore::Impl {
                   .max_field_bytes = options.max_field_bytes,
                   .min_free_storage_bytes = options.min_free_storage_bytes,
                   .synchronize = options.synchronize,
-                  .manifest_limits = {}}) {
+                  .manifest_limits = options.manifest_limits}) {
     for (const auto& entry : archive_.manifest().participants) {
       descriptor_.participants.push_back(entry.state);
       if (static_cast<std::uint8_t>(entry.state.restore_level) >

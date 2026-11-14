@@ -255,8 +255,9 @@ struct FitRequest {
       validation_target_mapper;  ///< Optional validation target mapper.
   StepFunction validation_step;  ///< Required when validation is set.
   std::function<std::map<std::string, double>(std::stop_token)>
-      validation_summary;  ///< Optional full-split metrics after loss aggregation;
-                           ///< rejects duplicate keys and never averages batch AP.
+      validation_summary;  ///< Optional full-split metrics after loss
+                           ///< aggregation; rejects duplicate keys and never
+                           ///< averages batch AP.
   std::shared_ptr<TrainingStrategy>
       strategy;  ///< Required device/backward/update execution owner.
   std::shared_ptr<amp::GradScaler>
@@ -397,6 +398,15 @@ class Trainer final : public CheckpointParticipant {
    * @return Current prepared, running, terminal, or closed phase.
    */
   TrainerPhase phase() const noexcept;
+
+  /**
+   * @brief Reads a completed or cancelled run summary, including after restore.
+   * @return Terminal result, or nullopt when no terminal summary is available.
+   *
+   * Reading the summary performs no data, model, callback, or optimizer work.
+   * Read it before close(), which transitions the lifecycle to closed.
+   */
+  std::optional<FitResult> terminal_result() const;
 
   /**
    * @brief Returns fully committed optimizer updates.

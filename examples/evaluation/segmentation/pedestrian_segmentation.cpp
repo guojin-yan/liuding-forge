@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include "model/tiny_unet.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
@@ -232,6 +233,7 @@ std::shared_ptr<TinyUNet> trained(const torch::Device& device) {
 }
 void setup() {
   torch::manual_seed(20261028);
+  jyppx::liuding::initialize_runtime();
   torch::set_num_threads(2);
   at::globalContext().setAllowTF32CuDNN(false);
   at::globalContext().setAllowTF32CuBLAS(false);

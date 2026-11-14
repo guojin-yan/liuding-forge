@@ -4,12 +4,13 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include "deployment/artifacts/bundle_signing.hpp"
 #include "cli.hpp"
+#include "deployment/artifacts/bundle_signing.hpp"
 #include "experiment/local_execution/local_attempt.hpp"
 #include "telemetry/native_otlp_worker.hpp"
 #include "telemetry/native_tensorboard_worker.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/foundation/build_config.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
 
@@ -366,6 +367,7 @@ int error_exit(ErrorCode code) noexcept {
 }
 
 int main_entry(std::span<const std::string_view> values) {
+  initialize_runtime();
   if (!values.empty() && values.front() == "__liuding_otlp_worker")
     return native_otlp_worker_entry(values);
   if (!values.empty() && values.front() == "__liuding_tensorboard_worker")

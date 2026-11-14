@@ -14,9 +14,8 @@
 
 #include <algorithm>
 #include <array>
-#include <condition_variable>
+#include <atomic>
 #include <memory>
-#include <mutex>
 #include <utility>
 #include <windows.h>
 #include <winhttp.h>
@@ -51,12 +50,15 @@ void check(BOOL result, std::stop_token stop,
 }
 
 struct Completion final {
-  std::mutex mutex;
-  std::condition_variable_any ready;
-  DWORD status = 0U;
-  DWORD error = ERROR_SUCCESS;
-  DWORD bytes = 0U;
-  DWORD secure_failures = 0U;
+  Completion() : ready(CreateEventW(nullptr, FALSE, FALSE, nullptr)) {
+    if (!ready) throw IoError("Could not create OTLP completion event");
+  }
+  ~Completion() { CloseHandle(ready); }
+  HANDLE ready;
+  std::atomic<DWORD> status{0U};
+  std::atomic<DWORD> error{ERROR_SUCCESS};
+  std::atomic<DWORD> bytes{0U};
+  std::atomic<DWORD> secure_failures{0U};
   // WinHTTP can still reference an async read/write buffer until
   // HANDLE_CLOSING. Keep a bounded chunk alive with the callback, never the
   // caller's payload.
@@ -77,34 +79,34 @@ void CALLBACK completed(HINTERNET, DWORD_PTR context, DWORD status,
     delete owner;
     return;
   }
-  {
-    const std::lock_guard lock(state->mutex);
-    if (status == WINHTTP_CALLBACK_STATUS_SECURE_FAILURE) {
-      // This notification precedes REQUEST_ERROR and supplies the validation
-      // reason hidden by the generic ERROR_WINHTTP_SECURE_FAILURE result.
+  if (status == WINHTTP_CALLBACK_STATUS_SECURE_FAILURE) {
+    // This notification precedes REQUEST_ERROR and supplies the validation
+    // reason hidden by the generic ERROR_WINHTTP_SECURE_FAILURE result.
+    if (information && length == sizeof(DWORD))
+      state->secure_failures.fetch_or(*static_cast<DWORD*>(information));
+    return;
+  } else if (status == WINHTTP_CALLBACK_STATUS_REQUEST_ERROR) {
+    state->error =
+        information && length == sizeof(WINHTTP_ASYNC_RESULT)
+            ? static_cast<WINHTTP_ASYNC_RESULT*>(information)->dwError
+            : ERROR_INVALID_DATA;
+  } else if (status == WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE ||
+             status == WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE ||
+             status == WINHTTP_CALLBACK_STATUS_READ_COMPLETE ||
+             status == WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE) {
+    if (status == WINHTTP_CALLBACK_STATUS_READ_COMPLETE) {
+      state->bytes = length;
+    } else if (status == WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE) {
       if (information && length == sizeof(DWORD))
-        state->secure_failures |= *static_cast<DWORD*>(information);
-    } else if (status == WINHTTP_CALLBACK_STATUS_REQUEST_ERROR) {
-      state->error =
-          information && length == sizeof(WINHTTP_ASYNC_RESULT)
-              ? static_cast<WINHTTP_ASYNC_RESULT*>(information)->dwError
-              : ERROR_INVALID_DATA;
-    } else if (status == WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE ||
-               status == WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE ||
-               status == WINHTTP_CALLBACK_STATUS_READ_COMPLETE ||
-               status == WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE) {
-      state->status = status;
-      if (status == WINHTTP_CALLBACK_STATUS_READ_COMPLETE) {
-        state->bytes = length;
-      } else if (status == WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE) {
-        if (information && length == sizeof(DWORD))
-          state->bytes = *static_cast<DWORD*>(information);
-        else
-          state->error = ERROR_INVALID_DATA;
-      }
+        state->bytes = *static_cast<DWORD*>(information);
+      else
+        state->error = ERROR_INVALID_DATA;
     }
+    state->status.store(status, std::memory_order_release);
+  } else {
+    return;
   }
-  state->ready.notify_all();
+  SetEvent(state->ready);
 }
 
 void check_certificate_error(DWORD code, DWORD secure_failures) {
@@ -153,7 +155,8 @@ class Request final {
   DWORD_PTR context() const noexcept { return context_; }
   Completion& state() noexcept { return *state_; }
   void begin() {
-    const std::lock_guard lock(state_->mutex);
+    if (!ResetEvent(state_->ready))
+      throw IoError("Could not reset OTLP completion event");
     state_->status = 0U;
     state_->error = ERROR_SUCCESS;
     state_->bytes = 0U;
@@ -169,18 +172,25 @@ class Request final {
     if (error != ERROR_SUCCESS && error != ERROR_IO_PENDING)
       throw IoError("OTLP asynchronous WinHTTP operation failed; OS code " +
                     std::to_string(error));
-    std::unique_lock lock(state_->mutex);
-    state_->ready.wait_until(lock, stop, deadline, [&] {
-      return state_->status != 0U || state_->error != ERROR_SUCCESS;
-    });
-    check_telemetry_operation(stop, deadline);
-    if (state_->error == ERROR_WINHTTP_TIMEOUT)
+    const std::stop_callback cancelled(stop, [&] { SetEvent(state_->ready); });
+    for (;;) {
+      const auto milliseconds = http_remaining_milliseconds(stop, deadline);
+      const auto result = WaitForSingleObject(state_->ready, milliseconds);
+      check_telemetry_operation(stop, deadline);
+      if (result == WAIT_TIMEOUT) continue;
+      if (result != WAIT_OBJECT_0)
+        throw IoError("Could not wait for OTLP asynchronous completion");
+      break;
+    }
+    const auto completed_error = state_->error.load(std::memory_order_acquire);
+    if (completed_error == ERROR_WINHTTP_TIMEOUT)
       throw DeadlineExceeded("OTLP HTTP request deadline exceeded");
-    check_certificate_error(state_->error, state_->secure_failures);
-    if (state_->error != ERROR_SUCCESS || state_->status != expected)
+    check_certificate_error(completed_error, state_->secure_failures.load());
+    if (completed_error != ERROR_SUCCESS ||
+        state_->status.load(std::memory_order_acquire) != expected)
       throw IoError("OTLP asynchronous WinHTTP completion failed; OS code " +
-                    std::to_string(state_->error));
-    return state_->bytes;
+                    std::to_string(completed_error));
+    return state_->bytes.load();
   }
 
  private:
@@ -253,6 +263,14 @@ class Sender final : public OtlpRequestSender {
       const Handle session(WinHttpOpen(
           L"Liuding-Forge/OTLP", WINHTTP_ACCESS_TYPE_NO_PROXY,
           WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC));
+      // Completion callbacks only publish atomics and signal an event. They
+      // never wait for callers or for WinHTTP when cancellation races a
+      // completion.
+      BOOL nonblocking = TRUE;
+      check(WinHttpSetOption(session.get(),
+                             WINHTTP_OPTION_ASSURED_NON_BLOCKING_CALLBACKS,
+                             &nonblocking, sizeof(nonblocking)),
+            stop, deadline);
       // Keep pending handshakes owned by this request's session, rather than
       // letting a global connection pool outlive cooperative cancellation.
       BOOL isolated = TRUE;

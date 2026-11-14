@@ -670,8 +670,8 @@ class ReleaseTest(unittest.TestCase):
         self.assertTrue(any("integrity-pending" in item for item in result["ga_blockers"]))
         sbom = json.loads((self.output / "sbom.cdx.json").read_bytes())
         self.assertNotIn("vulnerabilities", sbom)
-        self.assertEqual(result["retained_license_files"], 100)
         license_index = json.loads((ROOT / "third_party/licenses/manifest.json").read_bytes())
+        self.assertEqual(result["retained_license_files"], len(license_index["files"]))
         for record in license_index["files"]:
             self.assertEqual((self.output / "third_party/licenses" / record["path"]).read_bytes(),
                              (ROOT / "third_party/licenses" / record["path"]).read_bytes())

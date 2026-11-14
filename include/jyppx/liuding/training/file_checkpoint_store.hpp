@@ -20,6 +20,7 @@
 #include <memory>
 
 #if JYPPX_LIUDING_COMPONENT_INTEROP_ENABLED
+#include <jyppx/liuding/interop/checkpoint_manifest.hpp>
 
 namespace jyppx::liuding::training {
 
@@ -33,6 +34,8 @@ struct FileCheckpointStoreOptions {
       0;  ///< Minimum free bytes to retain after staging the replacement.
   bool synchronize =
       true;  ///< Flush file and directory metadata before publish.
+  interop::CheckpointManifestLimits manifest_limits;
+  ///< Bounded metadata budgets, applied when both writing and reopening.
 };
 
 /**

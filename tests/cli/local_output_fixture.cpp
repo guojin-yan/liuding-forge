@@ -6,6 +6,7 @@
 
 // Test-only native training/publication boundary. The Python checker may
 // corrupt the disposable STORE after .ready and before releasing --gate.
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
@@ -121,6 +122,7 @@ int Train(const fs::path& launch_log, const fs::path& gate, int exit_code) {
   fs::create_directories(workspace.parent_path());
   if (!fs::create_directory(workspace))
     throw std::runtime_error("Native fixture must not launch an attempt twice");
+  jyppx::liuding::initialize_runtime();
   at::set_num_threads(2);
   auto model = std::make_shared<torch::nn::LinearImpl>(1, 1);
   {

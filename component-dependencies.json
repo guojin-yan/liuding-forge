@@ -415,6 +415,7 @@
       ],
       "required_public_dependencies": [
         "core",
+        "data",
         "data_image",
         "nn",
         "optim",

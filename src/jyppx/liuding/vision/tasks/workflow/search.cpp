@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include "artifact_io.hpp"
 #include "run_ledger.hpp"
+#include "selection_metrics.hpp"
 
 #include <jyppx/liuding/data_image/sample_random.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -121,11 +122,10 @@ SearchObservation execute_vision_trial(const RecipeSpec& r,
                                        TrialTrainingExecutor launcher,
                                        std::stop_token stop) {
   check_recipe(r);
-  const std::set<std::string> objectives{"training.loss",   "validation.loss",
-                                         "validation.map",  "validation.ap50",
-                                         "validation.top1", "validation.top5"};
-  if (!objectives.contains(objective))
-    throw InvalidArgument("Unknown native vision trial objective");
+  if (objective != "training.loss" &&
+      !detail::selection_metric_available(r, objective))
+    throw InvalidArgument(
+        "Vision trial objective is unavailable for this task");
   const bool has_validation = !r.extension.training_manifest.empty()
                                   ? !r.extension.validation_manifest.empty()
                               : r.model.task == TaskKind::classify
@@ -134,14 +134,6 @@ SearchObservation execute_vision_trial(const RecipeSpec& r,
   if (objective.starts_with("validation.") && !has_validation)
     throw InvalidArgument(
         "Validation search objective requires a validation split");
-  if ((objective == "validation.map" || objective == "validation.ap50") &&
-      r.model.task == TaskKind::classify)
-    throw InvalidArgument(
-        "Detection AP search objective is inapplicable to classification");
-  if ((objective == "validation.top1" || objective == "validation.top5") &&
-      r.model.task != TaskKind::classify)
-    throw InvalidArgument(
-        "Classification search objective is inapplicable to this task");
   if (objective != "training.loss" && objective != "validation.loss" &&
       !r.full_validation_metrics)
     throw InvalidArgument(

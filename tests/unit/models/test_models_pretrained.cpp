@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include "reference_file.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
 #include <jyppx/liuding/models/models.hpp>
@@ -251,6 +252,7 @@ void CheckPretrained(bool dino, bool cuda) {
                     "required; no network acquisition";
   if (cuda && !torch::cuda::is_available())
     GTEST_SKIP() << "CUDA runtime unavailable";
+  jyppx::liuding::initialize_runtime();
   torch::set_num_threads(2);
   IeeePrecision precision;
   const auto root = std::filesystem::path(directory);

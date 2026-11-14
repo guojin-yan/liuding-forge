@@ -131,8 +131,13 @@ class ImageFailureDiagnostics(unittest.TestCase):
             self.assertEqual(db.execute("SELECT status FROM jyppx_runs").fetchall(), [(2,)])
         return rows
 
+    def fault_root(self, fault):
+        # Keep cloned CAS paths as short as the finite prefix on Windows.
+        index = (*FAULTS, "storage.failure").index(fault)
+        return self.base / f"case-{index}"
+
     def root_for(self, fault):
-        root = self.base / fault
+        root = self.fault_root(fault)
         shutil.copytree(self.prefix, root)
         return root
 
@@ -221,7 +226,7 @@ class ImageFailureDiagnostics(unittest.TestCase):
                                           "warning": stderr, "checkpoint_sha256": before}
 
     def test_04_safe_checkpoint_recovers_without_failed_update_or_extra_counts(self):
-        root = self.base / "gradient.infinity"
+        root = self.fault_root("gradient.infinity")
         self.assertTrue(root.is_dir(), "gradient fault must run before recovery")
         baseline, _ = self.invoke("recipe", "resume", "--file", self.config, "--root", self.prefix, expected=(0, 4))
         resumed, _ = self.invoke("recipe", "resume", "--file", self.config, "--root", root, expected=(0, 4))

@@ -1090,7 +1090,9 @@ struct Trainer::Impl {
         validate_metric_map(summary, options, "validation.summary");
         for (const auto& [name, value] : summary) {
           if (!values.emplace(name, value).second)
-            throw InvalidArgument("Full-split validation metric duplicates a batch metric: " + name);
+            throw InvalidArgument(
+                "Full-split validation metric duplicates a batch metric: " +
+                name);
         }
       }
       values = request.strategy->reduce_metrics(values);
@@ -1688,6 +1690,23 @@ const TrainerOptions& Trainer::options() const noexcept {
 }
 
 TrainerPhase Trainer::phase() const noexcept { return impl_->state.phase; }
+
+std::optional<FitResult> Trainer::terminal_result() const {
+  const auto& state = impl_->state;
+  if (state.phase != TrainerPhase::completed &&
+      state.phase != TrainerPhase::cancelled)
+    return std::nullopt;
+  const bool cancelled = state.phase == TrainerPhase::cancelled;
+  return FitResult{
+      .status = cancelled             ? FitStatus::cancelled
+                : state.callback_stop ? FitStatus::stopped
+                                      : FitStatus::completed,
+      .completed_epochs = state.completed_epochs,
+      .global_step = state.global_step,
+      .training_metrics = state.last_training,
+      .validation_metrics = state.last_validation,
+      .reason = cancelled ? "stop token requested" : state.stop_reason};
+}
 
 std::uint64_t Trainer::global_step() const noexcept {
   return impl_->state.global_step;

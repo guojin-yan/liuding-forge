@@ -3,8 +3,11 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 #include <jyppx/liuding/vision/models/extended/pyramid.hpp>
-#include <torch/torch.h>
 #include <jyppx/liuding/vision/models/extended/vit_adapter.hpp>
+
+#include <torch/torch.h>
+
+#include <algorithm>
 namespace jyppx::liuding::models::extended {
 namespace {
 using I=std::int64_t;
@@ -32,6 +35,7 @@ Tensor token_grid(const Tensor& tokens,std::array<I,2> grid,I prefix){
 }
 struct FeaturePyramidImpl::Impl{
   PyramidOptions o;nn::ModelAdapter backbone;FeatureSpec spec;
+  std::size_t token_index = 0;
   torch::nn::ModuleList lateral{nullptr},smooth{nullptr},fusion{nullptr};
   torch::nn::Conv2d p6{nullptr},p7{nullptr};
   Impl(FeaturePyramidImpl& owner,PyramidOptions options):o(std::move(options)),backbone([&]{
@@ -43,13 +47,24 @@ struct FeaturePyramidImpl::Impl{
     else spec=model_feature_spec(o.backbone,m);
     owner.register_module("backbone",backbone.state().shared_module());
     lateral=owner.register_module("lateral",torch::nn::ModuleList());smooth=owner.register_module("smooth",torch::nn::ModuleList());
-    auto token=spec.outputs.size()==1&&spec.outputs[0].layout==FeatureLayout::ntc;
+    // Registered token encoders expose global, patch-token and grid views.
+    // Select the declared token view instead of assuming a one-output factory.
+    auto token_view = std::find_if(
+        spec.outputs.begin(), spec.outputs.end(),
+        [](const auto& f) { return f.layout == FeatureLayout::ntc; });
+    const bool token = token_view != spec.outputs.end();
+    if (token)
+      token_index = static_cast<std::size_t>(token_view - spec.outputs.begin());
     if(token!=(o.kind==PyramidKind::token_pyramid))throw InvalidArgument("Token backbones require the explicit token_pyramid profile");
     if(!token&&spec.outputs.size()!=4)throw InvalidArgument("Pyramid requires four declared spatial stages");
-    for(I i=0;i<3;++i){auto c=token?spec.outputs[0].channels:spec.outputs[i+1].channels;
+    for (I i = 0; i < 3; ++i) {
+      auto c = token ? spec.outputs[token_index].channels
+                     : spec.outputs[i + 1].channels;
       if(!token&&(spec.outputs[i+1].layout!=FeatureLayout::nchw||spec.outputs[i+1].reduction!=(8LL<<i)))throw InvalidArgument("Pyramid stage layout/stride mismatch");
       lateral->push_back(torch::nn::Conv2d(torch::nn::Conv2dOptions(c,o.channels,1)));
-      smooth->push_back(torch::nn::Conv2d(torch::nn::Conv2dOptions(o.channels,o.channels,3).padding(1)));}
+      smooth->push_back(torch::nn::Conv2d(
+          torch::nn::Conv2dOptions(o.channels, o.channels, 3).padding(1)));
+    }
     auto last=(token||o.extra_from_p5)?o.channels:spec.outputs.back().channels;
     p6=owner.register_module("p6",torch::nn::Conv2d(torch::nn::Conv2dOptions(last,o.channels,3).stride(2).padding(1)));
     p7=owner.register_module("p7",torch::nn::Conv2d(torch::nn::Conv2dOptions(o.channels,o.channels,3).stride(2).padding(1)));
@@ -64,9 +79,15 @@ const PyramidOptions& FeaturePyramidImpl::options()const noexcept{return impl_->
 std::vector<Tensor> FeaturePyramidImpl::forward(const Tensor& images){
   auto& p=*impl_;if(images.dim()!=4||images.size(2)<32||images.size(3)<32)throw InvalidArgument("Pyramid expects NCHW images at least 32 pixels");
   auto raw=Raw(p.backbone.invoke({.positional={images}}).value);std::vector<Tensor> c;
-  if(p.o.kind==PyramidKind::token_pyramid){auto f=p.spec.outputs[0];auto x=token_grid(raw[0],{images.size(2)/f.reduction,images.size(3)/f.reduction},f.prefix_tokens);
+  if (p.o.kind == PyramidKind::token_pyramid) {
+    auto f = p.spec.outputs[p.token_index];
+    auto x =
+        token_grid(raw[p.token_index],
+                   {images.size(2) / f.reduction, images.size(3) / f.reduction},
+                   f.prefix_tokens);
     for(I i=0;i<3;++i)c.push_back(torch::nn::functional::interpolate(x,torch::nn::functional::InterpolateFuncOptions().size(std::vector<I>{(images.size(2)+(8LL<<i)-1)/(8LL<<i),(images.size(3)+(8LL<<i)-1)/(8LL<<i)}).mode(torch::kBilinear).align_corners(false)));
-  }else c={raw[1],raw[2],raw[3]};
+  } else
+    c = {raw[1], raw[2], raw[3]};
   std::vector<Tensor> y(5);for(I i=0;i<3;++i)y[i]=p.lateral[i]->as<torch::nn::Conv2d>()->forward(c[i]);
   if(p.o.kind!=PyramidKind::bifpn){for(I i=1;i>=0;--i)y[i]=y[i]+Resize(y[i+1],y[i]);for(I i=0;i<3;++i)y[i]=p.smooth[i]->as<torch::nn::Conv2d>()->forward(y[i]);}
   y[3]=p.p6(p.o.kind==PyramidKind::token_pyramid||p.o.extra_from_p5?y[2]:c[2]);y[4]=p.p7(torch::relu(y[3]));
