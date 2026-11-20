@@ -666,7 +666,7 @@ function(jyppx_add_gtest test_name)
     # Follow the public runtime contract before hardware availability checks.
     # Foundation/interop-only tests keep their independent component closure.
     if(JYPPX_LIUDING_TEST_LINK_TARGET MATCHES
-       "^jyppx::liuding::(core|data|data_image|nn|optim|training|experiment|models|vision_.*|models_.*|sdk|all)$")
+       "^jyppx::liuding::(core|data|data_image|nn|optim|training|experiment|models|vision_.*|models_.*|serving|onnx_serving|sdk|all)$")
         target_sources(${test_name} PRIVATE
             "${JYPPX_TESTS_SOURCE_DIR}/test_utils/runtime_environment.cpp")
     endif()
