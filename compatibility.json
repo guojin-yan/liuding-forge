@@ -19,6 +19,33 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-9736a85-dino-independent-cpu-references",
+          "commit": "9736a8513dd412d8ede07a25e0bba1734d2a962e",
+          "accelerator": "AMD Radeon PRO W7900 host; ROCm SDK10.1.0/HIP7.16.26385 distribution CPU FP32 independent DINO architecture references; no GPU numerical claim",
+          "tests": "干净提交本机DINOv2-small与DINOv3 Huge+原生独立CPU参考各6项全过、零跳过；合计两架构门禁与五共享门禁共7个不同CTest，不把重复门禁相加。Linux/cu126分发CPU同提交Huge+与五门禁6项全过、零跳过。",
+          "quality_evidence": {
+            "source_identity": "干净9736a85复用各自Release树、离线配置、至多两个编译任务、最小构建models并串行CPU；实际binary SHA、cache、built-provenance与完整native输出保留。没有将ROCm分发内的CPU运行记作AMD GPU数值资格。",
+            "small_reference_identity": "复用原未改动DINOv2-small generator、timm af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c及固定vision_transformer源SHA e3435821...；独立Windows Python3.11.9/Torch2.14.1+cpu/torchvision0.29.1+cpu/safetensors0.6.2精确复现原C++三文件完整SHA：input0ba7d144...、outputc8347532...、statecd1aa206...。新解释器仅用于独立checker，未修改原版本锁、SHA、数据或生产路径。",
+            "small_native_contract": "完整22,056,192参数随机架构状态严格导入，batch2 RGB224x280，核对全部321x384 tokens与384维CLS；保持原token归一化后rtol2e-4/atol2e-5与CLS原容差。没有预训练权重、分类质量或GPU数值资格。",
+            "huge_reference_identity": "原未改动generator在锁定Linux Python3.11.18/Torch2.14.1+cpu/NumPy2.3.3/safetensors0.6.2执行精确Meta6876159a11b4df116f30f667f8c9888617df0751源码，逐文件核对来源与归档身份；seed20261110、随机初始化、输入1x3x35x50。独立state3363078840B SHA7c2157c7e6c423019888392f542871005ddb35a62beccf2a30ae5d744a189c5e；input e0243a8d31271b78a1b1ee534510ba33dd97b9c5da1821ca46df92e14ff19f13；output36dcf1741a85b205e0cb8548362b0facf82c65a125123c0a053ab9226431923b；没有替换既有固定fixture。",
+            "huge_native_contract": "完整840,633,600参数、519参数张量/33 buffers共552状态严格导入且无missing/unexpected/shape/dtype不匹配；比较全部11x1280 tokens、1280维CLS及第0/15/31层归一化中间tokens。保留原rtol5e-4/atol5e-5、12GiB进程峰值RSS和600秒外层界限。",
+            "huge_observations": "本机最大绝对误差1.43051e-6、峰值RSS10475970560B；Linux/cu126分发CPU最大误差2.38419e-7、峰值RSS10680414208B，均满足原限制。独立生成峰值RSS6906948KiB。主机物理内存入场本机14GiB/Linux12GiB预先冻结且满足，不把未执行当通过。",
+            "preserved_tool_failures": "本机Huge+ CTest实际退出0且六项全过；私有runner在保存并核验完整receipt后误将空list传给SystemExit导致外层退出1，原退出和诊断保留，修正私有runner bool后未挑选重跑产品。Linux初次仅因CRLF/LF的raw generator SHA比较而在0测试前停止；核对原始副本SHA及规范化文本相同后v2才执行六项。DINOv2-small首次同类换行检查失败也保留；所有原generator与数值容差不变。",
+            "scope": "仅所列精确随机状态的独立CPU FP32架构数值与Huge+资源合同；测试参考不作为产品权重分发，不改变公开权重目录状态。不授GPU独立数值、真实数据/预训练、任务质量、训练/恢复、其他输入/容量、性能、其他AMD GPU/OS、多卡或发布资格。",
+            "local_small_receipt_sha256": "4dd146f8c0bac0141b607662058843af491163dac0f41a68f4a363e7fa52d152",
+            "local_huge_receipt_sha256": "188c49cf74f940c5fbb142c737ed896d96aefad5802ddf83518c5216bff4ad17",
+            "linux_huge_receipt_sha256": "4e00ec54833a03e927667b01bbb4f96ea95c1cbaadf2502ff4c3573b37575837",
+            "small_generation_receipt_sha256": "abc427f7e7202eb269dc5abb31a8d1c95b2857a2d6af24bf8033949efc1a2510",
+            "huge_reference_evidence_sha256": "4546885b4d3e50df6c10c54dff78b1961e3ef096f200da880bddbbc7ddc3bad7"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-a5ac395-pretrained-numerics-classification",
           "commit": "a5ac3954a5cf890ae7ae5ea40bb63be316370d61",
           "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK10.1.0/HIP7.16.26385; pinned pretrained ResNet50 and DINOv2-small numerical/classification gates",
@@ -40,7 +67,9 @@
             "real_first_batch_failure": "额外真实首批次CPU门禁与本15项独立：同一干净a5ac395、18个固定原文件，Windows/RTX3060环境CPU通过；本ROCm分发CPU和Linux/cu126分发CPU各一处patch_embed.proj.weight梯度超原rtol3e-3/atol3e-5，max_abs_error分别0.00011587142944335938与0.00016069412231445312，其余logits/loss、五梯度和六更新比较通过。原始失败保留，未放宽容差或替换参考，不授该门禁CPU或GPU资格。",
             "real_first_batch_local_receipt_sha256": "649f9b0e73ed9429e8f8ca6b49bb52ce3838abfa5db0a7ead29871463e82e3e0",
             "real_first_batch_windows_receipt_sha256": "d880d0f86df23fc3c5ffb4bfb8226ac7b00b0794d7322910e316ec3a98849382",
-            "real_first_batch_linux_receipt_sha256": "1080f721b87f06635e2700caa716edc3931c1408b54734435fa709867a0446ab"
+            "real_first_batch_linux_receipt_sha256": "1080f721b87f06635e2700caa716edc3931c1408b54734435fa709867a0446ab",
+            "real_first_batch_diagnosis": "9736a85补充失败元素数和实际tensor SHA诊断，不改比较语义。干净本机7通过/1原失败、Windows8通过、Linux7通过/1原失败，零跳过。Linux C++全部225792个patch梯度原始字节SHA a838a886449294f05c5ea9ec306c1e9961778ff18d96ec8868894990d5aadede与独立HF4.56.2/Torch2.14.1+cpu默认eager输出精确相同，同样相对原Windows参考71元素超差；禁用oneDNN仍155元素超差。证明该Linux张量的原参考跨平台差异，不能据此授原门禁通过或推定本ROCm分发CPU原因；本机2元素超差保持未解决。",
+            "real_first_batch_diagnosis_receipt_sha256": "00e0ca1fad5552f90e3fe8bd1e619a3b679dd9e6c03d64725c2321222262576d"
           }
         },
         {
