@@ -164,7 +164,7 @@ Linux 调用者须位于同一委派子树，拥有目标 `cgroup.procs` 及当�
 
 这些检查是启动前的时点观察，不预留内存或磁盘，不限制实际分配，也不证明CPU affinity、cgroup配额或GPU拓扑符合要求。CPU为OS在线逻辑处理器数，内存为整机物理内存口径；容器、其他进程或后续资源变化仍可造成启动后的不足。它与下述逻辑预约、`os_memory_limit`及进程资源计数分别使用，不将其中一种计量当作另一种保证。
 
-`local_run_spec` 与搜索的 `execution` 可增加下面的 `resources`。首次准入会将同一机器、同一 STORE 的容量固定到 run/CAS；后续请求必须原样使用该容量。单独使用时，`gpu0` 是调用者约定的逻辑设备身份；需要真实 NVIDIA GPU 准入及 CUDA 放置时，另外声明下述 `cuda_device`。
+`local_run_spec` 与搜索的 `execution` 可增加下面的 `resources`。首次准入会将同一机器、同一 STORE 的容量固定到 run/CAS；后续请求必须原样使用该容量。单独使用时，`gpu0` 是调用者约定的逻辑设备身份；需要真实 GPU 准入及放置时，另外声明下述 `cuda_device` 或 `rocm_device`。
 
 ```json
 {
@@ -183,7 +183,7 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 
 ### NVIDIA GPU 实际准入与 CUDA 放置
 
-`liuding-forge local cuda-devices --format json` 通过本机 NVIDIA 驱动 NVML 只读查询物理 GPU 的完整 UUID、总/空闲显存字节数及计算能力，不创建 CUDA 上下文或 STORE。NVML 在运行时加载，CPU-only 构建不依赖 CUDA Toolkit；驱动或所需接口不可用时明确失败。当前支持 Windows/Linux 的完整物理 GPU UUID，MIG、其他 GPU 厂商和多卡拓扑未支持。
+`liuding-forge local cuda-devices --format json` 通过本机 NVIDIA 驱动 NVML 只读查询物理 GPU 的完整 UUID、总/空闲显存字节数及计算能力，不创建 CUDA 上下文或 STORE。NVML 在运行时加载，CPU-only 构建不依赖 CUDA Toolkit；驱动或所需接口不可用时明确失败。当前支持 Windows/Linux 的完整物理 GPU UUID，MIG 和多卡拓扑未支持；AMD 使用下述独立 ROCm 接口。
 
 可在 `local_run_spec` 或搜索 `execution` 中声明下面的字段，并将 `resources.request.gpu.id` 和对应 `capacity.gpus` 键设为同一完整 UUID。该容量池的全部 GPU 键均须使用完整物理 UUID，不接受缩写或逻辑别名；旧 STORE 的容量含别名时须使用新 STORE，以免同一物理设备被不同名称重复预约。
 
@@ -202,6 +202,27 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 运行器将子进程的 `CUDA_VISIBLE_DEVICES` 设置为完整 UUID，使遵守 CUDA 可见性约定的程序将该设备作为 `cuda:0` 使用；父进程环境不变。该覆盖参与完整有效环境摘要，不得同时由显式 `environment` 或 `environment_refs` 设置。每个已启动 attempt 的 `cuda_placement` 收据保留 `nvml_prelaunch` 来源、UUID、逻辑设备 0、总/空闲显存和计算能力；缺失、与计划不符或不满足准入的收据拒绝重放，旧逻辑计划不补造收据。
 
 显存数据是启动前的时点观察；NVML 物理总量与 CUDA runtime 可用总量可能不同。该检查不预留或限制实际 VRAM，CUDA 可见性约定也不是设备访问沙箱，程序自行改写环境或使用其他驱动接口可绕过它。CPU 放置、环境绑定、OS 内存边界与 NVIDIA UUID 选择是各自独立的配置；实际可用组合以兼容矩阵为准，不能从启动前显存观察推导训练期间的显存硬上限。
+
+### AMD GPU 实际准入与 ROCm 放置
+
+ROCm 构建提供 `liuding-forge local rocm-devices --format json`，返回 HIP UUID 字节、PCI 地址、组合 `id`、未屏蔽的 `ordinal`、精确 `architecture`、总/空闲显存字节数及 `memory_source`。Windows HIP 的 UUID 可能只是设备序号的编码，因此完整身份同时包含 PCI 地址；不将 UUID 单独作为物理设备键。查询可能初始化 HIP 上下文，不创建 STORE，并保留调用者当前 HIP 设备。
+
+从查询结果逐项复制 `id`、`ordinal` 和 `architecture` 到 `local_run_spec.rocm_device`（搜索使用 `execution.rocm_device`），并将逻辑预约的 `resources.request.gpu.id` 及 `resources.capacity.gpus` 键设为同一完整 `id`：
+
+```json
+"rocm_device": {
+  "id": "AMD-0000-01-00-0-0123456789abcdef0123456789abcdef",
+  "ordinal": 0,
+  "architecture": "gfx1100",
+  "minimum_free_memory_bytes": 1073741824
+}
+```
+
+前三项必填，最低空闲显存可选；不接受逻辑别名、枚举漂移后自动改号，或同一计划同时声明 `cuda_device`。启动器在整个生命周期及 HIP 初始化之前均须没有 `HIP_VISIBLE_DEVICES`、`CUDA_VISIBLE_DEVICES`、`ROCR_VISIBLE_DEVICES` 和 `GPU_DEVICE_ORDINAL`；不要在 HIP 初始化后修改这些变量。运行器只在子进程中将四项统一设为冻结的物理 ordinal，使遵守 HIP 可见性约定的程序使用 `cuda:0`。四项覆盖参与有效环境摘要，计划不得通过 `environment` 或 `environment_refs` 另行设置它们。
+
+首次/重试准入及 worker 启动前重新核对完整身份、ordinal、架构、声明容量和空闲显存。Windows 的 `memory_source=hip_wddm` 使用 HIP LUID 对应的 WDDM 全局专用显存段，按 committed/resident 占用中的较大值计算空闲量，再取它与 HIP 查询值的较小值；全局计量不可用时明确拒绝。其他平台查询来源为 `hip`，仍需独立硬件验证。显存是采样值，逻辑预约只协调同一 STORE，不构成 VRAM 硬配额、设备沙箱或分配成功保证。
+
+首次失败不创建 STORE，重试失败保持已确认前缀，已预约 worker 的启动前拒绝记录失败并释放原预约；终态可在 GPU 不可用时只读重放。已启动 attempt 的 `rocm_placement` 收据记录 `hip_prelaunch` 来源、身份、ordinal、逻辑设备 0、架构、显存及计量来源，缺失或不满足计划时拒绝重放。验证范围以 [AMD 指南](../user-guide/amd_rocm.md)及兼容矩阵为准。
 
 ## 训练输入与显式恢复
 

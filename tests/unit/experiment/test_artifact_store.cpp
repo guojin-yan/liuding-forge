@@ -276,6 +276,34 @@ TEST(ArtifactStoreTest, VerifyDetectsMutationAndGcRespectsLiveDigestAndGrace) {
 }
 
 #ifdef _WIN32
+TEST(ArtifactStoreWindowsPathTest, MissingRootPreservesDriveEnvironment) {
+  TempArtifactRoot root;
+  const auto drive = root.path().root_name().native();
+  ASSERT_EQ(drive.size(), 2U);
+  const auto name = L"=" + drive;
+  const auto size = GetEnvironmentVariableW(name.c_str(), nullptr, 0);
+  std::vector<wchar_t> original(size);
+  if (size != 0)
+    ASSERT_LT(GetEnvironmentVariableW(name.c_str(), original.data(), size),
+              size);
+  struct Restore {
+    const std::wstring& name;
+    const std::vector<wchar_t>& value;
+    ~Restore() {
+      SetEnvironmentVariableW(name.c_str(),
+                              value.empty() ? nullptr : value.data());
+    }
+  } restore{name, original};
+  ASSERT_TRUE(SetEnvironmentVariableW(name.c_str(), nullptr));
+  const auto missing = long_artifact_test_root(root.path()) / "missing";
+  FileArtifactStore store(missing);
+  EXPECT_EQ(GetEnvironmentVariableW(name.c_str(), nullptr, 0), 0U);
+  EXPECT_EQ(GetLastError(), ERROR_ENVVAR_NOT_FOUND);
+  const auto payload = store.put(bytes_of("bound"), descriptor(5));
+  EXPECT_TRUE(store.exists(payload.digest));
+  EXPECT_EQ(GetEnvironmentVariableW(name.c_str(), nullptr, 0), 0U);
+}
+
 TEST(ArtifactStoreWindowsPathTest, ResolvesDriveUncAndRelativePaths) {
   namespace detail = jyppx::liuding::experiment::detail;
   std::error_code error = std::make_error_code(std::errc::io_error);

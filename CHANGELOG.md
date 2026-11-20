@@ -25,6 +25,8 @@
 ### 实验、评估与交付
 
 - 提供 SQLite/CAS 运行与制品存储、事务化发布、本地原生进程执行、有界搜索、原生 TensorBoard 与 OTLP 遥测。
+- 本地进程执行增加 AMD 物理设备绑定、显存准入与子进程放置；Windows 使用 HIP/WDDM 全局显存计量，重试和 worker 启动前重新核对。
+- 修复 Windows 缺失制品目录规范化意外添加驱动器环境伪变量、导致完整启动环境摘要不一致的问题，并保留长路径支持。
 - 提供分类、检测和分割评估、检查点续评、质量规则及 JSON/HTML 报告。
 - 提供通用 C++ ONNX 导出、独立 ONNX Runtime、模型 bundle、Ed25519 签名、本地 Serving 与受控版本切换。
 - 修复 ONNX 归约类型提升、混合类型 cat/stack、可选仿射 BatchNorm 及 Double LayerNorm 方差计算。

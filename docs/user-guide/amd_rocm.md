@@ -36,4 +36,6 @@ Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像
 
 GPU 训练后的模型通过独立 CPU 副本导出，原训练模型继续保留设备、精度和梯度。视觉 CLI 使用 CPU FP32 eval 副本导出 opset 17；FP16/BF16 训练不代表 ONNX 采用同一精度。ONNX Runtime 的 Provider 独立于 LibTorch，本组合使用 CPU Provider 验证导出图，不据此声明 ORT 的 AMD GPU 执行。
 
-NVML 物理 UUID 预约的本地进程执行器仍用于 NVIDIA；AMD 可直接使用原生 C++ Trainer 或视觉 CLI。
+## 本地进程执行
+
+ROCm 构建支持 `local rocm-devices` 与 `rocm_device` 放置计划，以 HIP UUID 和 PCI 地址共同绑定设备身份，启动前重新检查 ordinal、架构和可用显存。Windows 使用 HIP 与 WDDM 全局专用显存统计的保守值，逻辑预约协调同一 STORE 的任务；子进程通过统一可见性变量将所选卡作为 `cuda:0` 使用。完整字段、恢复和采样限制见[本地进程运行器](../development/local_process_runner.md#amd-gpu-实际准入与-rocm-放置)。启动器须从未屏蔽 GPU 的环境启动；不要在 HIP 初始化后修改可见性变量。

@@ -437,6 +437,13 @@ struct CudaRequirement {
   std::uint64_t free_memory_bytes = 0;
 };
 
+struct RocmRequirement {
+  std::string id;
+  std::string architecture;
+  std::uint32_t ordinal = 0;
+  std::uint64_t free_memory_bytes = 0;
+};
+
 struct Spec {
   Json json;
   std::string canonical;
@@ -449,6 +456,7 @@ struct Spec {
   std::map<std::string, RuntimeFile> runtime_files;
   std::optional<HostRequirements> host_requirements;
   std::optional<CudaRequirement> cuda_device;
+  std::optional<RocmRequirement> rocm_device;
   std::uint64_t maximum_attempts = 1;
   std::uint64_t retry_delay_ms = 0;
   std::optional<std::uint64_t> deadline_unix_ms;
@@ -467,7 +475,8 @@ Spec read_spec(const Json& value) {
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
        "deadline_unix_ms", "training", "resources", "environment_refs",
        "environment_sha256", "os_memory_limit", "runtime_files",
-       "host_requirements", "cpu_affinity", "cuda_device", "local_retention"});
+       "host_requirements", "cpu_affinity", "cuda_device", "rocm_device",
+       "local_retention"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -646,6 +655,8 @@ Spec read_spec(const Json& value) {
   if (result.resources && !process.cpu_affinity.empty())
     require(result.resources->request.cpu_slots <= process.cpu_affinity.size(),
             "CPU slot request exceeds the declared CPU affinity");
+  require(!value.contains("cuda_device") || !value.contains("rocm_device"),
+          "A local attempt cannot combine CUDA and ROCm placement");
   if (value.contains("cuda_device")) {
     const auto& cuda = value.at("cuda_device");
     fields(cuda, {"uuid"},
@@ -684,6 +695,41 @@ Spec read_spec(const Json& value) {
             "CUDA placement exceeds the local environment bound");
     result.cuda_device = std::move(required);
   }
+  if (value.contains("rocm_device")) {
+    const auto& rocm = value.at("rocm_device");
+    fields(rocm, {"id", "ordinal", "architecture"},
+           {"minimum_free_memory_bytes"});
+    RocmRequirement required{.id = text(rocm.at("id")),
+                             .architecture = text(rocm.at("architecture")),
+                             .ordinal = static_cast<std::uint32_t>(
+                                 unsigned_number(rocm.at("ordinal"), 63))};
+    require(local_rocm_id_is_valid(required.id),
+            "ROCm placement requires a complete physical PCI/UUID identity");
+    require(required.architecture.size() <= 255 &&
+                required.architecture.starts_with("gfx") &&
+                required.architecture.size() > 3,
+            "ROCm placement requires the exact HIP GPU architecture");
+    require(result.resources && result.resources->request.gpu &&
+                *result.resources->request.gpu == required.id,
+            "ROCm placement and logical GPU reservation must use the same ID");
+    for (const auto& [id, bytes] :
+         result.resources->capacity.at("gpus").items()) {
+      static_cast<void>(bytes);
+      require(local_rocm_id_is_valid(id),
+              "ROCm-bound capacity must use full AMD PCI/UUID identities");
+    }
+    if (rocm.contains("minimum_free_memory_bytes"))
+      required.free_memory_bytes =
+          positive(rocm.at("minimum_free_memory_bytes"),
+                   std::numeric_limits<std::int64_t>::max());
+    for (const auto* name : {"HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES",
+                             "ROCR_VISIBLE_DEVICES", "GPU_DEVICE_ORDINAL"})
+      require(!environment_names.contains(name),
+              "ROCm placement owns all GPU visibility overrides");
+    require(environment_names.size() <= 124 && launch_bytes + 128 <= kSpecBytes,
+            "ROCm placement exceeds the local environment bound");
+    result.rocm_device = std::move(required);
+  }
   if (value.contains("os_memory_limit")) {
     const auto& memory = value.at("os_memory_limit");
     fields(memory, {"bytes"}, {"cgroup_parent"});
@@ -713,6 +759,10 @@ LocalProcessOptions resolved_process(const Spec& spec) {
   auto result = spec.process;
   if (spec.cuda_device)
     result.environment["CUDA_VISIBLE_DEVICES"] = spec.cuda_device->uuid;
+  if (spec.rocm_device)
+    for (const auto* name : {"HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES",
+                             "ROCR_VISIBLE_DEVICES", "GPU_DEVICE_ORDINAL"})
+      result.environment[name] = std::to_string(spec.rocm_device->ordinal);
   if (spec.environment_references.empty()) return result;
   std::size_t launch_bytes = path_text(result.executable).size() + 1;
   for (const auto& argument : result.arguments)
@@ -954,6 +1004,26 @@ std::optional<LocalCudaDevice> verify_cuda_device(const Spec& spec) {
   return *found;
 }
 
+std::optional<LocalRocmDevice> verify_rocm_device(const Spec& spec) {
+  if (!spec.rocm_device) return std::nullopt;
+  const auto devices = local_rocm_devices();
+  const auto& required = *spec.rocm_device;
+  const auto found = std::find_if(
+      devices.begin(), devices.end(),
+      [&](const auto& device) { return device.id == required.id; });
+  require(found != devices.end(), "Requested ROCm GPU identity is unavailable");
+  require(found->ordinal == required.ordinal &&
+              found->architecture == required.architecture,
+          "ROCm GPU ordinal or architecture differs from the frozen identity");
+  const auto& resource = *spec.resources;
+  if (resource.capacity.at("gpus").at(required.id).get<std::uint64_t>() >
+          found->total_memory_bytes ||
+      found->free_memory_bytes < std::max(required.free_memory_bytes,
+                                          resource.request.gpu_memory_bytes))
+    throw ResourceExhausted("Requested ROCm GPU memory is unavailable");
+  return *found;
+}
+
 void preflight(const Spec& spec) {
   if (!spec.process.cpu_affinity.empty()) {
     const auto available = local_process_available_cpu_ids();
@@ -967,6 +1037,7 @@ void preflight(const Spec& spec) {
           "Local working directory must already exist");
   verify_host_requirements(spec);
   static_cast<void>(verify_cuda_device(spec));
+  static_cast<void>(verify_rocm_device(spec));
   const auto actual = local_execution_detail::file_digest(
       spec.process.executable, local_execution_detail::kExecutableLimit);
   require(actual.hex == spec.executable_sha256,
@@ -1466,7 +1537,7 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
          {"process_tree_cleanup_confirmed", "training_sha256",
           "training_outputs_sha256", "training_outputs_confirmed",
           "resource_usage", "memory_boundary", "cpu_affinity", "cuda_placement",
-          "local_retention"});
+          "rocm_placement", "local_retention"});
   schema(value, "jyppx.liuding.local_attempt_result");
   // Older immutable results have no accounting field. Do not fabricate one
   // during replay; a present measurement must retain explicit OS semantics.
@@ -1536,6 +1607,37 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
   } else {
     require(!spec.cuda_device || value.at("process_id") == 0,
             "A launched CUDA-bound attempt requires its placement receipt");
+  }
+  if (value.contains("rocm_placement") &&
+      !value.at("rocm_placement").is_null()) {
+    const auto& placement = value.at("rocm_placement");
+    fields(placement,
+           {"source", "id", "ordinal", "logical_device", "architecture",
+            "total_memory_bytes", "free_memory_bytes", "memory_source"});
+    require(
+        spec.rocm_device && placement.at("source") == "hip_prelaunch" &&
+            (placement.at("memory_source") == "hip" ||
+             placement.at("memory_source") == "hip_wddm") &&
+            placement.at("id") == spec.rocm_device->id &&
+            unsigned_number(placement.at("ordinal"), 63) ==
+                spec.rocm_device->ordinal &&
+            placement.at("architecture") == spec.rocm_device->architecture &&
+            unsigned_number(placement.at("logical_device"), 0) == 0 &&
+            unsigned_number(value.at("process_id"),
+                            std::numeric_limits<std::uint64_t>::max()) != 0,
+        "Local ROCm placement receipt differs from its frozen requirement");
+    const auto total = positive(placement.at("total_memory_bytes"),
+                                std::numeric_limits<std::int64_t>::max());
+    const auto free = unsigned_number(placement.at("free_memory_bytes"), total);
+    require(total >= spec.resources->capacity.at("gpus")
+                         .at(spec.rocm_device->id)
+                         .get<std::uint64_t>() &&
+                free >= std::max(spec.resources->request.gpu_memory_bytes,
+                                 spec.rocm_device->free_memory_bytes),
+            "Local ROCm placement receipt does not satisfy admission");
+  } else {
+    require(!spec.rocm_device || value.at("process_id") == 0,
+            "A launched ROCm-bound attempt requires its placement receipt");
   }
   if (value.contains("cpu_affinity") && !value.at("cpu_affinity").is_null()) {
     const auto& placement = value.at("cpu_affinity");
@@ -2308,6 +2410,7 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
 
   LocalProcessResult native;
   std::optional<LocalCudaDevice> cuda_observation;
+  std::optional<LocalRocmDevice> rocm_observation;
   std::string status;
   std::string failure_reason;
   std::atomic<bool> monitor_error{false};
@@ -2406,6 +2509,7 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
           // attempt must not outlive the worker (Linux direct-child fence).
           options.kill_on_parent_death = true;
           cuda_observation = verify_cuda_device(spec);
+          rocm_observation = verify_rocm_device(spec);
           runner_entered = true;
           native = LocalProcessRunner{}.run(options, cancellation.get_token());
         }
@@ -2487,6 +2591,21 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
         {"compute_capability", {device.compute_major, device.compute_minor}}};
   }
   result["cpu_affinity"] = nullptr;
+  if (spec.rocm_device) {
+    result["rocm_placement"] = nullptr;
+    if (rocm_observation && native.process_id != 0) {
+      const auto& device = *rocm_observation;
+      result["rocm_placement"] = {
+          {"source", "hip_prelaunch"},
+          {"id", device.id},
+          {"ordinal", device.ordinal},
+          {"logical_device", 0},
+          {"architecture", device.architecture},
+          {"memory_source", device.memory_source},
+          {"total_memory_bytes", device.total_memory_bytes},
+          {"free_memory_bytes", device.free_memory_bytes}};
+    }
+  }
   if (!native.cpu_affinity.empty()) {
     result["cpu_affinity"] = {
 #if defined(_WIN32)

@@ -89,6 +89,27 @@ std::filesystem::path artifact_logical_root(
     return std::filesystem::path(native.substr(4U));
   return canonical;
 }
+
+std::filesystem::path artifact_canonical_root(const std::filesystem::path& path,
+                                              std::error_code& error) {
+  // MSVC weakly_canonical traverses a missing extended path from its parsed
+  // root, treating the drive component as a drive-relative path. This can
+  // populate =<drive>: in the process environment and break launch binding.
+  // Resolve the closest existing ancestor from the leaf instead. Every open
+  // retains the extended native spelling, including paths beyond MAX_PATH.
+  auto ancestor = path;
+  std::filesystem::path suffix;
+  for (;;) {
+    auto canonical = std::filesystem::canonical(ancestor, error);
+    if (!error) return suffix.empty() ? canonical : canonical / suffix;
+    if (error != std::errc::no_such_file_or_directory) return {};
+    const auto parent = ancestor.parent_path();
+    if (parent.empty() || parent == ancestor) return {};
+    suffix =
+        suffix.empty() ? ancestor.filename() : ancestor.filename() / suffix;
+    ancestor = parent;
+  }
+}
 #else
 const std::filesystem::path& artifact_filesystem_path(
     const std::filesystem::path& path, std::string_view operation) noexcept {
@@ -754,7 +775,7 @@ FileArtifactStore::FileArtifactStore(std::filesystem::path root,
   }
   std::error_code error;
 #ifdef _WIN32
-  const auto canonical = std::filesystem::weakly_canonical(
+  const auto canonical = artifact_canonical_root(
       artifact_filesystem_path(root, "absolute"), error);
   if (error) throw_io("canonicalize", root, error);
   root_ = artifact_logical_root(canonical, root);

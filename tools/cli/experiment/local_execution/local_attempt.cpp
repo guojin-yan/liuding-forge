@@ -72,6 +72,24 @@ Result control_local_job(std::string_view action, const fs::path& root,
 
 Result local_attempt_command(const Arguments& arguments) {
   const auto action = arguments.words()[1];
+  if (action == "rocm-devices") {
+    arguments.allow({});
+    auto devices = Json::array();
+    for (const auto& device : experiment::local_rocm_devices())
+      devices.push_back({{"id", device.id},
+                         {"uuid", device.uuid},
+                         {"pci_bus_id", device.pci_bus_id},
+                         {"architecture", device.architecture},
+                         {"memory_source", device.memory_source},
+                         {"ordinal", device.ordinal},
+                         {"total_memory_bytes", device.total_memory_bytes},
+                         {"free_memory_bytes", device.free_memory_bytes}});
+    return {{{"format", "jyppx.liuding.local_rocm_devices"},
+             {"schema_version", 1},
+             {"source", "hip"},
+             {"devices", std::move(devices)}},
+            0};
+  }
   if (action == "cuda-devices") {
     arguments.allow({});
     auto devices = Json::array();
@@ -112,7 +130,8 @@ Result local_attempt_command(const Arguments& arguments) {
       action != "cancel" && action != "abandon" && action != "worker")
     usage("local",
           "Use "
-          "cuda-devices/cpu-affinity/environment/execute/show/recover/cancel/"
+          "cuda-devices/rocm-devices/cpu-affinity/environment/execute/show/"
+          "recover/cancel/"
           "abandon.");
   if (action == "execute")
     arguments.allow({"root", "id", "spec"});

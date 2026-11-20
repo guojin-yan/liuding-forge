@@ -79,6 +79,9 @@ endif()
 endif()
 
 if(TARGET jyppx::liuding::experiment)
+jyppx_add_gtest(jyppx_test_local_devices
+    LINK_TARGET jyppx::liuding::experiment
+    experiment/test_local_devices.cpp)
 jyppx_add_gtest(jyppx_test_experiment_config
     LINK_TARGET jyppx::liuding::experiment
     experiment/test_config.cpp

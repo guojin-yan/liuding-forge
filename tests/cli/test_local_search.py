@@ -110,6 +110,9 @@ def fixture(arguments: argparse.Namespace) -> None:
         launch["cpu_ids"] = ATTEMPTS.cpu_ids()
     if mode == "cuda_visibility":
         launch["cuda_visible_devices"] = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if mode == "rocm_visibility":
+        launch["rocm_visibility"] = {name: os.environ.get(name) for name in
+            ("HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES", "GPU_DEVICE_ORDINAL")}
     training = None
     if "JYPPX_LIUDING_LOCAL_SPEC_SHA256" in os.environ:
         job = os.environ["JYPPX_LIUDING_LOCAL_JOB_ID"]

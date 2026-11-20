@@ -89,6 +89,18 @@ add_test(NAME Cli_local_cuda_schema
     COMMAND ${Python3_EXECUTABLE} -I -B "${CMAKE_CURRENT_SOURCE_DIR}/test_local_cuda.py"
         --cli $<TARGET_FILE:jyppx_cli_recipe_gate> -v)
 set_tests_properties(Cli_local_cuda_schema PROPERTIES LABELS "cli;experiment;integration" TIMEOUT 120)
+add_test(NAME Cli_local_rocm_schema
+    COMMAND ${Python3_EXECUTABLE} -I -B "${CMAKE_CURRENT_SOURCE_DIR}/test_local_rocm.py"
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate> -v)
+set_tests_properties(Cli_local_rocm_schema PROPERTIES LABELS "cli;experiment;integration" TIMEOUT 120)
+if(JYPPX_LIUDING_TEST_CLI_CUDA AND TARGET torch_hip)
+    add_executable(jyppx_local_rocm_fixture local_rocm_fixture.cpp)
+    target_link_libraries(jyppx_local_rocm_fixture PRIVATE hip::host nlohmann_json::nlohmann_json)
+    add_test(NAME Cli_local_rocm_placement
+        COMMAND ${Python3_EXECUTABLE} -I -B "${CMAKE_CURRENT_SOURCE_DIR}/test_local_rocm.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --fixture $<TARGET_FILE:jyppx_local_rocm_fixture> --hardware -v)
+    set_tests_properties(Cli_local_rocm_placement PROPERTIES LABELS "cli;experiment;rocm;integration" TIMEOUT 240 RUN_SERIAL TRUE)
+endif()
 if(JYPPX_LIUDING_TEST_CLI_CUDA AND JYPPX_ACCELERATOR_BUILD STREQUAL "cuda")
     add_executable(jyppx_local_cuda_fixture local_cuda_fixture.cpp)
     target_include_directories(jyppx_local_cuda_fixture PRIVATE ${CUDA_INCLUDE_DIRS} ${CUDAToolkit_INCLUDE_DIRS})

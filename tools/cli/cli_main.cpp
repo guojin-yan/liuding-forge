@@ -246,6 +246,7 @@ Result execute(const Arguments& arguments) {
                   {"doctor [--device cpu|cuda] [--expected-libtorch VERSION]",
                    "local cpu-affinity",
                    "local cuda-devices",
+                   "local rocm-devices",
                    "local environment --spec PATH",
                    "local execute --root DIRECTORY --id ID --spec PATH",
                    "local show|recover|cancel --root DIRECTORY --id ID",

@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include <jyppx/liuding/core/device.hpp>
 #include <jyppx/liuding/core/runtime.hpp>
+#include <jyppx/liuding/experiment/local_execution/devices.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
 
 #include <torch/torch.h>
@@ -30,6 +31,16 @@ int main() {
   if (!fingerprint.libtorch_build.starts_with("rocm-") ||
       !fingerprint.accelerator_runtime.starts_with("rocm:available:"))
     return 4;
+  const auto physical = experiment::local_rocm_devices();
+  if (physical.empty()) return 5;
+  for (const auto& gpu : physical) {
+    if (!experiment::local_rocm_id_is_valid(gpu.id) ||
+        gpu.architecture.empty() || gpu.total_memory_bytes == 0 ||
+        gpu.free_memory_bytes > gpu.total_memory_bytes)
+      return 6;
+    std::cout << "rocm_physical_device: " << gpu.id << ' ' << gpu.architecture
+              << ' ' << gpu.ordinal << '\n';
+  }
 #endif
   std::cout << build_fingerprint_json(fingerprint) << '\n';
 }

@@ -16,7 +16,8 @@
 namespace jyppx::liuding::cli {
 
 /** @brief Durable bounded local execution composed over run/CAS and OS locks.
- * @param arguments local cuda-devices/cpu-affinity/environment/execute/show/
+ * @param arguments local
+ * cuda-devices/rocm-devices/cpu-affinity/environment/execute/show/
  * recover/cancel/abandon, or the private worker.
  * @return Detached job/attempt state; unresolved ownership never relaunches.
  */
