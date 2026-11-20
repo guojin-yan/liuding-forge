@@ -16,6 +16,8 @@
 
 两套门禁分别核对各自固定的权重摘要，评估检查点和质量报告也绑定实际权重身份；训练配方、划分、质量和资源门槛共用原合同。`TrainCUDA` 继续核对历史参考的原摘要。训练字节一致性仅适用于实际验证的精确组合，参考产物在其他设备上的推理需要单独验证，不能由权重名称推定。
 
+`RealSpatialTask.DurableTrainingRecoveryCUDA` 单独验证同一设备/运行身份的真实训练恢复。每次使用新进程和新的输出目录，依次将 `JYPPX_LIUDING_SPATIAL_TRAINING_RECOVERY_MODE` 设为 `baseline`、`pause`、`resume`、`replay`：baseline 完成原 1200 次更新；pause 在第 601 次更新保存 `training.state`；resume 从暂停文件完成训练；replay 从完成文件重放。后两次还须将 `JYPPX_LIUDING_SPATIAL_TRAINING_SOURCE` 指向相应输入文件，将 `JYPPX_LIUDING_SPATIAL_TRAINING_EXPECTED` 指向 baseline 的 `training.state`。测试比较恢复后的全部参与者字段及最终检查点，输出下一 CPU/GPU RNG 摘要以供进程间对照。该门禁保留原训练配方和资源上限，单独检查同设备恢复，不要求跨后端训练字节一致。
+
 输出包含实际前处理图像、实例 ID、模型 logits、候选框、统计值、质量报告、物理检查点与资源观测，便于独立参考核对。照片采用 FP32 RGB/255 和带抗锯齿的双线性缩放，离散实例 ID 用 nearest-exact；评估按单张图像执行前向，拆批不改变模型运算形状。IoU/Dice 和 AP 均核对 batch 1/4 等价，并销毁重建模型和会话后续评。
 
 候选框只来自模型预测前景的连通分量，不读取真实标注。它用于检验实际预测到 AP 的数据链路，不代表独立检测模型、完整检测配方、官方 benchmark 或训练性能优势。

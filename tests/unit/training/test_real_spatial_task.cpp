@@ -646,7 +646,62 @@ void task(bool cuda, const PinnedTaskWeights& weights) {
   std::cout << "REAL_SPATIAL_RESULT " << results.dump() << '\n';
 }
 
-void train(const char* expected_weights_sha) {
+struct TrainingRecovery {
+  std::string mode;
+  fs::path source;
+  fs::path expected_final;
+};
+
+void equal_training_state(const fs::path& expected_path,
+                          const fs::path& actual_path) {
+  const FileCheckpointStore expected(expected_path), actual(actual_path);
+  const auto& left = expected.descriptor();
+  const auto& right = actual.descriptor();
+  ASSERT_EQ(left.restore_level, RestoreLevel::exact);
+  ASSERT_EQ(right.restore_level, RestoreLevel::exact);
+  ASSERT_EQ(left.participants.size(), right.participants.size());
+  std::uint64_t bytes = 0;
+  std::size_t fields = 0;
+  for (std::size_t i = 0; i < left.participants.size(); ++i) {
+    const auto& a = left.participants[i];
+    const auto& b = right.participants[i];
+    SCOPED_TRACE(a.participant_id);
+    ASSERT_EQ(a.participant_id, b.participant_id);
+    EXPECT_EQ(a.schema_version, b.schema_version);
+    EXPECT_EQ(a.restore_level, b.restore_level);
+    EXPECT_EQ(a.degradation_reasons, b.degradation_reasons);
+    ASSERT_EQ(a.fields.size(), b.fields.size());
+    const auto& ar = expected.reader_for(a.participant_id);
+    const auto& br = actual.reader_for(b.participant_id);
+    for (std::size_t j = 0; j < a.fields.size(); ++j) {
+      const auto& field = a.fields[j];
+      const auto& other = b.fields[j];
+      SCOPED_TRACE(field.name);
+      ASSERT_EQ(field.name, other.name);
+      EXPECT_EQ(field.max_bytes, other.max_bytes);
+      EXPECT_EQ(field.required, other.required);
+      EXPECT_EQ(field.media_type, other.media_type);
+      ASSERT_EQ(ar.contains(field.name), br.contains(field.name));
+      if (!ar.contains(field.name)) continue;
+      const auto av = ar.read_blob(field.name, field.max_bytes);
+      const auto bv = br.read_blob(field.name, field.max_bytes);
+      ASSERT_EQ(av.size(), bv.size());
+      EXPECT_TRUE(std::equal(av.begin(), av.end(), bv.begin()));
+      bytes += av.size();
+      ++fields;
+    }
+  }
+  EXPECT_GE(left.participants.size(), 6U);
+  // TinyUNet parameters plus all Adam first/second moments must be included.
+  EXPECT_GT(bytes, 3U * 100000U);
+  EXPECT_GT(fields, 60U);
+  std::cout << "SPATIAL_TRAINING_STATE participants="
+            << left.participants.size() << " fields=" << fields
+            << " bytes=" << bytes << '\n';
+}
+
+void train(const char* expected_weights_sha,
+           const TrainingRecovery& recovery = {}) {
   ASSERT_TRUE(torch::cuda::is_available());
   setup();
   const auto start = std::chrono::steady_clock::now();
@@ -733,12 +788,40 @@ void train(const char* expected_weights_sha) {
        .model_checkpoint =
            std::make_shared<nn::ModelCheckpointParticipant>(*model),
        .rng_checkpoint = std::make_shared<core::RngCheckpointParticipant>()});
-  const auto result = trainer.fit();
-  EXPECT_EQ(result.completed_epochs, 80);
-  EXPECT_EQ(result.global_step, 1200);
+  const bool pause = recovery.mode == "pause";
+  if (!recovery.source.empty()) {
+    const FileCheckpointStore source(recovery.source);
+    ASSERT_EQ(trainer.restore_checkpoint(source).restore_level,
+              RestoreLevel::exact);
+    ASSERT_EQ(trainer.global_step(), recovery.mode == "replay" ? 1200U : 601U);
+    FileCheckpointStore restored(out / "restored.state");
+    trainer.save_checkpoint(restored);
+    equal_training_state(recovery.source, restored.path());
+    ASSERT_FALSE(::testing::Test::HasFailure());
+  }
+  FitResult result;
+  if (recovery.mode == "replay") {
+    const auto terminal = trainer.terminal_result();
+    ASSERT_TRUE(terminal.has_value());
+    result = *terminal;
+  } else {
+    result = pause ? trainer.fit_until(601) : trainer.fit();
+  }
+  EXPECT_EQ(result.completed_epochs, pause ? 40 : 80);
+  EXPECT_EQ(result.global_step, pause ? 601 : 1200);
+  if (!recovery.mode.empty()) {
+    EXPECT_EQ(result.status, pause ? FitStatus::paused : FitStatus::completed);
+    FileCheckpointStore final(out / "training.state");
+    trainer.save_checkpoint(final);
+    EXPECT_EQ(final.descriptor().restore_level, RestoreLevel::exact);
+    if (!recovery.expected_final.empty()) {
+      equal_training_state(recovery.expected_final, final.path());
+    }
+  }
   save_weights(*holder, out / "trained.safetensors");
-  EXPECT_EQ(sha256_hex(read(out / "trained.safetensors")),
-            expected_weights_sha);
+  if (expected_weights_sha && !pause)
+    EXPECT_EQ(sha256_hex(read(out / "trained.safetensors")),
+              expected_weights_sha);
   trainer.close();
   const auto elapsed =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
@@ -752,6 +835,16 @@ void train(const char* expected_weights_sha) {
       {"peak_rss_bytes", peak_rss()},
       {"weights_sha256", sha256_hex(read(out / "trained.safetensors"))},
       {"manifest_sha256", kManifestSha}};
+  if (!recovery.mode.empty()) {
+    summary["recovery_mode"] = recovery.mode;
+    const auto cpu = torch::rand({16});
+    const auto gpu =
+        torch::rand({16}, torch::TensorOptions().device(torch::kCUDA)).cpu();
+    summary["next_cpu_rng_sha256"] = sha256_hex(
+        {static_cast<const std::byte*>(cpu.const_data_ptr()), cpu.nbytes()});
+    summary["next_gpu_rng_sha256"] = sha256_hex(
+        {static_cast<const std::byte*>(gpu.const_data_ptr()), gpu.nbytes()});
+  }
   EXPECT_LT(peak_rss(), 6ULL << 30U);
 #if defined(JYPPX_LIUDING_SPATIAL_CUDA_METRICS)
   const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
@@ -771,6 +864,27 @@ TEST(RealSpatialTask, TrainRocmCUDA) {
   if (!std::getenv("JYPPX_LIUDING_TRAIN_ROCM_SPATIAL_TASK"))
     GTEST_SKIP() << "Explicit native ROCm reference training run required";
   train(kRocmWeights.sha256);
+}
+TEST(RealSpatialTask, DurableTrainingRecoveryCUDA) {
+  const auto* mode =
+      std::getenv("JYPPX_LIUDING_SPATIAL_TRAINING_RECOVERY_MODE");
+  if (!mode)
+    GTEST_SKIP() << "Explicit real-data training recovery run required";
+  TrainingRecovery recovery{.mode = mode};
+  ASSERT_TRUE(recovery.mode == "baseline" || recovery.mode == "pause" ||
+              recovery.mode == "resume" || recovery.mode == "replay");
+  if (recovery.mode == "resume" || recovery.mode == "replay") {
+    const auto* source = std::getenv("JYPPX_LIUDING_SPATIAL_TRAINING_SOURCE");
+    const auto* expected =
+        std::getenv("JYPPX_LIUDING_SPATIAL_TRAINING_EXPECTED");
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(expected, nullptr);
+    recovery.source = source;
+    recovery.expected_final = expected;
+  }
+  // Recovery compares the complete same-device baseline, independently of the
+  // separately pinned historical/ROCm training-output identities.
+  train(nullptr, recovery);
 }
 TEST(RealSpatialTask, HeldOutInferenceAndDurableEvaluationCPU) {
   if (!std::getenv("JYPPX_LIUDING_SPATIAL_TASK_DIR"))
