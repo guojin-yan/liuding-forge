@@ -26,6 +26,10 @@
 #define STBIW_FREE(pointer)                                               \
   jyppx::liuding::data::image::codec_detail::StbWriteResourceScope::Free( \
       pointer)
+// Allocation hooks and the output callback throw C++ exceptions. Keep the
+// writer private with C++ linkage: /EHsc assumes extern "C" calls cannot throw
+// and may omit the surrounding resource owners' unwind cleanup.
+#define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
