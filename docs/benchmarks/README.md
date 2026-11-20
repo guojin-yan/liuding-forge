@@ -47,6 +47,23 @@ python scripts/benchmarks/run_rocm_baseline.py --suite optimizer `
 
 训练计时覆盖 `Trainer::fit()` 与前后 HIP 同步，优化器计时覆盖更新循环与前后同步；不包含进程启动和模型准备。allocator 峰值包含计时起点已有分配，排除 driver/context 和此前准备期峰值。当前没有功耗、频率、温度及系统噪声采样，不能从本协议推导跨设备性能优势、任务准确率或长时间稳定性；图像和通用 resource runner 的设备支持分别说明，不由本入口推定。
 
+## ROCm 稳定性与受控显存压力
+
+启用 benchmark 后编译 `jyppx_bench_rocm_stability`，使用下面的开发脚本在三个独立原生进程中验证 FP32、FP16 autocast+GradScaler 和 BF16 autocast；参数保留 FP32。默认每精度 180 秒、每 15 秒执行一次文件检查点保存和恢复，最多一百万提交步，父进程另设请求时长加 120 秒的超时。提前达到步数上限、没有完成恢复或身份变化均失败；`--output-dir` 必须为空，脚本保留原始进程输出、逐次资源记录和最后一个检查点。
+
+~~~powershell
+cmake --build out/build/rocm --config Release --parallel 2 --target jyppx_bench_rocm_stability
+python scripts/benchmarks/run_rocm_stability.py `
+  --benchmark out/build/rocm/tests/benchmarks/liuding-forge-bench-rocm-stability.exe `
+  --output-dir out/stability/rocm --seconds 180 --checkpoint-seconds 15 --pressure-mib 2048
+~~~
+
+固定 Linear/AdamW/StepLR 合成负载核对有限损失、梯度、实际参数更新和计数。每次通过有界 `FileCheckpointStore` 保存模型、优化器、调度器和 scaler，在全新对象中恢复，再与原对象各继续三步，逐步比较参数、梯度和控制状态；随后使用恢复对象继续。无随机训练算子，不验证 RNG 或数据管线恢复。检查点 artifact 上限 64 MiB，字段上限 16 MiB，固定参与者使用更小预算；同一文件反复原子替换，保留最后一次。
+
+默认创建并实际写入 2 GiB 的设备张量，在每个恢复点释放并重新分配；请求上限 4 GiB，且不得超过当时空闲显存的四分之一，申请后至少保留 2 GiB，预算不足明确失败。报告记录 allocated/reserved 当前值与峰值、设备空闲显存、当前和峰值 RSS；核对每次释放的 live payload，固定负载允许最多 16 MiB 的活跃分配增长。缓存 reserved 允许保留，RSS 只观察、不设内存泄漏判定阈值，设备空闲值也不构成硬配额。
+
+每个进程还将自身 allocator 配额设为 64 MiB，确认 128 MiB 分配以 `OutOfMemoryError` 拒绝，恢复配额后执行数值和训练检查；另验证同步矩阵形状拒绝后的继续执行，FP16 注入一次非有限梯度并核对跳步、scale 回退和后续有限更新。它不耗尽物理显存，不验证非法设备访问、驱动复位或挂起恢复。压力、检查点 I/O 和诊断计入持续墙钟时间；本入口不用于性能统计，也不代表数小时或所有负载的稳定性。`--precision` 可选择部分精度；短时冒烟必须按实际秒数记录，不能计为默认持续验证。
+
 ## 图像读取到训练更新
 
 启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE=ON` 与 benchmark 后，编译 `jyppx_bench_image_training`。输入是至少两个非空类别的本地 ImageFolder 目录，每个类别下放 JPEG/PNG 文件。下面的 runner 先读取所有选中图像计算内容摘要，使每次明确采用 warm-cache 测量，再启动一个独立预热进程与五个独立采样进程；`--output` 必须指向代码仓库外的新文件。

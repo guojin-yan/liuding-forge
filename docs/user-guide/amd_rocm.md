@@ -54,4 +54,4 @@ ROCm 构建支持 `local rocm-devices` 与 `rocm_device` 放置计划，以 HIP 
 
 ## 开发资源测量
 
-ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 设备身份、同步计时和 allocator 显存峰值，并由开发脚本运行独立预热及重复采样；命令、计时范围和环境绑定见 [benchmark 指南](../benchmarks/README.md#rocm-训练与优化器)。这不授予图像/resource 入口、真实任务性能优势或长时间稳定性资格。
+ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 设备身份、同步计时和 allocator 显存峰值，并由开发脚本运行独立预热及重复采样；命令、计时范围和环境绑定见 [benchmark 指南](../benchmarks/README.md#rocm-训练与优化器)。另有独立的[稳定性与受控压力入口](../benchmarks/README.md#rocm-稳定性与受控显存压力)，验证固定 Linear/AdamW/StepLR 的持续训练、文件恢复、显存 payload 释放和进程 allocator 配额 OOM 恢复；记录实际时长与精度，不扩大为其他负载或数小时稳定性资格。图像/resource 入口与真实任务性能须分别验证。

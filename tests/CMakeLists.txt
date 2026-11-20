@@ -293,6 +293,11 @@ if(Python3_Interpreter_FOUND)
             "${CMAKE_SOURCE_DIR}/tests/scripts/test_rocm_baseline.py")
     set_tests_properties(RocmBaselineRunnerUnitTests PROPERTIES
         LABELS "hygiene;performance;rocm" TIMEOUT 60)
+    add_test(NAME RocmStabilityRunnerUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_rocm_stability.py")
+    set_tests_properties(RocmStabilityRunnerUnitTests PROPERTIES
+        LABELS "hygiene;rocm;stability" TIMEOUT 60)
     add_test(NAME ResourceBaselineRunnerUnitTests
         COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_SOURCE_DIR}/tests/scripts/test_resource_baseline.py")

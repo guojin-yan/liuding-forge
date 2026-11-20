@@ -64,6 +64,24 @@ elseif(TARGET torch_cuda OR TORCH_CUDA_VERSION)
     endforeach()
 endif()
 
+# Stability mixes pressure, recovery and checkpoint I/O; it is separate from
+# the performance sampling targets and is never registered as a default test.
+if(TARGET torch_hip)
+    jyppx_add_bench(jyppx_bench_rocm_stability bench_accelerator_stability.cpp)
+    target_compile_definitions(jyppx_bench_rocm_stability PRIVATE JYPPX_BENCH_ROCM=1)
+    target_link_libraries(jyppx_bench_rocm_stability PRIVATE
+        hip::host nlohmann_json::nlohmann_json)
+    if(WIN32)
+        target_link_libraries(jyppx_bench_rocm_stability PRIVATE Psapi)
+    endif()
+elseif(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    jyppx_add_bench(jyppx_bench_cuda_stability bench_accelerator_stability.cpp)
+    target_link_libraries(jyppx_bench_cuda_stability PRIVATE nlohmann_json::nlohmann_json)
+    if(WIN32)
+        target_link_libraries(jyppx_bench_cuda_stability PRIVATE Psapi)
+    endif()
+endif()
+
 # Resource evidence is opt-in with JYPPX_LIUDING_BUILD_BENCHMARKS. Preview executables
 # are present only when their independently optional owner is really enabled.
 function(jyppx_add_resource_bench name owner source)
