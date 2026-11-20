@@ -68,6 +68,10 @@ python scripts/benchmarks/run_rocm_stability.py `
 
 启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE=ON` 与 benchmark 后，编译 `jyppx_bench_image_training`。输入是至少两个非空类别的本地 ImageFolder 目录，每个类别下放 JPEG/PNG 文件。下面的 runner 先读取所有选中图像计算内容摘要，使每次明确采用 warm-cache 测量，再启动一个独立预热进程与五个独立采样进程；`--output` 必须指向代码仓库外的新文件。
 
+采样要求干净源码和与当前提交完全一致的二进制指纹，提交后先复用原配置增量重建。每个子进程默认限时 120 秒、每路输出 1 MiB，`--timeout-seconds` 可显式调整；原始日志、退出状态和样本保存在输出文件相邻的 `.evidence` 目录，失败也保留。规定的吞吐、fit/总时长、RSS 和 GPU allocator 重复指标要求 CV 不超过 10%，失败时仍写入报告并返回非零，不丢弃离群样本。
+
+ROCm 继续采用 `--device cuda:0` 和既有 `cuda-fp16` 精度名，训练前后使用 HIP 同步。原生 `--identity` 查询与各进程绑定 HIP UUID、PCI、gfx、实际版本及线程设置；ROCm 显存字段为 `peak_rocm_allocated_bytes` / `peak_rocm_reserved_bytes`，NVIDIA 沿用 `peak_cuda_*`。报告另保留 OS/显示驱动独立观测及相关环境变量；本入口未建立 GPU 功耗/频率控制资格，不提供可比较 reference。
+
 ~~~powershell
 cmake --build out/build/benchmark-release --config Release --target jyppx_bench_image_training --parallel 2
 python scripts/benchmarks/run_image_training.py `

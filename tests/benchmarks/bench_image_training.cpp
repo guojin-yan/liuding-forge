@@ -5,7 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include "resource_support.hpp"
+#include "resource_torch_support.hpp"
 
 #include <jyppx/liuding/data_image/image_batch.hpp>
 #include <jyppx/liuding/data_image/image_dataset.hpp>
@@ -17,12 +17,6 @@
 #include <jyppx/liuding/training/amp/grad_scaler_checkpoint_participant.hpp>
 #if defined(JYPPX_BENCH_MODELS)
 #include <jyppx/liuding/models/registry.hpp>
-#endif
-#if defined(JYPPX_BENCH_CUDA)
-#include <torch/cuda.h>
-
-#include <ATen/cuda/CUDAContextLight.h>
-#include <c10/cuda/CUDACachingAllocator.h>
 #endif
 
 #include <array>
@@ -273,6 +267,8 @@ class Classifier final : public torch::nn::Module {
 std::string parameter_digest(const nn::ModelAdapter& model) {
   jyppx::liuding::Sha256 digest;
   for (const auto& item : model.state().named_parameters()) {
+    bench::require(torch::isfinite(item.value()).all().item<bool>(),
+                   "trained model contains nonfinite parameters");
     const auto tensor = item.value().detach().to(torch::kCPU).contiguous();
     const auto name = item.key();
     const auto name_bytes = static_cast<std::uint64_t>(name.size());
@@ -289,17 +285,30 @@ std::string parameter_digest(const nn::ModelAdapter& model) {
 bench::Json measure(const Options& options) {
   const auto workload_start = Clock::now();
   torch::manual_seed(1729);
+  torch::set_num_interop_threads(1);
   torch::set_num_threads(options.threads);
   const bool cuda = options.device == "cuda:0";
-#if defined(JYPPX_BENCH_CUDA)
+#if defined(JYPPX_RESOURCE_CUDA) || defined(JYPPX_RESOURCE_ROCM)
   if (cuda)
     bench::require(torch::cuda::is_available(),
-                   "CUDA requested but unavailable at runtime");
+                   "GPU requested but unavailable at runtime");
 #else
-  bench::require(!cuda, "CUDA requested from a CPU-only benchmark binary");
+  bench::require(!cuda, "GPU requested from a CPU-only benchmark binary");
 #endif
   const auto device = cuda ? jyppx::liuding::Device(torch::kCUDA, 0)
                            : jyppx::liuding::Device(torch::kCPU);
+  bench::Json execution = {
+      {"device", options.device},
+      {"intraop_threads", torch::get_num_threads()},
+      {"interop_threads", torch::get_num_interop_threads()},
+      {"timing", cuda ? "steady_clock with CUDA sync" : "steady_clock"}};
+#ifdef JYPPX_RESOURCE_ROCM
+  if (cuda) {
+    execution["rocm"] = bench::accelerator_identity();
+    execution["timing"] =
+        "steady_clock with HIP synchronize before and after fit";
+  }
+#endif
   const auto source_start = Clock::now();
   image::ImageFolderOptions folder_options;
   folder_options.extensions = {".jpg", ".jpeg", ".png"};
@@ -561,7 +570,7 @@ bench::Json measure(const Options& options) {
        .diagnostics = diagnostics});
   const auto initial_parameter =
       model->state().module().parameters().front().detach().clone();
-#if defined(JYPPX_BENCH_CUDA)
+#if defined(JYPPX_RESOURCE_CUDA) || defined(JYPPX_RESOURCE_ROCM)
   if (cuda) {
     torch::cuda::synchronize(0);
     c10::cuda::CUDACachingAllocator::resetPeakStats(0);
@@ -569,7 +578,7 @@ bench::Json measure(const Options& options) {
 #endif
   const auto start = Clock::now();
   const auto result = trainer.fit();
-#if defined(JYPPX_BENCH_CUDA)
+#if defined(JYPPX_RESOURCE_CUDA) || defined(JYPPX_RESOURCE_ROCM)
   if (cuda) torch::cuda::synchronize(0);
 #endif
   const auto finish = Clock::now();
@@ -584,10 +593,7 @@ bench::Json measure(const Options& options) {
         "Tensor cache was released before training completed");
   auto cuda_allocated = bench::unavailable("CPU-only workload", "bytes");
   auto cuda_reserved = bench::unavailable("CPU-only workload", "bytes");
-  bench::Json execution = {
-      {"device", options.device},
-      {"timing", cuda ? "steady_clock with CUDA sync" : "steady_clock"}};
-#if defined(JYPPX_BENCH_CUDA)
+#if defined(JYPPX_RESOURCE_CUDA) || defined(JYPPX_RESOURCE_ROCM)
   if (cuda) {
     const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
     constexpr std::size_t aggregate = 0;
@@ -597,10 +603,15 @@ bench::Json measure(const Options& options) {
     cuda_reserved = bench::metric(
         static_cast<double>(stats.reserved_bytes[aggregate].peak), "bytes",
         "lower", true, "LibTorch allocator peak since before Trainer::fit");
+#ifdef JYPPX_RESOURCE_ROCM
+    bench::require(execution["rocm"] == bench::accelerator_identity(),
+                   "HIP device identity changed during image training");
+#else
     const auto* properties = at::cuda::getDeviceProperties(0);
     execution["cuda_device_name"] = properties->name;
     execution["compute_capability"] = std::to_string(properties->major) + "." +
                                       std::to_string(properties->minor);
+#endif
   }
 #endif
   trainer.close();
@@ -653,7 +664,7 @@ bench::Json measure(const Options& options) {
   const auto diagnostic_state = diagnostics
                                     ? diagnostics->snapshot()
                                     : training::TrainingDiagnosticsSnapshot{};
-  return {
+  bench::Json sample = {
       {"schema_version", 1},
       {"kind", "liuding-image-training-benchmark-sample"},
       {"workload",
@@ -676,6 +687,7 @@ bench::Json measure(const Options& options) {
         {"optimizer_completed_steps", optimizer->completed_steps()},
         {"final_loss_scale", scaler ? scaler->get_scale() : 1.0},
         {"observed_samples", observed_samples},
+        {"parameters_finite", true},
         {"parameter_updated", true},
         {"final_parameter_sha256", final_parameter_sha256}}},
       {"metrics",
@@ -714,12 +726,25 @@ bench::Json measure(const Options& options) {
         {"cuda",
          "LibTorch allocator peak during Trainer::fit; excludes "
          "driver/context and setup peak"}}}};
+#ifdef JYPPX_RESOURCE_ROCM
+  if (cuda) {
+    sample["metrics"]["peak_rocm_allocated_bytes"] = cuda_allocated;
+    sample["metrics"]["peak_rocm_reserved_bytes"] = cuda_reserved;
+    sample["metrics"].erase("peak_cuda_allocated_bytes");
+    sample["metrics"].erase("peak_cuda_reserved_bytes");
+    sample["measurement_scope"]["rocm"] = sample["measurement_scope"]["cuda"];
+    sample["measurement_scope"].erase("cuda");
+  }
+#endif
+  return sample;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
   try {
+    jyppx::liuding::initialize_runtime();
+    if (bench::write_resource_accelerator_identity(argc, argv)) return 0;
     std::cout << measure(parse_options(argc, argv)).dump() << '\n';
     return 0;
   } catch (const std::exception& error) {

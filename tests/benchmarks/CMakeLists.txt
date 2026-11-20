@@ -32,9 +32,13 @@ if(TARGET jyppx::liuding::data_image)
         target_compile_definitions(jyppx_bench_image_training PRIVATE
             JYPPX_BENCH_MODELS=1)
     endif()
-    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    if(TARGET torch_hip)
         target_compile_definitions(jyppx_bench_image_training PRIVATE
-            JYPPX_BENCH_CUDA=1)
+            JYPPX_RESOURCE_ROCM=1 JYPPX_BENCH_ROCM=1)
+        target_link_libraries(jyppx_bench_image_training PRIVATE hip::host)
+    elseif(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+        target_compile_definitions(jyppx_bench_image_training PRIVATE
+            JYPPX_RESOURCE_CUDA=1)
     endif()
 endif()
 if(WIN32)

@@ -7,11 +7,15 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import platform
 import statistics
-import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import run_resource_baseline as resource_protocol
+import run_rocm_baseline as rocm_protocol
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
@@ -65,16 +69,11 @@ def dataset_digest(root: Path) -> tuple[str, int, int]:
     return digest.hexdigest(), count, size
 
 
-def git_output(source_root: Path, *args: str) -> str:
-    return subprocess.check_output(
-        ["git", *args], cwd=source_root, text=True, encoding="utf-8"
-    ).strip()
-
-
 def run_sample(command: list[str], expected_model: str, expected_device: str,
-               expected_source: str, expected_precision: str, expected_diagnostics: str) -> dict:
-    completed = subprocess.run(command, capture_output=True, text=True, check=True)
-    result = json.loads(completed.stdout.strip())
+               expected_source: str, expected_precision: str, expected_diagnostics: str,
+               directory: Path, timeout: float = 120) -> dict:
+    result = resource_protocol.run_process(command, directory, timeout=timeout,
+        max_output_bytes=1 << 20, environment=os.environ.copy())
     if result.get("kind") != "liuding-image-training-benchmark-sample":
         raise ValueError("benchmark returned an unexpected result kind")
     validation = result["validation"]
@@ -103,7 +102,8 @@ def run_sample(command: list[str], expected_model: str, expected_device: str,
     if workload["grad_scaler_init_scale"] != expected_scale:
         raise ValueError("benchmark reported a different initial loss scale")
     expected = workload["samples_per_epoch"] * workload["epochs"]
-    if validation["observed_samples"] != expected or not validation["parameter_updated"]:
+    if (validation["observed_samples"] != expected or
+            validation["parameter_updated"] is not True or validation["parameters_finite"] is not True):
         raise ValueError("benchmark did not validate its training work")
     if validation["completed_epochs"] != workload["epochs"]:
         raise ValueError("benchmark did not complete all requested epochs")
@@ -127,16 +127,29 @@ def run_sample(command: list[str], expected_model: str, expected_device: str,
     if ((metrics["cached_source_bytes"] > 0) !=
             (expected_source != "image-folder")):
         raise ValueError("invalid Tensor cache accounting")
-    for name in ("peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes"):
+    prefix = "peak_rocm_" if resource_protocol.rocm_execution(result) else "peak_cuda_"
+    if prefix == "peak_rocm_":
+        resource_protocol.validate_rocm_execution(result)
+        if any(key.startswith("peak_cuda_") for key in metrics):
+            raise ValueError("ROCm report contains CUDA allocator metrics")
+        if any(key in result["execution"] for key in ("cuda_device_name", "compute_capability")):
+            raise ValueError("ROCm report contains CUDA device metadata")
+    elif "rocm" in result["execution"] or any(key.startswith("peak_rocm_") for key in metrics):
+        raise ValueError("ROCm measurements do not match the reported backend")
+    for name in (prefix + "allocated_bytes", prefix + "reserved_bytes"):
         status = result["metrics"][name]["status"]
         if status != ("available" if expected_device == "cuda:0" else "unavailable"):
             raise ValueError(f"unexpected {name} status for {expected_device}")
     if expected_device == "cuda:0":
         metrics = result["metrics"]
-        if (metrics["peak_cuda_allocated_bytes"]["value"] <= 0 or
-                metrics["peak_cuda_reserved_bytes"]["value"] <
-                metrics["peak_cuda_allocated_bytes"]["value"]):
-            raise ValueError("invalid CUDA allocator peaks")
+        allocated = metrics[prefix + "allocated_bytes"]["value"]
+        reserved = metrics[prefix + "reserved_bytes"]["value"]
+        if (any(isinstance(value, bool) or not isinstance(value, (int, float)) or
+                not math.isfinite(value) or value <= 0 for value in (allocated, reserved)) or
+                reserved < allocated):
+            raise ValueError("invalid accelerator allocator peaks")
+        if prefix == "peak_rocm_" and reserved > result["execution"]["rocm"]["total_memory_bytes"]:
+            raise ValueError("ROCm allocator peaks exceed physical device memory")
     return result
 
 
@@ -153,6 +166,35 @@ def summarize_values(values: list[float]) -> dict:
         "max": max(values),
         "coefficient_of_variation": statistics.stdev(values) / mean if mean else 0.0,
     }
+
+
+def validate_preflight(sample: dict, identity: dict) -> None:
+    if sample["build_fingerprint"] != identity["build_fingerprint"]:
+        raise ValueError("sample build differs from native preflight")
+    execution = sample["execution"]
+    if (execution["intraop_threads"] != sample["workload"]["descriptor"]["threads"] or
+            execution["interop_threads"] != identity["runtime"]["interop_threads"]):
+        raise ValueError("sample thread configuration differs from the workload or preflight")
+    if resource_protocol.rocm_execution(sample):
+        rocm_protocol.validate_identity(identity)
+        if sample["execution"]["rocm"] != identity["rocm"]:
+            raise ValueError("sample HIP device differs from native preflight")
+    elif any(execution[field] != identity["cuda"][native]
+             for field, native in (("cuda_device_name", "device_name"),
+                                   ("compute_capability", "compute_capability"))):
+        raise ValueError("sample CUDA device differs from native preflight")
+
+
+def stability(report: dict) -> dict:
+    names = ("images_per_second", "workload_images_per_second", "fit_seconds",
+             "workload_seconds", "epoch_seconds", "peak_rss_bytes")
+    prefix = "peak_rocm_" if resource_protocol.rocm_execution(report["warmup"]) else "peak_cuda_"
+    if report["warmup"]["execution"]["device"] == "cuda:0":
+        names += (prefix + "allocated_bytes", prefix + "reserved_bytes")
+    unstable = [name for name in names
+                if report["summary"][name]["coefficient_of_variation"] > 0.10]
+    return {"passed": not unstable, "max_cv_percent": 10.0, "unstable_metrics": unstable,
+            "gated_metrics": list(names)}
 
 
 def main() -> int:
@@ -175,6 +217,7 @@ def main() -> int:
                                                   "tensor-cache-resized"),
                         default="image-folder")
     parser.add_argument("--max-cached-bytes", type=int, default=512 << 20)
+    parser.add_argument("--timeout-seconds", type=float, default=120)
     args = parser.parse_args()
     if args.precision != "fp32" and args.device != "cuda:0":
         parser.error("CUDA precision requires --device cuda:0")
@@ -188,6 +231,8 @@ def main() -> int:
         parser.error("--image-root must be a directory")
     if output.exists():
         parser.error("--output already exists; use a fresh evidence path")
+    if not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
+        parser.error("timeout seconds must be finite and positive")
     if any(value <= 0 for value in (args.batch_size, args.image_size, args.epochs, args.threads)):
         parser.error("batch size, image size, epochs and threads must be positive")
     if not 0 <= args.workers <= 16 or not 1 <= args.prefetch_batches <= 4:
@@ -200,6 +245,16 @@ def main() -> int:
     if args.image_size % image_size_multiple:
         parser.error(f"{args.model} requires image size divisible by {image_size_multiple}")
 
+    source = resource_protocol.source_identity(source_root)
+    binary_sha256 = sha256_file(binary)
+    evidence = Path(str(output) + ".evidence")
+    evidence.mkdir(parents=True, exist_ok=False)
+    native_before = None
+    host_before = rocm_protocol.observe_host()
+    if args.device == "cuda:0":
+        native_before = resource_protocol.run_process([str(binary), "--identity"],
+            evidence / "identity-before", timeout=args.timeout_seconds,
+            max_output_bytes=1 << 20, environment=os.environ.copy())
     content_sha256, image_count, encoded_bytes = dataset_digest(root)
     command = [
         str(binary), "--image-root", str(root), "--batch-size", str(args.batch_size),
@@ -211,9 +266,24 @@ def main() -> int:
         "--source-mode", args.source_mode,
         "--max-cached-bytes", str(args.max_cached_bytes),
     ]
-    warmup = run_sample(command, expected_model, args.device, args.source_mode, args.precision, args.diagnostics)
-    samples = [run_sample(command, expected_model, args.device, args.source_mode, args.precision, args.diagnostics)
-               for _ in range(5)]
+    results = []
+    for index in range(6):
+        label = "warmup" if index == 0 else f"sample-{index}"
+        sample = run_sample(command, expected_model, args.device, args.source_mode,
+            args.precision, args.diagnostics, evidence / label, args.timeout_seconds)
+        if native_before is not None:
+            validate_preflight(sample, native_before)
+        results.append(sample)
+        print(label + ": validated", flush=True)
+    warmup, *samples = results
+    if native_before is not None:
+        native_after = resource_protocol.run_process([str(binary), "--identity"],
+            evidence / "identity-after", timeout=args.timeout_seconds,
+            max_output_bytes=1 << 20, environment=os.environ.copy())
+        if native_after != native_before:
+            raise ValueError("native accelerator identity changed during sampling")
+    if host_before != rocm_protocol.observe_host():
+        raise ValueError("host or display driver observation changed during sampling")
     final_sha256, final_count, final_bytes = dataset_digest(root)
     if (final_sha256, final_count, final_bytes) != (content_sha256, image_count, encoded_bytes):
         raise ValueError("dataset files changed during the benchmark run")
@@ -227,24 +297,34 @@ def main() -> int:
             sample["validation"]["final_parameter_sha256"] !=
             warmup["validation"]["final_parameter_sha256"] for sample in samples):
         raise ValueError("independent CPU processes produced different parameters")
-    commit = git_output(source_root, "rev-parse", "HEAD")
-    if not warmup["build_fingerprint"]["git_commit"].startswith(commit):
+    commit = source["git_commit"]
+    if warmup["build_fingerprint"]["git_commit"] != commit:
         raise ValueError("binary build fingerprint does not match current commit")
+    if resource_protocol.source_identity(source_root) != source or sha256_file(binary) != binary_sha256:
+        raise ValueError("source or binary changed during sampling")
+    prefix = "peak_rocm_" if resource_protocol.rocm_execution(warmup) else "peak_cuda_"
     report = {
         "schema_version": 1,
         "kind": "liuding-image-training-benchmark-run",
         "cache_state": "warm: all selected image files read for SHA-256 before warmup",
         "source": {
             "commit": commit,
-            "dirty": bool(git_output(source_root, "status", "--porcelain")),
-            "binary_sha256": sha256_file(binary),
+            "dirty": False, "tree": source["git_tree"],
+            "binary_sha256": binary_sha256,
+            "runner_sha256": sha256_file(Path(__file__)),
         },
         "dataset": {
             "root": str(root), "content_sha256": content_sha256,
             "content_digest_scope": "all recursive .jpg/.jpeg/.png files, including hidden paths",
             "image_files": image_count, "encoded_bytes": encoded_bytes,
         },
-        "environment": {"platform": platform.platform(), "python": sys.version},
+        "environment": {"platform": platform.platform(), "python": sys.version,
+            "host_observation": host_before, "native_preflight": native_before,
+            "process_environment": {key: os.environ.get(key, "unset")
+                                    for key in resource_protocol.ENV_VARIABLES}},
+        "comparison_eligibility": {"passed": args.device == "cpu",
+            "reason": "Standalone image workload; GPU power/clock controls are not qualified"},
+        "evidence_directory": str(evidence),
         "command": command,
         "warmup": warmup,
         "samples": samples,
@@ -260,22 +340,23 @@ def main() -> int:
             "peak_rss_bytes": summarize_values([
                 float(sample["metrics"]["peak_rss_bytes"]["value"]) for sample in samples
             ]),
-            "peak_cuda_allocated_bytes": (
-                summarize_values([float(sample["metrics"]["peak_cuda_allocated_bytes"]["value"])
+            prefix + "allocated_bytes": (
+                summarize_values([float(sample["metrics"][prefix + "allocated_bytes"]["value"])
                                   for sample in samples]) if args.device == "cuda:0"
                 else {"status": "not_applicable"}),
-            "peak_cuda_reserved_bytes": (
-                summarize_values([float(sample["metrics"]["peak_cuda_reserved_bytes"]["value"])
+            prefix + "reserved_bytes": (
+                summarize_values([float(sample["metrics"][prefix + "reserved_bytes"]["value"])
                                   for sample in samples]) if args.device == "cuda:0"
                 else {"status": "not_applicable"}),
         },
     }
+    report["stability"] = stability(report)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("x", encoding="utf-8") as destination:
         json.dump(report, destination, ensure_ascii=False, indent=2)
         destination.write("\n")
     print(json.dumps({"output": str(output), "summary": report["summary"]}))
-    return 0
+    return 0 if report["stability"]["passed"] else 1
 
 
 if __name__ == "__main__":
