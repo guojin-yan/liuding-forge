@@ -29,11 +29,21 @@ python3 scripts/benchmarks/run_resource_baseline.py --build-dir out/build/cuda-r
 
 Storage、checkpoint 和 telemetry 必须提供 `--storage-environment-id`，标识实际卷、文件系统、挂载选项及持久化设置；同一存储配置的新目录沿用该 ID，改变配置则换 ID。ID 由 1..256 个字母、数字或 `_ . : / + -` 组成，首字符为字母或数字，无空格。runner 只比较操作者声明，不探测或验证底层设备；复用错误 ID 会破坏比较有效性。仅模型或 Serving 的采样不要求此 ID。
 
-`--device cuda:0` 在可见设备零上运行模型和 Serving，并在各阶段前后同步。报告绑定 UUID、名称、compute capability、CUDA toolkit/runtime/driver，以及加载前开始统计的 allocator allocated/reserved 峰值；用 `nvidia-smi` 验证 UUID 和驱动，不假定可见索引等于物理索引。CPU 二进制拒绝 CUDA。Storage、checkpoint 和 telemetry 始终在 CPU 执行。
+`--device cuda:0` 使用所选 LibTorch 的可见设备零运行模型和 Serving，CUDA 与 ROCm 均沿用这个设备名，各阶段前后同步。CPU 二进制拒绝 GPU。Storage、checkpoint 和 telemetry 始终在 CPU 执行。GPU 模型和 Serving 可执行文件提供独立 `--identity` 查询，runner 在各 profile 前后及每个样本核对原生设备、构建和线程身份。
 
-GPU 比较还要求可读的功率限额和 persistence mode，变化会拒绝历史比较或使当前采样失效。`N/A`/`Not Supported` 保留不可用原因，此时只能收集独立稳定性证据，不能发布 reference 或通过比较；查询失败与格式错误直接失败。runner 不修改 GPU 设置。
+CUDA 报告绑定 UUID、名称、compute capability、toolkit/runtime/driver API 版本和加载前开始统计的 `peak_cuda_allocated_bytes` / `peak_cuda_reserved_bytes`；用 `nvidia-smi` 验证 UUID 和显示驱动，不假定可见索引等于物理索引。
 
-RSS 使用 Windows 进程生命周期峰值 working set 或 Linux `VmHWM`，包含运行库开销；CUDA 峰值仅覆盖 LibTorch caching allocator。所有选定 profile 均要求 RSS，实际 CUDA profile 另要求两个 allocator 峰值。缺测保留原因并使完整性检查失败；CPU 不适用 CUDA 指标不视为失败。JSONL 只承诺 stream flush，磁盘指标不代表系统级 I/O；独立进程不主动清空 OS 文件缓存或 GPU context。
+ROCm 报告使用真实 HIP UUID、PCI、gfx 架构、编译及运行时/API 版本、设备内存和 HIP 同步，显存指标为 `peak_rocm_allocated_bytes` / `peak_rocm_reserved_bytes`，不混入 CUDA 测量字段。runner 另记录 OS、CPU 和 Windows 显示适配器驱动列表；HIP driver API 不等于显示驱动版本，适配器列表不建立 HIP UUID 映射，也不调用 `nvidia-smi`。配置和运行环境按 [AMD 指南](../../docs/user-guide/amd_rocm.md)准备，例如：
+
+```powershell
+python scripts/benchmarks/run_resource_baseline.py --build-dir out/build/rocm `
+  --device cuda:0 --profiles resnet18 resnet50 mobilenet_v3_small mobilenet_v3_large transformer_encoder serving `
+  --output out/baselines/resources/rocm-current
+```
+
+CUDA 比较还要求可读的功率限额和 persistence mode，变化会拒绝历史比较或使当前采样失效。`N/A`/`Not Supported` 保留不可用原因，此时只能收集独立稳定性证据，不能发布 reference 或通过比较；查询失败与格式错误直接失败。ROCm 当前没有合格的功耗/频率控制观测，明确记录 `comparison_eligibility` 受阻，可以保留完整原始样本和稳定性结果，不能写成可比较的 reference；它不使用 NVIDIA persistence mode 作为 AMD 条件。runner 不修改 GPU 设置。
+
+RSS 使用 Windows 进程生命周期峰值 working set 或 Linux `VmHWM`，包含运行库开销；设备峰值仅覆盖对应 LibTorch caching allocator。所有选定 profile 均要求 RSS，实际 GPU profile 另要求对应后端的两个 allocator 峰值。缺测保留原因并使完整性检查失败；CPU 的设备指标不适用不视为失败。JSONL 只承诺 stream flush，磁盘指标不代表系统级 I/O；独立进程不主动清空 OS 文件缓存或 GPU context。
 
 每个进程默认 120 秒超时、每路输出 1 MiB 限额，保留 `stdout.log`、`stderr.log`、`process.json`、`sample.json`、`validation.json` 及负载目录。失败仍保留可用证据，整体保留 `run.json` 与 `statistics.json`；runner 不递归删除证据。Serving 示例自行清理其生成的临时 bundle。
 

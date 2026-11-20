@@ -76,6 +76,25 @@ def gpu_fixture(power: str = "160.00", persistence: str = "Enabled") -> dict:
         return runner.gpu_identity(GPU_UUID)
 
 
+def rocm_sample() -> dict:
+    row = sample("resnet18")
+    row["build_fingerprint"].update(libtorch_version="2.14.0", libtorch_build="rocm-10.1.0-fixture", accelerator_runtime="rocm:available:1")
+    row["execution"].update(device="cuda:0", timing="steady_clock plus HIP synchronize",
+        rocm={"device_index": 0, "device_name": "fixture AMD GPU", "hip_uuid": "00112233445566778899aabbccddeeff",
+              "pci_bus_id": "0000:03:00.0", "architecture": "gfx1100", "compile_hip_version": 71626385,
+              "hip_driver_api_version": 71626385, "hip_runtime_version": 71626385, "total_memory_bytes": 2**30})
+    for name in ("allocated_bytes", "reserved_bytes"):
+        del row["metrics"]["peak_cuda_" + name]
+        row["metrics"]["peak_rocm_" + name] = {"status": "available", "value": 4096, "unit": "bytes", "direction": "lower", "gate": True, "scope": "fixture"}
+    return row
+
+
+def rocm_gpu_fixture() -> dict:
+    return {"backend": "rocm", "native": rocm_sample()["execution"]["rocm"],
+            "host_observation": {"system": "Windows", "display_driver": "fixture"},
+            "controls": {"status": "unavailable", "reason": "No qualified ROCm power/clock control observer"}}
+
+
 def statistics_report(commit: str = COMMIT, *, row: dict | None = None, host_os: str = "Linux",
                       gpu: dict | None = None, storage_id: str | None = STORAGE_ID) -> dict:
     row = copy.deepcopy(row) if row is not None else sample()
@@ -398,14 +417,23 @@ class ResourceMainTest(unittest.TestCase):
         if write_reference:
             args.extend(("--write-reference", str(reference)))
         identity = {"git_commit": COMMIT, "git_tree": "c" * 40, "clean": True}
+        def fake_run(command, *args, **kwargs):
+            if "--identity" not in command:
+                return copy.deepcopy(row)
+            backend = "rocm" if "rocm" in row["execution"] else "cuda"
+            fields = row["execution"][backend]
+            native = fields if backend == "rocm" else {key: fields[key] for key in ("device_index", "device_name", "compute_capability", "compile_toolkit_version")}
+            return {"schema_version": 1, "kind": "jyppx-" + backend + "-benchmark-identity", "build_fingerprint": row["build_fingerprint"], backend: native,
+                    "runtime": {key: row["execution"][key] for key in ("intraop_threads", "interop_threads")}}
         with patch.object(runner, "source_identity", side_effect=lambda root: identity.copy()), \
                 patch.object(runner, "cpu_identity", return_value={"os": "Windows", "processor": "fixture"}), \
                 patch.object(runner, "executable", return_value=binary), \
                 patch.object(runner, "gpu_identity", return_value=gpu), \
-                patch.object(runner, "run_process", side_effect=lambda *args, **kwargs: copy.deepcopy(row)) as run, \
+                patch.object(runner, "rocm_gpu_identity", return_value=gpu), \
+                patch.object(runner, "run_process", side_effect=fake_run) as run, \
                 contextlib.redirect_stdout(io.StringIO()):
             status = runner.main(args)
-        self.assertEqual(run.call_count, 6)
+        self.assertEqual(run.call_count, 8 if row["execution"]["device"] == "cuda:0" else 6)
         return status, output, reference
 
     def test_supported_platform_rss_failure_retains_report_and_never_publishes_reference(self) -> None:
@@ -450,6 +478,70 @@ class ResourceMainTest(unittest.TestCase):
                 runner.main(["--build-dir", "unused", "--output", "unused", "--profiles", "storage"])
         source.assert_not_called()
         run.assert_not_called()
+
+    def test_rocm_unavailable_controls_preserve_samples_but_block_reference(self) -> None:
+        for reference in (False, True):
+            with self.subTest(reference=reference), tempfile.TemporaryDirectory() as temporary:
+                status, output, path = self.fixture_run(temporary, rocm_sample(), gpu=rocm_gpu_fixture(), write_reference=reference)
+                self.assertEqual(status, 1 if reference else 0)
+                report = json.loads((output / "statistics.json").read_text())
+                self.assertTrue(report["resource_completeness"]["passed"])
+                self.assertFalse(report["comparison_eligibility"]["passed"])
+                self.assertFalse(path.exists())
+
+
+class RocmResourceEvidence(unittest.TestCase):
+    def test_accepts_real_hip_fields_and_independent_peak_metrics(self):
+        runner.validate_sample(rocm_sample(), "resnet18", "cuda:0", COMMIT)
+
+    def test_rejects_backend_identity_on_cpu_and_hip_on_cuda(self):
+        row = sample()
+        row["execution"]["rocm"] = rocm_sample()["execution"]["rocm"]
+        with self.assertRaises(ValueError):
+            runner.validate_sample(row, "storage", "cpu", COMMIT)
+        row = cuda_sample()
+        row["execution"]["rocm"] = rocm_sample()["execution"]["rocm"]
+        with self.assertRaises(ValueError):
+            runner.validate_sample(row, "resnet18", "cuda:0", COMMIT)
+
+    def test_rejects_impossible_allocator_peak_relationship(self):
+        for key, value in (("peak_rocm_allocated_bytes", 8192), ("peak_rocm_reserved_bytes", 2**31)):
+            row = rocm_sample()
+            row["metrics"][key]["value"] = value
+            with self.subTest(metric=key), self.assertRaises(ValueError):
+                runner.validate_sample(row, "resnet18", "cuda:0", COMMIT)
+
+    def test_rejects_invalid_hip_identity_and_cuda_mask(self):
+        for field, changed in (("hip_uuid", "0"*32), ("pci_bus_id", "bad"), ("hip_runtime_version", 0)):
+            row = rocm_sample()
+            row["execution"]["rocm"][field] = changed
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                runner.validate_sample(row, "resnet18", "cuda:0", COMMIT)
+        row = rocm_sample()
+        row["execution"]["cuda"] = cuda_sample()["execution"]["cuda"]
+        with self.assertRaises(ValueError):
+            runner.validate_sample(row, "resnet18", "cuda:0", COMMIT)
+
+    def test_rejects_missing_hip_allocator_evidence_and_nvidia_metrics(self):
+        for available in (False, True):
+            row = rocm_sample()
+            if available:
+                row["metrics"]["peak_cuda_allocated_bytes"] = row["metrics"].pop("peak_rocm_allocated_bytes")
+            else:
+                row["metrics"]["peak_rocm_allocated_bytes"] = {"status": "unavailable", "unit": "bytes", "direction": "lower", "gate": False, "reason": "no observation"}
+            with self.subTest(wrong_backend_metric=available), self.assertRaises(ValueError):
+                runner.validate_sample(row, "resnet18", "cuda:0", COMMIT)
+
+    def test_hip_device_changes_comparison_environment(self):
+        row = rocm_sample()
+        first = statistics_report(row=row, gpu=rocm_gpu_fixture())["environment"]
+        row["execution"]["rocm"]["pci_bus_id"] = "0000:04:00.0"
+        self.assertNotEqual(first, statistics_report(row=row, gpu=rocm_gpu_fixture())["environment"])
+
+    def test_rocm_reference_rejects_unknown_power_controls(self):
+        report = statistics_report(row=rocm_sample(), gpu=rocm_gpu_fixture())
+        with self.assertRaisesRegex(ValueError, "unavailable GPU controls"):
+            runner.make_reference(report)
 
 
 if __name__ == "__main__":

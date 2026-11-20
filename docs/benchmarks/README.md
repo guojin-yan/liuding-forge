@@ -24,7 +24,7 @@ pwsh -NoProfile -File scripts/benchmarks/Run-Baseline.ps1 `
 
 只有在确实需要隔离的全新构建测量时才使用 -FreshBuild；-ReferenceFile 只能指定与当前工作负载和环境匹配的 reference。runner 会拒绝不稳定样本和环境不匹配，不会把本地测量结果变成跨机器阈值。
 
-资源 profile、存储身份、CUDA 要求、来源校验和证据布局见 scripts/benchmarks/RESOURCE_BASELINE.md。CUDA 训练和优化器套件使用 scripts/benchmarks/run_cuda_baseline.py。
+资源 profile、存储身份、设备要求、来源校验和证据布局见 [通用资源采样](../../scripts/benchmarks/RESOURCE_BASELINE.md)。CUDA 训练和优化器套件使用 scripts/benchmarks/run_cuda_baseline.py。
 
 ## ROCm 训练与优化器
 

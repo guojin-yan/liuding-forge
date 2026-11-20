@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import run_rocm_baseline as rocm_protocol
+
 MODELS = ("resnet18", "resnet50", "mobilenet_v3_small", "mobilenet_v3_large", "transformer_encoder")
 PROFILES = ("storage", "checkpoint", "telemetry", *MODELS, "serving")
 IO_PROFILES = frozenset(("storage", "checkpoint", "telemetry"))
@@ -32,6 +34,7 @@ ENV_BUILD_FIELDS = tuple(key for key in BUILD_FIELDS if key not in ("git_commit"
 ENV_VARIABLES = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "CUDA_VISIBLE_DEVICES",
                  "CUDA_DEVICE_ORDER", "PYTORCH_CUDA_ALLOC_CONF", "PYTORCH_ALLOC_CONF",
                  "CUBLAS_WORKSPACE_CONFIG", "NVIDIA_TF32_OVERRIDE", "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE",
+                 "HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES", "GPU_DEVICE_ORDINAL", "PYTORCH_HIP_ALLOC_CONF",
                  "OMP_PROC_BIND", "OMP_PLACES", "OMP_DYNAMIC", "OMP_WAIT_POLICY", "MKL_DYNAMIC",
                  "KMP_AFFINITY", "KMP_BLOCKTIME")
 COMMON_METRICS = {"peak_rss_bytes", "peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes", "output_bytes"}
@@ -135,6 +138,35 @@ def effective_device(profile: str, selected: str) -> str:
     return selected if profile in (*MODELS, "serving") else "cpu"
 
 
+def rocm_execution(sample: dict[str, Any]) -> bool:
+    return (sample["execution"].get("device") == "cuda:0" and
+            sample["build_fingerprint"]["accelerator_runtime"].startswith("rocm:available:"))
+
+
+def common_metrics(sample: dict[str, Any]) -> set[str]:
+    if rocm_execution(sample):
+        return {"peak_rss_bytes", "peak_rocm_allocated_bytes", "peak_rocm_reserved_bytes", "output_bytes"}
+    return COMMON_METRICS
+
+
+def validate_rocm_execution(sample: dict[str, Any]) -> None:
+    execution = sample["execution"]
+    if "cuda" in execution or "HIP" not in execution["timing"] or "synchronize" not in execution["timing"]:
+        raise ValueError("ROCm sample must observe HIP timing and identity without CUDA metadata")
+    rocm_protocol.validate_identity({
+        "schema_version": 1, "build_fingerprint": sample["build_fingerprint"],
+        "rocm": object_value(execution.get("rocm"), "execution.rocm"),
+        "runtime": {key: execution[key] for key in ("intraop_threads", "interop_threads")},
+    })
+
+
+def rocm_gpu_identity(sample: dict[str, Any]) -> dict[str, Any]:
+    validate_rocm_execution(sample)
+    return {"backend": "rocm", "native": sample["execution"]["rocm"],
+            "host_observation": rocm_protocol.observe_host(),
+            "controls": {"status": "unavailable", "reason": "No qualified ROCm power/clock control observer"}}
+
+
 def validate_sample(sample: dict[str, Any], profile: str, device: str, commit: str) -> None:
     if sample.get("schema_version") != 1 or sample.get("kind") != "jyppx-resource-benchmark-sample":
         raise ValueError("unexpected resource sample protocol")
@@ -157,10 +189,16 @@ def validate_sample(sample: dict[str, Any], profile: str, device: str, commit: s
         raise ValueError("actual execution device mismatch")
     nonempty(execution.get("path"), "execution.path")
     nonempty(execution.get("timing"), "execution.timing")
+    if device == "cpu" and ("cuda" in execution or "rocm" in execution):
+        raise ValueError("CPU profile must not publish accelerator execution identity")
     if profile in (*MODELS, "serving"):
         if execution.get("intraop_threads") != 1 or execution.get("interop_threads") != 1:
             raise ValueError("model/serving workload requires one intraop and interop thread")
-    if device == "cuda:0":
+    if rocm_execution(sample):
+        validate_rocm_execution(sample)
+    elif device == "cuda:0":
+        if "rocm" in execution:
+            raise ValueError("CUDA sample must not publish HIP execution metadata")
         cuda = object_value(execution.get("cuda"), "execution.cuda")
         if cuda.get("device_index") != 0 or "synchronize" not in execution["timing"]:
             raise ValueError("CUDA timing/device protocol mismatch")
@@ -187,7 +225,7 @@ def validate_sample(sample: dict[str, Any], profile: str, device: str, commit: s
                 not 0 < validation.get("batch_forward_calls", 0) < 256):
             raise ValueError("serving profile did not execute actual batching")
     metrics = object_value(sample.get("metrics"), "metrics")
-    if metrics.keys() != COMMON_METRICS | PROFILE_METRICS[profile]:
+    if metrics.keys() != common_metrics(sample) | PROFILE_METRICS[profile]:
         raise ValueError("required resource metric set mismatch")
     for name, raw in metrics.items():
         metric = object_value(raw, name)
@@ -205,18 +243,24 @@ def validate_sample(sample: dict[str, Any], profile: str, device: str, commit: s
             positive(metric.get("value"), name)
             if metric["gate"] != (not diagnostic):
                 raise ValueError(f"{name}: required stability gate was changed")
-            if name.startswith("peak_cuda") and device == "cpu":
-                raise ValueError("CPU profile cannot report measured CUDA allocation")
+            if name.startswith(("peak_cuda", "peak_rocm")) and device == "cpu":
+                raise ValueError("CPU profile cannot report measured accelerator allocation")
         elif metric.get("status") == "unavailable":
             nonempty(metric.get("reason"), name + ".reason")
             if "value" in metric or metric["gate"]:
                 raise ValueError(f"{name}: unavailable metric must have no fabricated value or pass gate")
-            if name not in ("peak_rss_bytes", "peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes"):
+            if name not in ("peak_rss_bytes", "peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes", "peak_rocm_allocated_bytes", "peak_rocm_reserved_bytes"):
                 raise ValueError(f"{name}: required capability cannot be unavailable")
-            if name.startswith("peak_cuda") and device == "cuda:0":
-                raise ValueError("actual CUDA execution requires allocator peak evidence")
+            if name.startswith(("peak_cuda", "peak_rocm")) and device == "cuda:0":
+                raise ValueError("actual accelerator execution requires allocator peak evidence")
         else:
             raise ValueError(f"{name}: metric requires explicit available/unavailable status")
+    if device == "cuda:0":
+        prefix = "peak_rocm_" if rocm_execution(sample) else "peak_cuda_"
+        allocated = metrics[prefix + "allocated_bytes"]["value"]
+        reserved = metrics[prefix + "reserved_bytes"]["value"]
+        if allocated > reserved or (rocm_execution(sample) and reserved > execution["rocm"]["total_memory_bytes"]):
+            raise ValueError("allocator peaks exceed reserved or observed physical memory")
     output_bytes = metrics["output_bytes"]["value"]
     if not size_bounds[0] <= output_bytes <= size_bounds[1]:
         raise ValueError("profile output size exceeds frozen bounds")
@@ -387,6 +431,17 @@ def comparison_eligibility(environment: dict[str, Any]) -> dict[str, Any]:
                for profile in profiles.values())
     if cuda or gpu is not None:
         gpu = object_value(gpu, "GPU comparison identity")
+        rocm_profiles = [profile for profile in profiles.values()
+                         if "rocm" in profile.get("execution", {})]
+        if rocm_profiles:
+            if gpu.get("backend") != "rocm":
+                raise ValueError("ROCm comparison requires actual HIP/OS driver observations")
+            if any(profile["execution"]["rocm"] != gpu.get("native") for profile in rocm_profiles):
+                raise ValueError("ROCm comparison native device differs from observed GPU")
+            controls = object_value(gpu.get("controls"), "ROCm power/clock controls")
+            if controls.get("status") != "unavailable" or "value" in controls:
+                raise ValueError("ROCm power/clock controls have no qualified observer")
+            return {"passed": False, "blocked_reasons": [nonempty(controls.get("reason"), "ROCm controls reason")]}
         for name in GPU_CONTROLS:
             control = object_value(gpu.get(name), "GPU " + name)
             if control.get("status") == "unavailable":
@@ -414,8 +469,9 @@ def resource_completeness(environment: dict[str, Any], metrics: dict[str, Any]) 
         if host_os in ("Windows", "Linux"):
             required.append(name + ".peak_rss_bytes")
         if object_value(profile.get("execution"), "profile execution").get("device") == "cuda:0":
-            required.extend(name + "." + metric for metric in
-                            ("peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes"))
+            prefix = "peak_rocm_" if "rocm" in profile["execution"] else "peak_cuda_"
+            required.extend(name + "." + prefix + metric for metric in
+                            ("allocated_bytes", "reserved_bytes"))
     missing = [name for name in required if metrics.get(name, {}).get("status") != "available"]
     return {"passed": not missing, "required_metrics": sorted(required), "missing_metrics": sorted(missing)}
 
@@ -602,6 +658,13 @@ def main(argv: list[str] | None = None) -> int:
             measured[profile] = []
             first_identity = None
             device = effective_device(profile, args.device)
+            native_before = None
+            if device == "cuda:0":
+                native_before = run_process([str(binaries[profile]), "--identity"],
+                    output / profile / "identity-before", timeout=args.timeout,
+                    max_output_bytes=args.max_output_bytes, environment=environment)
+                if native_before.get("kind") not in ("jyppx-rocm-benchmark-identity", "jyppx-cuda-benchmark-identity"):
+                    raise ValueError("resource preflight did not observe a native accelerator identity")
             for index in range(args.warmup + args.samples):
                 phase = "warmup" if index < args.warmup else "sample"
                 number = index if phase == "warmup" else index - args.warmup
@@ -617,7 +680,18 @@ def main(argv: list[str] | None = None) -> int:
                         "profile": profile, "error": str(error)})
                     raise
                 if device == "cuda:0":
-                    actual_gpu = gpu_identity(sample["execution"]["cuda"]["device_uuid"])
+                    backend = "rocm" if rocm_execution(sample) else "cuda"
+                    if native_before.get("kind") != "jyppx-" + backend + "-benchmark-identity" or backend not in native_before:
+                        raise ValueError("native preflight backend differs from resource sample")
+                    if native_before["build_fingerprint"] != sample["build_fingerprint"]:
+                        raise ValueError("native preflight build differs from resource sample")
+                    for key in ("intraop_threads", "interop_threads"):
+                        if native_before["runtime"][key] != sample["execution"][key]:
+                            raise ValueError("native preflight thread settings differ from resource sample")
+                    for key, value in native_before[backend].items():
+                        if sample["execution"][backend].get(key) != value:
+                            raise ValueError("native preflight device differs from resource sample")
+                    actual_gpu = rocm_gpu_identity(sample) if rocm_execution(sample) else gpu_identity(sample["execution"]["cuda"]["device_uuid"])
                     if gpu is not None and gpu != actual_gpu:
                         raise ValueError("GPU/driver identity changed during sampling")
                     gpu = actual_gpu
@@ -633,6 +707,12 @@ def main(argv: list[str] | None = None) -> int:
                 write_json(directory / "validation.json", {"passed": True, "phase": phase,
                     "profile": profile, "build_fingerprint": sample["build_fingerprint"]})
                 print(profile + " " + phase + f" {number + 1}: validated", flush=True)
+            if native_before is not None:
+                native_after = run_process([str(binaries[profile]), "--identity"],
+                    output / profile / "identity-after", timeout=args.timeout,
+                    max_output_bytes=args.max_output_bytes, environment=environment)
+                if native_after != native_before:
+                    raise ValueError("native resource device/build/thread identity changed")
         if source_identity(source) != {key: provenance[key] for key in ("git_commit", "git_tree", "clean")}:
             raise ValueError("source provenance changed during sampling")
         if sha256_file(build / "CMakeCache.txt") != cache_hash or any(

@@ -6,24 +6,47 @@
 #define JYPPX_BENCHMARK_RESOURCE_TORCH_SUPPORT_HPP
 #include "resource_support.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
+
 #include <torch/torch.h>
 
-#ifdef JYPPX_RESOURCE_CUDA
-#include <torch/cuda.h>
-
-#include <ATen/cuda/CUDAContextLight.h>
-#include <c10/cuda/CUDACachingAllocator.h>
+#if defined(JYPPX_RESOURCE_CUDA) || defined(JYPPX_RESOURCE_ROCM)
+#include "accelerator_support.hpp"
 #endif
 
 namespace jyppx::liuding::benchmarks {
+
+inline bool write_resource_accelerator_identity(int argc, char** argv) {
+  if (argc != 2 || std::string_view(argv[1]) != "--identity") return false;
+#if defined(JYPPX_RESOURCE_CUDA) || defined(JYPPX_RESOURCE_ROCM)
+  initialize_runtime();
+  torch::set_num_threads(1);
+  torch::set_num_interop_threads(1);
+  std::cout << benchmark_identity().dump() << '\n';
+  return true;
+#else
+  throw std::runtime_error("resource binary has no accelerator identity");
+#endif
+}
+
 inline torch::Device configure_device(const Arguments& args, Json& sample) {
+  initialize_runtime();
   torch::set_num_threads(1);
   torch::set_num_interop_threads(1);
   torch::manual_seed(20261021);
   sample["execution"]["intraop_threads"] = torch::get_num_threads();
   sample["execution"]["interop_threads"] = torch::get_num_interop_threads();
   if (args.device == "cpu") return torch::Device(torch::kCPU);
-#ifdef JYPPX_RESOURCE_CUDA
+#ifdef JYPPX_RESOURCE_ROCM
+  require(torch::cuda::is_available(),
+          "ROCm requested but unavailable at runtime");
+  sample["execution"]["rocm"] = accelerator_identity();
+  sample["execution"]["timing"] =
+      "steady_clock with HIP device 0 synchronize before and after each stage";
+  torch::cuda::synchronize(0);
+  c10::cuda::CUDACachingAllocator::resetPeakStats(0);
+  return torch::Device(torch::kCUDA, 0);
+#elif defined(JYPPX_RESOURCE_CUDA)
   require(torch::cuda::is_available(),
           "CUDA requested but unavailable at runtime");
   const auto* properties = at::cuda::getDeviceProperties(0);
@@ -54,15 +77,15 @@ inline torch::Device configure_device(const Arguments& args, Json& sample) {
   c10::cuda::CUDACachingAllocator::resetPeakStats(0);
   return torch::Device(torch::kCUDA, 0);
 #else
-  throw std::runtime_error("CUDA requested from a CPU-only benchmark binary");
+  throw std::runtime_error("GPU requested from a CPU-only benchmark binary");
 #endif
 }
 
 inline void synchronize(const torch::Device& device) {
-#ifdef JYPPX_RESOURCE_CUDA
+#if defined(JYPPX_RESOURCE_CUDA) || defined(JYPPX_RESOURCE_ROCM)
   if (device.is_cuda()) torch::cuda::synchronize(0);
 #else
-  require(!device.is_cuda(), "CUDA synchronization is unavailable");
+  require(!device.is_cuda(), "accelerator synchronization is unavailable");
 #endif
 }
 
@@ -84,17 +107,24 @@ inline void verify_tensor(const torch::Tensor& tensor,
           "output dtype/device/extent/finiteness mismatch");
 }
 
-inline void cuda_metrics(const torch::Device& device, Json& sample) {
-#ifdef JYPPX_RESOURCE_CUDA
+inline void accelerator_metrics(const torch::Device& device, Json& sample) {
+#if defined(JYPPX_RESOURCE_CUDA) || defined(JYPPX_RESOURCE_ROCM)
   if (device.is_cuda()) {
     synchronize(device);
     const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
-    sample["metrics"]["peak_cuda_allocated_bytes"] =
+#ifdef JYPPX_RESOURCE_ROCM
+    require(sample["execution"]["rocm"] == accelerator_identity(),
+            "HIP device identity changed during resource measurement");
+    constexpr auto prefix = "peak_rocm_";
+#else
+    constexpr auto prefix = "peak_cuda_";
+#endif
+    sample["metrics"][std::string(prefix) + "allocated_bytes"] =
         metric(static_cast<double>(stats.allocated_bytes[0].peak), "bytes",
                "lower", true,
                "LibTorch caching allocator device 0 peak since before load; "
                "excludes driver/context");
-    sample["metrics"]["peak_cuda_reserved_bytes"] =
+    sample["metrics"][std::string(prefix) + "reserved_bytes"] =
         metric(static_cast<double>(stats.reserved_bytes[0].peak), "bytes",
                "lower", true,
                "LibTorch caching allocator device 0 peak since before load; "

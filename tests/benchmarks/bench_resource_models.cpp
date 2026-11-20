@@ -14,6 +14,7 @@
 int main(int argc, char** argv) {
   try {
     using namespace jyppx::liuding::benchmarks;
+    if (write_resource_accelerator_identity(argc, argv)) return 0;
     const auto args = arguments(argc, argv);
     constexpr std::array<std::string_view, 5> names{
         "resnet18", "resnet50", "mobilenet_v3_small", "mobilenet_v3_large",
@@ -113,7 +114,7 @@ int main(int argc, char** argv) {
     sample["validation"]["output_sum"] = warmed.sum().item<double>();
     sample["validation"]["output_kind"] =
         "finite FP32 tensor with fixed shape and repeatability";
-    cuda_metrics(device, sample);
+    accelerator_metrics(device, sample);
     finish(sample, outputs.size());
     return 0;
   } catch (const std::exception& error) {

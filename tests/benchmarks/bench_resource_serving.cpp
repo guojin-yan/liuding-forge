@@ -15,6 +15,7 @@ int main(int argc, char** argv) {
     using namespace jyppx::liuding::benchmarks;
     namespace fixture = jyppx::liuding::examples::serving;
     namespace serving = jyppx::liuding::serving;
+    if (write_resource_accelerator_identity(argc, argv)) return 0;
     const auto args = arguments(argc, argv);
     require(args.profile == "serving", "unknown serving profile");
     constexpr std::size_t direct_count = 128, rounds = 32, width = 8;
@@ -132,7 +133,7 @@ int main(int argc, char** argv) {
     sample["validation"]["largest_actual_batch"] = largest.load();
     sample["validation"]["output_sum"] = -1.0;
     sample["validation"]["output_kind"] = "finite exact FP32 known vector";
-    cuda_metrics(device, sample);
+    accelerator_metrics(device, sample);
     finish(sample, direct.size() + batched.size());
     return 0;
   } catch (const std::exception& error) {

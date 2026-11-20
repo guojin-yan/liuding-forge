@@ -168,7 +168,8 @@ inline void finish(Json& sample, std::uint64_t completed) {
   sample["validation"]["finite_output"] = true;
   sample["validation"]["content_verified"] = true;
   sample["metrics"]["peak_rss_bytes"] = peak_rss();
-  if (!sample["metrics"].contains("peak_cuda_allocated_bytes")) {
+  if (!sample["metrics"].contains("peak_cuda_allocated_bytes") &&
+      !sample["metrics"].contains("peak_rocm_allocated_bytes")) {
     sample["metrics"]["peak_cuda_allocated_bytes"] =
         unavailable("CPU execution", "bytes");
     sample["metrics"]["peak_cuda_reserved_bytes"] =
