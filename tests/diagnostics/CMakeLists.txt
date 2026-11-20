@@ -1,6 +1,9 @@
 # Explicit next-slice numerical diagnostic, absent from default builds/CTest.
 # No public model/optimizer interface or normal CLI behavior changes.
-if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
+# The recipe capture diagnostic uses the complete SDK, not just its model and
+# image-data components. Minimal component profiles must not create it.
+if(TARGET jyppx::liuding::sdk AND TARGET jyppx::liuding::models
+   AND TARGET jyppx::liuding::data_image)
     set(JYPPX_DINOV2_DIAGNOSTIC_SOURCES
         tests/diagnostics/dinov2_first_step.cpp
         tests/diagnostics/cli_input_support.inc
