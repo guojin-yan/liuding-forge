@@ -10,28 +10,33 @@
     "amd_rocm": {
       "version": "2.14.0",
       "distribution": "amd-rocm10.1.0",
-      "status": "candidate",
-      "verified_lanes": [],
-      "pending_lanes": [
+      "status": "development-baseline",
+      "verified_lanes": [
         {
-          "id": "windows-clangcl24-rocm101-gfx1100",
+          "id": "windows-clangcl24-rocm101-gfx1100-4e07368-training",
           "distribution": "amd-rocm10.1.0",
-          "status": "candidate",
-          "verification_status": "unverified",
           "os": "windows-11",
           "architecture": "x86_64",
-          "compiler": "Clang 24.0.0 (clang-cl), MSVC toolset 14.52.37025",
-          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001",
           "build_type": "Release",
-          "instrumentation": "Native Release validation; no sanitizer or performance qualification",
-          "required_evidence": [
-            "Native C++ device discovery, GPU forward/backward and optimizer update",
-            "FP32 and explicitly tested AMP modes, RNG and checkpoint recovery",
-            "Component dependency and repository gates, installed SDK consumer",
-            "Vision training and HIP memory preflight for the selected profile"
-          ]
+          "commit": "4e07368f8ae0c94f17963d3b12dfda75373963e6",
+          "tests": "220项不同CTest通过、零CTest跳过；另有BF16分类完整流程、最小YOLO配置完整链接及FP16检测流程；0095a66的测试整数类型修复另经11项真实GPU拷贝流复验。",
+          "instrumentation": "Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；至多两个编译任务，CTest单任务。无sanitizer、吞吐或正式发布资格。",
+          "quality_evidence": {
+            "source_identity": "干净提交增量重建；1620件源码逐SHA与此前完整验证快照一致。安装后消费者实际输出当前提交、rocm-10.1.0-msvc-md-iterator0和rocm:available:1。",
+            "numerics": "FP32/FP16/BF16矩阵前向、反向和优化器更新与CPU参考对照；GradScaler溢出、多优化器和状态恢复；RNG、Trainer和DINOv3 ViT-small AMP精确恢复。",
+            "image_transfer": "异步图像拷贝流、资源生命周期、graph capture拒绝、梯度及更新对照；GPU几何与CPU结果对照。",
+            "vision": "原生C++ HIP空闲显存预检；YOLO26n FP16检测及分类FP32/FP16/BF16训练、精确raw/EMA恢复、验证和预测。",
+            "installation": "真实W7900安装后SDK消费及既有API消费者通过；Windows退出回归覆盖60个独立进程；无可见GPU和CPU包不匹配拒绝检查通过。",
+            "component_profile": "基础八组件、data_image、models、vision_ops、models_yolo、models_rcnn、models_vision、vision_tasks及CLI/转换工具；ONNX导出和ONNX Runtime关闭。最小YOLO另关闭models、models_rcnn、models_vision和ONNX。",
+            "scope": "仅所列Windows/W7900原生开发组合；不授予其他AMD GPU、WSL/Linux、原生ONNX、NVML进程预约、官方权重/精度、吞吐或正式发布资格。clang-cl编译策略检查内的GNU sanitizer子用例按前端跳过。",
+            "nvidia_regression": "共享改动的独立回归：Windows/RTX3060在4e07368上219项通过（218项首轮通过，安装GPU消费者精简进程PATH后重试通过），0095a66另11项拷贝流通过；Ubuntu/RTX2060在0095a66上216项通过。均零CTest跳过；Linux原profile不含视觉CLI。",
+            "validation_receipt_sha256": "4f95f5600a4036709a25bdda23ab63bc47c6d9cee073764fc440b0457bacee11"
+          }
         }
-      ]
+      ],
+      "pending_lanes": []
     },
     "primary": {
       "version": "2.14.1",

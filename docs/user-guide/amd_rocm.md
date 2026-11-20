@@ -1,6 +1,6 @@
 # AMD GPU 与 ROCm
 
-AMD 后端使用 ROCm 构建的 LibTorch 和匹配 HIP SDK。精确版本、编译器和验证范围见 [compatibility.json](../../compatibility.json) 的 `amd_rocm`；它与 NVIDIA CUDA、CPU 包独立配置。当前开发组合为 Windows x64、Clang 24 clang-cl、LibTorch `2.14.0+rocm10.1.0`、ROCm SDK `10.1.0` 与 gfx1100。WSL/Linux 和其他 GPU 需独立验证。
+AMD 后端使用 ROCm 构建的 LibTorch 和匹配 HIP SDK。精确版本、编译器和验证范围见 [compatibility.json](../../compatibility.json) 的 `amd_rocm`；它与 NVIDIA CUDA、CPU 包独立配置。已验证的开发基线为 Windows x64、Clang 24 clang-cl、LibTorch `2.14.0+rocm10.1.0`、ROCm SDK `10.1.0` 与 W7900 gfx1100，覆盖 FP32/FP16/BF16 训练、精确恢复、视觉流程及安装后 GPU 消费。WSL/Linux 和其他 GPU 需独立验证。
 
 ## 构建
 
