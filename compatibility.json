@@ -19,6 +19,27 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-4631c79-standalone-lessons-cpu",
+          "commit": "4631c7915bc14a68aa7d095b4ca9021f58b07072",
+          "accelerator": "AMD Radeon PRO W7900 host; ROCm10.1.0 LibTorch distribution CPU teaching executables; GPU fully hidden",
+          "tests": "干净4631c79本机六个独立CPU示例进程及五门禁通过；Windows/RTX3060、Linux/RTX2060同源各11个独立CPU/GPU进程及五门禁通过，零失败/跳过。各平台独立保存，不外推AMD GPU。",
+          "quality_evidence": {
+            "source_identity": "干净4631c79、离线配置、复用Release构建，两个原生示例至多两个编译任务；实际binary SHA和build-provenance保留。initialize_runtime在配置线程与首次Torch操作前显式调用，接入既有Windows辅助线程池处理和HIP后端导入；不改算法、seed、数据与预算。",
+            "local_cpu_contract": "原c6b06a9与提交前、干净4631c79各执行DINOv2-S/DINOv3-S/ResNet18三个原冻结特征教学任务、缓存不足拒绝、GPU隐藏拒绝及原生准备Fashion-MNIST1000张图的125更新图像输出；所有进程正常结束。三个完整JSON及125步输入/logits/损失/模型摘要与125预览文件摘要逐项完全相同。原基线未观测退出挂起，不据此声称修复实测挂起。",
+            "remote_contract": "Windows11/MSVC19.44/LibTorch2.14.1+cu126和Ubuntu22.04.5/GCC11.4/LibTorch2.14.1+cu126各三种骨干CPU与GPU共六进程、两个原拒绝进程，以及12张固定原生PNG的CPU/currentGPU/copyGPU三进程。GPU提特征真实前向，head仍CPU12次SGD；图像各两次SGD、资源归零，current/copy全部逐步输入/logits/损失/模型和PNG摘要相同，copy/consumer流实际不同。",
+            "scope": "仅精确AMD分发所列CPU教学任务与接口合同，以及各自NVIDIA回归；不授AMD GPU、预训练权重、真实任务质量、性能、copy/compute重叠、其他AMD设备/OS、多卡或发布资格。独立梯度原容差和历史空间训练SHA失败保留。",
+            "local_receipt_sha256": "ee09f1c05283eb0252a11a177ee8c9bdfc8184e331fac7e45e2fd3754b31f8ab",
+            "windows_receipt_sha256": "7e3da9b611b137ea84ebaad0d231dfe94fbf670194bf8c412380d064dc0fada9",
+            "linux_receipt_sha256": "5e9127aa0e36a312bd9f5e4d4a30caface5bac5671bba4f02fecdd618a5ee86d"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-15a5529-spatial-examples-cpu",
           "commit": "15a5529f185da8baa630a8b38b665ebed94c7b16",
           "accelerator": "AMD Radeon PRO W7900 host; ROCm10.1.0 LibTorch distribution CPU FP32 native detector and segmentation examples; GPU fully hidden",
