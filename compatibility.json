@@ -19,6 +19,28 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-f630d5e-transfer-cli-cpu",
+          "commit": "f630d5e2e3a034a4fa489bc6c8166428ed5a7654",
+          "accelerator": "AMD Radeon PRO W7900 host; ROCm10.1.0 LibTorch distribution CPU FP32 transfer CLI; GPU fully hidden",
+          "tests": "干净f630d5e本机及Windows/RTX3060、Linux/RTX2060各完成原四CPU迁移学习CLI套件（18/18/4/6，共46个unittest用例）和五仓库门禁，零失败、零跳过；三平台与每套件分别保留，不合并为唯一覆盖或GPU资格。",
+          "quality_evidence": {
+            "source_identity": "三机均离线配置、复用各自Release树和依赖、至多两个编译任务，最小重建实际CLI与recipe-gate；实际版本JSON核对完整f630d5e，二进制SHA和build-provenance前后不变。HIP/ROCR/CUDA设备均隐藏，CPU进程单compute线程。原注册命令、脚本SHA、完整suite日志和JSON证据保留。",
+            "fixed_weight_identity": "原ResNet50 A1 safetensors SHA773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb；DINOv2-small Liuding safetensors SHAf3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5。各机读取前核对完整原文件SHA，不下载、重新导出或替换参考。",
+            "original_suites": "原Cli_transfer_recipe、Cli_transfer_recipe_group_rates、Cli_transfer_adamw_recipe和Cli_transfer_update_recipe；前两套覆盖ResNet50与DINOv2-small的frozen/finetune，后两套覆盖DINOv2-small两策略的AdamW分组状态及update调度。原自制4图、seed、4更新、质量/冻结策略/分组实际学习率/优化器与scheduler状态/检查点/新进程恢复/模型与bundle读者断言全部不变；每套件原1200秒上限不变。",
+            "recovery_and_quality": "核对实际head更新、冻结或微调的骨干与buffer策略、BN显式训练、完整优化器与调度器状态、恢复后的参与者和下一RNG、只读重放、配置变更拒绝及来源绑定；沿用原脚本的实际quality_passed与accuracy对应断言，不重写失败结果。此自制微任务只验证接线和恢复合同，不授真实数据质量、完整finetune或独立预训练数值。",
+            "scope": "仅精确AMD分发的所列CPU FP32迁移学习CLI合同；没有AMD GPU、其他容量/输入/精度、性能、多卡、其他AMD设备/OS或发布资格。既有真实首批次CPU梯度原容差失败与历史训练SHA失败不被本批覆盖或改判。",
+            "local_receipt_sha256": "e21fab22cf41be210ca46f8f35c22509fd9fa2e6866b40e4c1cc26797be10170",
+            "windows_receipt_sha256": "43e9c5e3c599bb3b6b135c33eba97c73310d08f43f21295084816c8d39d4cfbe",
+            "linux_receipt_sha256": "75adcebfd28d14c512233085c3e3c4132a36c8483a73347089f49d3daa264eb3"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-a30d68d-additional-native-cpu",
           "commit": "a30d68de6afbfa1fd7539cd83ce22e37aad71559",
           "accelerator": "AMD Radeon PRO W7900 host; ROCm10.1.0 LibTorch distribution CPU native regression; GPU fully hidden",
