@@ -12,7 +12,7 @@ function(jyppx_write_matrix_dependency_cache path)
     foreach(variable IN LISTS cache_variables)
         if(NOT variable MATCHES "^FETCHCONTENT_(FULLY_DISCONNECTED|UPDATES_DISCONNECTED(_[A-Za-z0-9_]+)?|SOURCE_DIR_[A-Za-z0-9_]+)$" AND
            NOT variable MATCHES "^CMAKE_(TOOLCHAIN_FILE|MAKE_PROGRAM|PREFIX_PATH|FIND_ROOT_PATH|SYSROOT|(C|CXX)_COMPILER(_ARG1|_TARGET|_EXTERNAL_TOOLCHAIN)?)$" AND
-           NOT variable STREQUAL "Python3_EXECUTABLE")
+           NOT variable MATCHES "^Python3_EXECUTABLE$")
             continue()
         endif()
         get_property(type CACHE "${variable}" PROPERTY TYPE)
