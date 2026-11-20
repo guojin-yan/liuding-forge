@@ -34,6 +34,8 @@ DETECTOR=out/build/YOUR_PROFILE/examples/liuding-forge-example-pedestrian-detect
 
 每条训练路线生成 `model.safetensors`、`checkpoint.jyck` 和 `training.json`。JSON 保存初始／最终更新数、实际应用更新数、权重与检查点摘要、资源计数和构建身份；暂停输出中的模型只完成了137次更新，不作为最终质量候选。
 
+GPU 训练的资源摘要使用 `cuda_peak_allocated_bytes` / `cuda_peak_reserved_bytes`，ROCm 构建使用 HIP allocator 和独立的 `rocm_peak_*` 字段；两者均要求 reserved 峰值小于 3 GiB。字段和参数支持不等于该设备已取得完整任务资格，实际范围以兼容矩阵为准。
+
 长任务可用可选尾参数 `--checkpoint-every STEP` 定期保存同一 `checkpoint.jyck`，STEP 为1至1199。检查点按绝对更新数的倍数写入，最终或主动暂停边界也会保存；恢复后继续下一个绝对倍数。保存完成后输出并刷新一行包含 `event=checkpoint`、`global_step` 和 `checkpoint_sha256` 的 JSON；它表示已提交的检查点，不表示整条训练完成。没有该选项时只在原先的最终/暂停边界保存。
 
 ```sh

@@ -14,6 +14,8 @@ SEGMENT=out/build/YOUR_PROFILE/examples/liuding-forge-example-pedestrian-segment
 
 Windows 使用 `.exe` 后缀及本机绝对路径；CUDA 使用匹配的 LibTorch 和 `cuda` 设备参数，并在启动前设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`。所有输出目录必须全新。示例支持的参数不表示所有平台和设备都已取得完整任务资格。
 
+GPU 训练使用 LibTorch allocator 的 allocated 峰值执行小于 3 GiB 的预算。摘要在 NVIDIA 构建中记录 `cuda_peak_allocated_bytes` / `cuda_peak_reserved_bytes`，ROCm 构建使用 HIP allocator 并记录独立的 `rocm_peak_*` 字段；CPU 不记录 GPU 显存。
+
 训练写出 `model.safetensors`、`checkpoint.jyck` 与 `training.json`；JSON包含初始/最终更新数、实际应用更新数、完整状态参与者数量、模型/检查点SHA和构建身份。主动暂停和恢复示例：
 
 ```sh

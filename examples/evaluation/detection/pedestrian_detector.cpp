@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include "model/detector.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
@@ -20,7 +21,11 @@
 #include <jyppx/liuding/training/single_device_strategy.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
 #if defined(JYPPX_LIUDING_DETECTOR_CUDA_METRICS)
+#if defined(USE_ROCM)
+#include <c10/hip/HIPCachingAllocator.h>
+#else
 #include <c10/cuda/CUDACachingAllocator.h>
+#endif
 #endif
 
 #include <algorithm>
@@ -399,10 +404,15 @@ void resources(Json& result, std::chrono::steady_clock::time_point start,
 #if defined(JYPPX_LIUDING_DETECTOR_CUDA_METRICS)
   if (device.is_cuda()) {
     const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+#if defined(USE_ROCM)
+    result["rocm_peak_allocated_bytes"] = stats.allocated_bytes[0].peak;
+    result["rocm_peak_reserved_bytes"] = stats.reserved_bytes[0].peak;
+#else
     result["cuda_peak_allocated_bytes"] = stats.allocated_bytes[0].peak;
     result["cuda_peak_reserved_bytes"] = stats.reserved_bytes[0].peak;
+#endif
     require(stats.reserved_bytes[0].peak < (3LL << 30U),
-            "Task exceeds 3 GiB reserved CUDA memory");
+            "Task exceeds 3 GiB reserved accelerator memory");
   }
 #endif
 }
@@ -760,6 +770,7 @@ int main(int argc, char** argv) {
     const std::string device_name = argv[4];
     require(device_name == "cpu" || device_name == "cuda",
             "Device must be cpu or cuda");
+    initialize_runtime();
     const torch::Device device(device_name == "cuda" ? "cuda:0" : "cpu");
     require(!device.is_cuda() || torch::cuda::is_available(),
             "Requested CUDA is unavailable");

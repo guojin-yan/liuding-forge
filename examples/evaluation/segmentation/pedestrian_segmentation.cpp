@@ -22,7 +22,11 @@
 #include <jyppx/liuding/training/single_device_strategy.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
 #if defined(JYPPX_LIUDING_SPATIAL_CUDA_METRICS)
+#if defined(USE_ROCM)
+#include <c10/hip/HIPCachingAllocator.h>
+#else
 #include <c10/cuda/CUDACachingAllocator.h>
+#endif
 #endif
 
 #include <algorithm>
@@ -793,10 +797,15 @@ void train(const torch::Device& device, const fs::path& resume,
 #if defined(JYPPX_LIUDING_SPATIAL_CUDA_METRICS)
   if (device.is_cuda()) {
     const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+#if defined(USE_ROCM)
+    summary["rocm_peak_allocated_bytes"] = stats.allocated_bytes[0].peak;
+    summary["rocm_peak_reserved_bytes"] = stats.reserved_bytes[0].peak;
+#else
     summary["cuda_peak_allocated_bytes"] = stats.allocated_bytes[0].peak;
     summary["cuda_peak_reserved_bytes"] = stats.reserved_bytes[0].peak;
+#endif
     require(stats.allocated_bytes[0].peak < 3LL << 30U,
-            "Spatial CUDA allocation limit");
+            "Spatial accelerator allocation limit");
   }
 #endif
   write_json(out / "training.json", summary);

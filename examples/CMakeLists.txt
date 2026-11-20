@@ -194,7 +194,7 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
         jyppx::liuding::training jyppx::liuding::data_image
         jyppx::liuding::interop jyppx::liuding::optim
         jyppx::liuding::experiment nlohmann_json::nlohmann_json)
-    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
         target_compile_definitions(jyppx_liuding_pedestrian_detector PRIVATE
             JYPPX_LIUDING_DETECTOR_CUDA_METRICS=1)
     endif()
@@ -240,7 +240,7 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
         jyppx::liuding::training jyppx::liuding::data_image
         jyppx::liuding::interop jyppx::liuding::optim
         jyppx::liuding::experiment nlohmann_json::nlohmann_json)
-    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
         target_compile_definitions(jyppx_liuding_pedestrian_segmentation PRIVATE
             JYPPX_LIUDING_SPATIAL_CUDA_METRICS=1)
     endif()
