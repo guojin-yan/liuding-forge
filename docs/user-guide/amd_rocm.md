@@ -22,6 +22,8 @@ ROCm LibTorch 沿用 `torch::kCUDA`、`torch::cuda` 和 `cuda:<index>`。C++ 使
 
 本组合已验证 SGD、Adam、AdamW、Adagrad、Adadelta、RMSprop、NAdam 和 LAMB 与十五类学习率调度器的 FP32、FP16 autocast、BF16 autocast 组合，主权重均为 FP32，FP16 启用 GradScaler。验证覆盖标量前向/梯度参考、CPU/GPU 更新对照，以及优化器、调度器和 scaler 恢复后的逐步精确续训；不代表所有算法选项、模型或低精度权重存储都已验证。
 
+代表任务已验证 ResNet18 分类/多标签、YOLO26n 检测/分类/实例分割/姿态/旋转框，以及 FCOS、ViT-Adapter、RT-DETR、语义分割、深度、SimMIM 和 ReID 的 FP32/FP16/BF16 单步训练。检查覆盖有限损失、梯度、实际参数更新及冻结参数保持；随机权重和合成输入不代表官方权重、任务准确率、逐模型续训或性能资格。
+
 ## 运行与安装
 
 Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像；应用仍需提供匹配的 HIP 运行库、数学库和设备数据。保留 HIP SDK 自身的 `.kpack`、数学库数据目录，按 SDK 激活脚本设置 `HIPBLASLT_TENSILE_LIBPATH`、`ROCBLAS_TENSILE_LIBPATH` 及运行库搜索路径。只复制 `torch_hip.dll` 不能构成完整部署。
@@ -41,6 +43,8 @@ GPU 训练后的模型通过独立 CPU 副本导出，原训练模型继续保�
 ## 本地推理
 
 可选 `serving` 组件已验证本组合的 native bundle 与显式可信 TorchScript GPU 加载、warmup 和数值前向，以及并发租约、取消、版本切换和安装消费。使用前仍须调用 `initialize_runtime()`。`onnx_serving` 已验证 ORT 1.23.2 CPU Provider；它不会根据 ROCm LibTorch 自动选择 AMD GPU。组件仍为 Preview，接口与边界见 [Serving](../api/serving.md)。
+
+可选原生 TensorBoard/OTLP、WinHTTP 发送、Ed25519 签名和 headless CPU 渲染已验证该组合的组件契约与安装消费，遥测另经锁定官方 reader 和 Collector 检查。签名的私钥/策略符号链接负例受当前环境限制仍未验证；完整范围见兼容矩阵。
 
 ## 本地进程执行
 
