@@ -17,6 +17,8 @@ python scripts/validation/compatibility.py --file compatibility.json --validate
 python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 ```
 
+组件矩阵的子配置继承父构建明确选择的编译器、toolchain 文件、构建程序、开发用 Python 解释器和 SDK 搜索根，以及离线依赖策略；各组件仍使用独立构建和安装暂存，不复用父构建的可变依赖目录或产品组件开关。检查 ROCm 等需要特定编译器的配置时，同样核对子配置的 cache。
+
 复用兼容的现有构建目录，保留其中的 generator、工具链和依赖路径；先检查目录内实际 `CMakeCache.txt` 的版本、配置和依赖身份，不能仅凭目录存在推定可复用。以下是已有兼容 Windows cache 时的增量构建示例：
 
 ```sh

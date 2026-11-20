@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -42,6 +43,47 @@ class ComponentMatrixSettingsTest(unittest.TestCase):
              "-P", str(self.script)], env=env, text=True,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
             encoding="utf-8", errors="replace")
+
+    def test_declared_toolchain_and_sdk_roots_survive_nested_configuration(self):
+        compiler = (self.root / "declared compiler" / "clang-cl.exe").as_posix()
+        prefixes = (self.root / "SDK one").as_posix() + ";" + (self.root / "SDK two").as_posix()
+        toolchain = self.root / "declared toolchain.cmake"
+        toolchain.write_text('set(DECLARED_TOOLCHAIN_LOADED ON CACHE BOOL "")\n', encoding="utf-8")
+        result = self.settings(
+            f"-DCMAKE_C_COMPILER={compiler}", f"-DCMAKE_CXX_COMPILER:FILEPATH={compiler}",
+            f"-DCMAKE_TOOLCHAIN_FILE:FILEPATH={toolchain.as_posix()}",
+            f"-DCMAKE_PREFIX_PATH={prefixes}",
+            f"-DPython3_EXECUTABLE:FILEPATH={Path(sys.executable).as_posix()}",
+            "-DCMAKE_CXX_COMPILER_TARGET:STRING=x86_64-pc-windows-msvc",
+            "-DJYPPX_LIUDING_BUILD_MODELS:BOOL=ON")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        child = self.root / "toolchain-child"
+        child.mkdir()
+        (child / "CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.20)\n'
+            'project(matrix_toolchain_probe LANGUAGES NONE)\n'
+            'find_package(Python3 REQUIRED COMPONENTS Interpreter)\n'
+            'foreach(key CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_PREFIX_PATH '
+            'CMAKE_CXX_COMPILER_TARGET DECLARED_TOOLCHAIN_LOADED Python3_EXECUTABLE)\n'
+            '  file(WRITE "${CMAKE_BINARY_DIR}/${key}.txt" "${${key}}")\n'
+            'endforeach()\n'
+            'if(DEFINED JYPPX_LIUDING_BUILD_MODELS)\n'
+            '  message(FATAL_ERROR "Parent product options leaked into the child")\n'
+            'endif()\n', encoding="utf-8")
+        build = self.root / "toolchain-child-build"
+        configured = subprocess.run(
+            [CMAKE, "-C", str(self.root / "dependencies.cmake"),
+             "-S", str(child), "-B", str(build)], env=self.env,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+            encoding="utf-8", errors="replace")
+        self.assertEqual(configured.returncode, 0, configured.stdout)
+        for key, expected in (("CMAKE_C_COMPILER", compiler), ("CMAKE_CXX_COMPILER", compiler),
+                              ("CMAKE_PREFIX_PATH", prefixes),
+                              ("CMAKE_CXX_COMPILER_TARGET", "x86_64-pc-windows-msvc"),
+                              ("Python3_EXECUTABLE", Path(sys.executable).as_posix()),
+                              ("DECLARED_TOOLCHAIN_LOADED", "ON")):
+            with self.subTest(key=key):
+                self.assertEqual((build / (key + ".txt")).read_text(), expected)
 
     def test_offline_source_survives_nested_configure_and_build(self):
         locked = self.root / "locked source with spaces"

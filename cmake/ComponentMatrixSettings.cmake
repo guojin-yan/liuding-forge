@@ -3,17 +3,22 @@
 
 include_guard(GLOBAL)
 
-# Reuse immutable dependency sources and download policy, never a parent's
-# mutable FetchContent build directories.
+# Keep the parent's declared toolchain and SDK search roots together with
+# immutable dependency sources. Never reuse mutable FetchContent build trees.
 function(jyppx_write_matrix_dependency_cache path)
     get_cmake_property(cache_variables CACHE_VARIABLES)
     list(SORT cache_variables)
-    set(content "# Generated from the parent build's dependency settings.\n")
+    set(content "# Generated from the parent build's toolchain and dependency settings.\n")
     foreach(variable IN LISTS cache_variables)
-        if(NOT variable MATCHES "^FETCHCONTENT_(FULLY_DISCONNECTED|UPDATES_DISCONNECTED(_[A-Za-z0-9_]+)?|SOURCE_DIR_[A-Za-z0-9_]+)$")
+        if(NOT variable MATCHES "^FETCHCONTENT_(FULLY_DISCONNECTED|UPDATES_DISCONNECTED(_[A-Za-z0-9_]+)?|SOURCE_DIR_[A-Za-z0-9_]+)$" AND
+           NOT variable MATCHES "^CMAKE_(TOOLCHAIN_FILE|MAKE_PROGRAM|PREFIX_PATH|FIND_ROOT_PATH|SYSROOT|(C|CXX)_COMPILER(_ARG1|_TARGET|_EXTERNAL_TOOLCHAIN)?)$" AND
+           NOT variable STREQUAL "Python3_EXECUTABLE")
             continue()
         endif()
         get_property(type CACHE "${variable}" PROPERTY TYPE)
+        if(type STREQUAL "UNINITIALIZED")
+            set(type STRING)
+        endif()
         set(delimiter "=")
         while("${${variable}}" MATCHES "]${delimiter}]")
             string(APPEND delimiter "=")
