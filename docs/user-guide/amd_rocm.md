@@ -24,6 +24,8 @@ ROCm LibTorch 沿用 `torch::kCUDA`、`torch::cuda` 和 `cuda:<index>`。C++ 使
 
 代表任务已验证 ResNet18 分类/多标签、YOLO26n 检测/分类/实例分割/姿态/旋转框，以及 FCOS、ViT-Adapter、RT-DETR、语义分割、深度、SimMIM 和 ReID 的 FP32/FP16/BF16 单步训练。检查覆盖有限损失、梯度、实际参数更新及冻结参数保持；随机权重和合成输入不代表官方权重、任务准确率、逐模型续训或性能资格。
 
+DINOv2/DINOv3 的部分架构已验证 CPU FP32 与 GPU FP16 autocast 的完整文件检查点恢复；DINOv3 ViT-huge 另有 FP16 参数存储的独立验证。检查包含全部模型与优化器状态、数据游标、损失和下一 CPU/GPU 随机数。具体模型、输入和资源边界见兼容矩阵；未列容量、精度、预训练权重和任务准确率须分别验证。
+
 ## 运行与安装
 
 Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像；应用仍需提供匹配的 HIP 运行库、数学库和设备数据。保留 HIP SDK 自身的 `.kpack`、数学库数据目录，按 SDK 激活脚本设置 `HIPBLASLT_TENSILE_LIBPATH`、`ROCBLAS_TENSILE_LIBPATH` 及运行库搜索路径。只复制 `torch_hip.dll` 不能构成完整部署。
