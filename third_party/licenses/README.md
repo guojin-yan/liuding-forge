@@ -4,6 +4,8 @@
 
 ## 范围与索引
 
+可选 Windows DirectML 组合的 [ORT 1.24.4 主许可证](onnxruntime-1.24.4-directml-LICENSE.txt)、[第三方声明](onnxruntime-1.24.4-directml-ThirdPartyNotices.txt)与 [DirectML 1.15.4 Microsoft 许可](directml-1.15.4-LICENSE.txt)分别来自锁定官方 NuGet 包；安装保留这些独立条款。
+
 当前保留材料覆盖 GoogleTest、nlohmann/json、SQLite、TinyXML2、yaml-cpp、stb_image/write、zlib、Ubuntu curl、OpenSSL、ONNX Runtime、原生遥测 schema/runtime、部分可选 Python wheel、PyTorch 主许可证、模型参考声明以及 NVIDIA 协议。完整文件集合及准确版本以 [manifest.json](manifest.json) 和项目根目录 `dependency-manifest.json` 为准，不以根许可证推定整个二进制或传递依赖的许可已经覆盖。
 
 | 原文 | 来源与用途 |

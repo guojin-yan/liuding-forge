@@ -217,7 +217,7 @@ void CheckUnaryOperators() {
           refused = error.details().operation == "load" &&
                     error.details().actual.find("Erf") != std::string::npos;
         }
-        Require(refused, "ORT 1.23.2 CPU must refuse Double Erf " + label);
+        Require(refused, "Selected ORT CPU must refuse Double Erf " + label);
         continue;
       }
       runtime::Session session(artifact.onnx, artifact.digest);
@@ -694,14 +694,18 @@ int main() {
             "installed generic self-contained export");
 
     runtime::SessionOptions session_options;
+#ifdef JYPPX_TEST_DIRECTML
+    session_options.provider = runtime::directml_execution_provider({.device_id = 0});
+#else
     session_options.provider.name = "CPUExecutionProvider";
+#endif
     session_options.allow_cpu_fallback = false;
     session_options.cpu_threads = 1;
     session_options.max_batch_size = 8;
     runtime::Session session(artifact.onnx, artifact.digest, session_options);
-    Require(session.execution_provider().name == "CPUExecutionProvider" &&
+    Require(session.execution_provider().name == session_options.provider.name &&
                 !session.cpu_fallback_allowed(),
-            "installed explicit CPU provider");
+            "installed explicit provider without CPU fallback");
     Require(session.model_digest().hex == artifact.digest.hex,
             "installed artifact identity");
     Require(

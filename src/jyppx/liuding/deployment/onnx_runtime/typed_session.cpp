@@ -81,7 +81,7 @@ struct TypedSession::Impl {
   std::vector<const char*> input_names, output_names;
   Impl(std::span<const std::byte> bytes, const TypedSessionOptions& o)
       : options(o) {
-    if (std::string_view(OrtGetApiBase()->GetVersionString()) != "1.23.2")
+    if (std::string_view(OrtGetApiBase()->GetVersionString()) != JYPPX_ORT_RUNTIME_VERSION)
       throw CompatibilityError(
           "Typed ORT runtime version differs from the pinned SDK");
     Ort::SessionOptions settings;

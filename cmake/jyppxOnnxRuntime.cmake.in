@@ -1,5 +1,7 @@
 # Relocatable private runtime dependency for the installed ONNX Runtime adapter.
 get_filename_component(_jyppx_ort_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+set(jyppx_ONNX_RUNTIME_DIRECTML @JYPPX_LIUDING_ONNX_RUNTIME_DIRECTML@)
+set(jyppx_ONNX_RUNTIME_VERSION "@ONNXRuntime_VERSION@")
 if(NOT TARGET ONNXRuntime::onnxruntime)
     add_library(ONNXRuntime::onnxruntime SHARED IMPORTED)
     set_target_properties(ONNXRuntime::onnxruntime PROPERTIES

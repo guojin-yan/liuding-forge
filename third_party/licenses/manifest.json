@@ -48,7 +48,9 @@
     "vision-extension-bytetrack": "pending",
     "vision-extension-efficientdet": "pending",
     "vision-extension-bot-sort": "pending",
-    "vision-extension-clip": "pending"
+    "vision-extension-clip": "pending",
+    "onnxruntime-directml-windows-x64": "recorded",
+    "directml-windows-x64": "recorded"
   },
   "files": [
     {
@@ -1387,6 +1389,42 @@
         "url": "https://raw.githubusercontent.com/openai/CLIP/a1d071733d7111c9c014f024669f959182114e33/LICENSE",
         "artifact_sha256": "987e63b32f6c89ff5160e429458a872ff048e6860b590a3912e938f9da8f14db"
       }
+    },
+    {
+      "dependency_id": "onnxruntime-directml-windows-x64",
+      "origin": {
+        "artifact_sha256": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681",
+        "entry": "LICENSE",
+        "kind": "archive-entry",
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg"
+      },
+      "path": "onnxruntime-1.24.4-directml-LICENSE.txt",
+      "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
+      "size_bytes": 1094
+    },
+    {
+      "dependency_id": "onnxruntime-directml-windows-x64",
+      "origin": {
+        "artifact_sha256": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681",
+        "entry": "ThirdPartyNotices.txt",
+        "kind": "archive-entry",
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg"
+      },
+      "path": "onnxruntime-1.24.4-directml-ThirdPartyNotices.txt",
+      "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866",
+      "size_bytes": 331175
+    },
+    {
+      "dependency_id": "directml-windows-x64",
+      "origin": {
+        "artifact_sha256": "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9",
+        "entry": "LICENSE.txt",
+        "kind": "archive-entry",
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg"
+      },
+      "path": "directml-1.15.4-LICENSE.txt",
+      "sha256": "a05138e3a085ff60a44881eedfa58dccb03ecc1d7b1f6ae888418e8c2fec4b8d",
+      "size_bytes": 10439
     }
   ],
   "hash_algorithm": "sha256",

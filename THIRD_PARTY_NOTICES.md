@@ -66,7 +66,9 @@ oneDNN 的实际头文件对应 PyTorch 固定 iDeep 子模块进一步固定的
 
 两个归档均已完整复核摘要，并逐字节保留各自的 `LICENSE` 与 `ThirdPartyNotices.txt`，文件位于 `third_party/licenses/onnxruntime-1.23.2-{windows,linux}-x64-*`，来源、文件摘要和长度记录在许可证清单中。分发相应 ORT 二进制时必须同时保留该构建的完整许可与第三方声明。上述摘要来自本地完整归档复核；许可文件留存不代表依赖安全审查完成。
 
-当前下载锁只选择 CPU SDK。Provider 查询或显式选择接口不代表 GPU 执行资格；CUDA、TensorRT、OpenVINO 等需要各自匹配的官方 SDK、依赖和实际执行验证。请求的 Provider 缺失或尚无接入实现时会明确失败；CPU 分区回退由调用者显式决定。
+Windows 可选 DirectML 组合另锁定官方 NuGet `Microsoft.ML.OnnxRuntime.DirectML 1.24.4`（SHA-256 `57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681`）与 `Microsoft.AI.DirectML 1.15.4`（SHA-256 `4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9`）。前者的完整 MIT `LICENSE`、`ThirdPartyNotices.txt` 与后者的 Microsoft 软件许可原文逐字节保存在 `third_party/licenses/onnxruntime-1.24.4-directml-*` 和 `directml-1.15.4-LICENSE.txt`，来源、长度和摘要见许可证清单。DirectML 采用其自身条款，不能按 ORT 的 MIT 许可推定；安装会保留对应许可与版本。
+
+Provider 查询或显式选择接口不代表 GPU 执行资格；CUDA、DirectML、TensorRT、OpenVINO 等需要各自匹配的官方 SDK、依赖和实际执行验证。请求的 Provider 缺失或尚无接入实现时会明确失败；CPU 分区回退由调用者显式决定。
 
 ### SQLite
 

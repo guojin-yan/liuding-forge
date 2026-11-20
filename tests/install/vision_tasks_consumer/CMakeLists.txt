@@ -27,7 +27,7 @@ if(WIN32)
             "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_liuding_vision_tasks_consumer>"
             -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
     if(TARGET jyppx::liuding::onnx_runtime)
-        file(GLOB vision_runtime_dlls "${vision_prefix}/bin/onnxruntime*.dll")
+        file(GLOB vision_runtime_dlls "${vision_prefix}/bin/onnxruntime*.dll" "${vision_prefix}/bin/DirectML.dll")
         foreach(runtime IN LISTS vision_runtime_dlls)
             add_custom_command(TARGET jyppx_liuding_vision_tasks_consumer POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different "${runtime}"

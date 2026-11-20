@@ -80,7 +80,8 @@ struct Bundle {
   float gain;
 
   explicit Bundle(std::string version = "onnx-v1", float value = 2.0F,
-                  std::string batch_symbol = "batch")
+                  std::string batch_symbol = "batch",
+                  ort::SessionOptions session_options = {})
       : gain(value) {
     static std::atomic<std::uint64_t> sequence{0};
     root = std::filesystem::temp_directory_path() /
@@ -106,7 +107,7 @@ struct Bundle {
                                      input[0] - input[1]};
         },
         examples, options);
-    const ort::Session session(exported.onnx, exported.digest);
+    const ort::Session session(exported.onnx, exported.digest, session_options);
     environment = ort::observe_environment(session);
     const auto lock = ort::serialize_environment_lock(environment);
     descriptor.backend_id = environment.runtime.backend_id;
@@ -236,6 +237,41 @@ struct Bundle {
     return Backend(std::move(factory)).load(directory, {}, cases, options);
   }
 };
+
+#ifdef JYPPX_TEST_DIRECTML
+TEST(OnnxServingDirectMl, ActualGpuLoadWarmupConcurrentRequestsAndClose) {
+  ort::SessionOptions options;
+  options.provider = ort::directml_execution_provider({.device_id = 0});
+  options.allow_cpu_fallback = false;
+  Bundle bundle("directml-v1", 2.0F, "batch", options);
+  bundle.Publish();
+  const std::array cases{Known(2.0F)};
+  auto predictor =
+      bundle.Backend({}, options).load(bundle.directory, {}, cases);
+  EXPECT_EQ(predictor->info().runtime.execution_provider,
+            "DmlExecutionProvider");
+  EXPECT_FALSE(predictor->info().runtime.allow_cpu_fallback);
+  std::vector<std::future<PredictResponse>> calls;
+  for (const auto batch : {1, 2, 5, 1, 2, 5}) {
+    calls.push_back(std::async(std::launch::async, [&, batch] {
+      return predictor->predict(Request(bundle.manifest.bundle_id, batch));
+    }));
+  }
+  std::vector<PredictResponse> replies;
+  for (auto& call : calls) {
+    replies.push_back(call.get());
+    const auto sum = Field(replies.back().output.value, "sum");
+    EXPECT_TRUE(torch::equal(sum, torch::full_like(sum, 5.0F)));
+    const auto difference = Field(replies.back().output.value, "difference");
+    EXPECT_TRUE(torch::equal(difference, torch::full_like(difference, -2.0F)));
+  }
+  EXPECT_TRUE(predictor->close());
+  EXPECT_EQ(Field(replies.back().output.value, "sum")[0][0].item<float>(),
+            5.0F);
+  EXPECT_THROW(predictor->predict(Request(bundle.manifest.bundle_id)),
+               NotReady);
+}
+#endif
 
 TEST(OnnxServingTest, NamedMultiIoDynamicBatchOutputsOwnStorageAfterClose) {
   Bundle bundle;

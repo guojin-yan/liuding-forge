@@ -117,7 +117,7 @@ endif()
 
 if(WIN32 AND JYPPX_CONSUMER_COMPONENT MATCHES "^onnx_(runtime|serving)$")
     get_filename_component(runtime_prefix "${jyppx_DIR}/../../.." ABSOLUTE)
-    file(GLOB runtime_dlls "${runtime_prefix}/bin/onnxruntime*.dll")
+    file(GLOB runtime_dlls "${runtime_prefix}/bin/onnxruntime*.dll" "${runtime_prefix}/bin/DirectML.dll")
     if(NOT EXISTS "${runtime_prefix}/bin/onnxruntime.dll")
         message(FATAL_ERROR "Installed ONNX Runtime DLL is missing")
     endif()

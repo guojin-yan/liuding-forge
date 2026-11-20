@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "run_admission.hpp"
+
 #include <jyppx/liuding/deployment/onnx_runtime/session.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -25,9 +27,16 @@
 #include <thread>
 #include <utility>
 
+#ifdef JYPPX_ORT_DIRECTML
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <dml_provider_factory.h>
+#endif
+
 namespace jyppx::liuding::onnx_runtime {
 namespace {
-constexpr const char* kRuntimeVersion = "1.23.2";
+constexpr const char* kRuntimeVersion = JYPPX_ORT_RUNTIME_VERSION;
 constexpr const char* kComponent = "onnx_runtime.session";
 
 ErrorDetails Details(std::string operation) {
@@ -142,6 +151,20 @@ void ValidateCudaOptions(const ExecutionProvider& provider) {
   }
 }
 
+std::int32_t DirectMlDevice(const ExecutionProvider& provider) {
+  std::int32_t device = 0;
+  for (const auto& [key, value] : provider.options) {
+    const auto parsed =
+        std::from_chars(value.data(), value.data() + value.size(), device);
+    if (key != "device_id" || value.empty() || parsed.ec != std::errc{} ||
+        parsed.ptr != value.data() + value.size() || device < 0)
+      throw InvalidArgument(
+          "DirectML accepts only a nonnegative DXGI device_id",
+          ProviderDetails(provider, "provider.options", key + "=" + value));
+  }
+  return device;
+}
+
 void ValidateOptions(const SessionOptions& options) {
   if (options.cpu_threads == 0U || options.cpu_threads > 64U ||
       options.max_model_bytes == 0U || options.max_input_bytes == 0U ||
@@ -164,6 +187,8 @@ void ValidateOptions(const SessionOptions& options) {
                             Details("provider"));
   }
   ValidateCudaOptions(options.provider);
+  if (options.provider.name == "DmlExecutionProvider")
+    (void)DirectMlDevice(options.provider);
   const auto& prefix = options.profile_prefix.native();
   if (!prefix.empty() &&
       (prefix.size() > 4096U ||
@@ -210,7 +235,22 @@ void AppendProvider(Ort::SessionOptions& settings,
     values.push_back(value.c_str());
   }
   const auto& api = Ort::GetApi();
-  if (provider.name == "CUDAExecutionProvider") {
+  if (provider.name == "DmlExecutionProvider") {
+#ifdef JYPPX_ORT_DIRECTML
+    const void* provider_api = nullptr;
+    ProviderCall(provider, "provider.initialize", [&] {
+      Ort::ThrowOnError(
+          api.GetExecutionProviderApi("DML", ORT_API_VERSION, &provider_api));
+      if (provider_api == nullptr)
+        throw DeviceError(
+            "ONNX Runtime returned an empty DirectML API",
+            ProviderDetails(provider, "provider.initialize", "Null DML API"));
+      const auto* directml = static_cast<const OrtDmlApi*>(provider_api);
+      Ort::ThrowOnError(directml->SessionOptionsAppendExecutionProvider_DML(
+          settings, DirectMlDevice(provider)));
+    });
+#endif
+  } else if (provider.name == "CUDAExecutionProvider") {
     OrtCUDAProviderOptionsV2* pointer = nullptr;
     ProviderCall(provider, "provider.initialize", [&] {
       Ort::ThrowOnError(api.CreateCUDAProviderOptions(&pointer));
@@ -399,7 +439,21 @@ ExecutionProvider cuda_execution_provider(const CudaProviderOptions& options) {
   });
 }
 
+ExecutionProvider directml_execution_provider(
+    const DirectMlProviderOptions& options) {
+  return Boundary("provider.options", [&] {
+    ExecutionProvider provider{
+        .name = "DmlExecutionProvider",
+        .options = {{"device_id", std::to_string(options.device_id)}}};
+    (void)DirectMlDevice(provider);
+    return provider;
+  });
+}
+
 bool provider_append_supported(std::string_view name) noexcept {
+#ifdef JYPPX_ORT_DIRECTML
+  if (name == "DmlExecutionProvider") return true;
+#endif
   return name == "CPUExecutionProvider" || name == "CUDAExecutionProvider" ||
          name == "TensorrtExecutionProvider" ||
          name == "OpenVINOExecutionProvider" ||
@@ -500,6 +554,11 @@ class Session::Impl {
                std::span<const TensorOutput> results, std::stop_token stop,
                std::optional<std::chrono::steady_clock::time_point> deadline) {
     CheckOperation(stop, deadline);
+    // DirectML prohibits simultaneous Run calls on one session. Do not create
+    // run options or cancellation callbacks until this caller owns the slot.
+    auto admission = detail::AcquireRunAdmission(
+        serial_run, options.provider.name == "DmlExecutionProvider",
+        [&] { CheckOperation(stop, deadline); });
     std::shared_lock lock(activity);
     CheckOperation(stop, deadline);
     Ort::RunOptions run_options;
@@ -532,6 +591,7 @@ class Session::Impl {
   std::vector<const char*> input_names;
   std::vector<const char*> output_names;
   mutable std::shared_mutex activity;
+  std::timed_mutex serial_run;
   std::optional<std::filesystem::path> profile;
 };
 

@@ -15,6 +15,12 @@ endforeach()
 add_executable(jyppx_liuding_deployment_consumer main.cpp)
 target_link_libraries(jyppx_liuding_deployment_consumer PRIVATE
     jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime)
+if(JYPPX_TEST_DIRECTML)
+    if(NOT jyppx_ONNX_RUNTIME_DIRECTML)
+        message(FATAL_ERROR "DirectML execution requires the installed DirectML profile")
+    endif()
+    target_compile_definitions(jyppx_liuding_deployment_consumer PRIVATE JYPPX_TEST_DIRECTML=1)
+endif()
 
 if(WIN32)
     if(NOT JYPPX_TORCH_RUNTIME_DIR)
@@ -36,7 +42,8 @@ if(WIN32)
     # The executable directory precedes Windows system directories and PATH.
     # Stage the package DLL explicitly so Windows' own older ORT cannot win.
     file(GLOB JYPPX_DEPLOYMENT_RUNTIME_DLLS
-        "${JYPPX_DEPLOYMENT_RUNTIME_DIR}/onnxruntime*.dll")
+        "${JYPPX_DEPLOYMENT_RUNTIME_DIR}/onnxruntime*.dll"
+        "${JYPPX_DEPLOYMENT_RUNTIME_DIR}/DirectML.dll")
     foreach(runtime_dll IN LISTS JYPPX_DEPLOYMENT_RUNTIME_DLLS)
         get_filename_component(runtime_name "${runtime_dll}" NAME)
         add_custom_command(TARGET jyppx_liuding_deployment_consumer POST_BUILD

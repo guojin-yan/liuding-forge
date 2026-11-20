@@ -451,7 +451,7 @@ TEST(NativeOnnxRuntime, LinearExecutesRealCpuAndDynamicBatches) {
   const std::array<std::int64_t, 2> shape{2, 8};
   const auto exported = exporter::export_linear(model, shape);
   runtime::Session session(exported.onnx, exported.digest);
-  EXPECT_EQ(session.runtime_version(), "1.23.2");
+  EXPECT_EQ(session.runtime_version(), JYPPX_TEST_ORT_VERSION);
   EXPECT_EQ(session.execution_provider().name, "CPUExecutionProvider");
   EXPECT_FALSE(session.cpu_fallback_allowed());
   ASSERT_FALSE(session.input().batch_symbol.empty());

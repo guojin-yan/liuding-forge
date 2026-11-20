@@ -142,7 +142,7 @@ void CheckSameState(const char* name, Holder holder) {
   const auto encoded = Artifact(specification.at("artifact"));
   runtime::Session session(encoded,
                            Digest(specification.at("artifact").at("digest")));
-  ASSERT_EQ(session.runtime_version(), "1.23.2");
+  ASSERT_EQ(session.runtime_version(), JYPPX_TEST_ORT_VERSION);
   ASSERT_EQ(session.input().batch_symbol, session.output().batch_symbol);
   ASSERT_FALSE(session.input().batch_symbol.empty());
   std::vector<std::int64_t> batches;
@@ -314,7 +314,11 @@ TEST(OnnxRuntimeSession,
   EXPECT_TRUE(runtime::provider_append_supported("TensorrtExecutionProvider"));
   EXPECT_TRUE(runtime::provider_append_supported("OpenVINOExecutionProvider"));
   EXPECT_TRUE(runtime::provider_append_supported("CoreMLExecutionProvider"));
+#ifdef JYPPX_TEST_ORT_DIRECTML
+  EXPECT_TRUE(runtime::provider_append_supported("DmlExecutionProvider"));
+#else
   EXPECT_FALSE(runtime::provider_append_supported("DmlExecutionProvider"));
+#endif
   EXPECT_FALSE(runtime::provider_append_supported("UnknownExecutionProvider"));
   EXPECT_FALSE(runtime::provider_append_supported("cpu"));
   LinearFixture fixture;
@@ -350,8 +354,12 @@ TEST(OnnxRuntimeSession, RejectsMissingOrUnwiredProvidersWithoutCpuFallback) {
   }
   EXPECT_TRUE(observed_missing);
   options.provider.name = "DmlExecutionProvider";
-  EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
-               CompatibilityError);
+  if (!runtime::provider_append_supported(options.provider.name) ||
+      std::find(providers.begin(), providers.end(), options.provider.name) ==
+          providers.end()) {
+    EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
+                 CompatibilityError);
+  }
   options.provider.name = "UnknownExecutionProvider";
   EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
                CompatibilityError);

@@ -1302,6 +1302,58 @@
       ],
       "linkage": "dynamic-native-layout-with-device-data",
       "support_status": "candidate"
+    },
+    {
+      "id": "onnxruntime-directml-windows-x64",
+      "scope": "optional-onnx-runtime-directml",
+      "version": "1.24.4",
+      "source": {
+        "type": "official-binary",
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg",
+        "cache_file": "out/deps/microsoft.ml.onnxruntime.directml.1.24.4.nupkg"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681",
+        "size_bytes": 12458649
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-private-sdk",
+      "support_status": "optional-directml-development-candidate"
+    },
+    {
+      "id": "directml-windows-x64",
+      "scope": "optional-onnx-runtime-directml",
+      "version": "1.15.4",
+      "source": {
+        "type": "official-binary",
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg",
+        "cache_file": "out/deps/microsoft.ai.directml.1.15.4.nupkg"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9",
+        "size_bytes": 202292617
+      },
+      "license": {
+        "spdx": [
+          "LicenseRef-Microsoft-DirectML"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-private-sdk",
+      "support_status": "optional-directml-development-candidate"
     }
   ]
 }

@@ -60,6 +60,23 @@ struct CudaProviderOptions {
  */
 ExecutionProvider cuda_execution_provider(const CudaProviderOptions& options);
 
+/** @brief DirectML adapter selection on Windows, independent of LibTorch. */
+struct DirectMlProviderOptions {
+  std::int32_t device_id =
+      0;  ///< Nonnegative DXGI adapter index, not a CUDA ordinal.
+};
+
+/** @brief Builds an explicit DirectML request without probing an adapter.
+ * @param options The independently selected DXGI adapter index.
+ * @return DmlExecutionProvider with the validated device_id option.
+ * @throws InvalidArgument For a negative adapter index.
+ * @throws ResourceExhausted If option storage cannot be allocated.
+ * @note Requires the separately selected Windows DirectML build profile at
+ * session creation. A ROCm device index does not identify the same DXGI index.
+ */
+ExecutionProvider directml_execution_provider(
+    const DirectMlProviderOptions& options);
+
 /** @brief Queries the providers compiled into the actually loaded ORT library.
  * @return Exact official names reported by OrtApi::GetAvailableProviders.
  * @throws Error If the runtime cannot report its available providers.
@@ -227,7 +244,11 @@ class Session final {
    * @throws NumericalError For any nonfinite graph result.
    * @throws Error For runtime/operator execution failures.
    * @note Concurrent calls have independent run options, symbol bindings and
-   * output storage. Cancellation is cooperative. Destruction must not race a
+   * output storage. DirectML runs on one session are serialized; cancellation
+   * and deadlines are checked while waiting without interrupting an active
+   * caller. Borrowed inputs must remain valid and unchanged throughout this
+   * wait and execution. Different sessions have independent admission.
+   * Cancellation is cooperative. Destruction must not race a
    * call. I/O limits exclude metadata and graph/intermediate/provider memory.
    */
   std::vector<TensorOutput> run(
@@ -250,6 +271,8 @@ class Session final {
    * @throws NumericalError For nonfinite graph results.
    * @throws Error For runtime/operator execution failures.
    * @note Concurrent calls use independent run options and I/O storage. ORT
+   * DirectML calls on one session wait for serial admission, observing stop and
+   * deadline while waiting. Inputs must remain valid throughout that wait.
    * cancellation is cooperative, not a hard wall-clock or process-memory quota.
    * Destruction must not race any call. No output is returned after an observed
    * cancellation/deadline, even if the backend finished concurrently.

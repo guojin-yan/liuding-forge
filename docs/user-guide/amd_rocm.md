@@ -34,15 +34,17 @@ Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像
 
 视觉内存预检在 ROCm 配置下使用 HIP 查询当前设备的空闲显存。它是采样值，不是显存硬配额。模型架构、官方权重、精度、吞吐和显存收益须分别验证。
 
-## ONNX 导出
+## ONNX 导出与推理
 
 本组合可启用 `JYPPX_LIUDING_BUILD_ONNX_EXPORT=ON`；需要原生推理时再启用 `JYPPX_LIUDING_BUILD_ONNX_RUNTIME=ON` 并通过 `JYPPX_LIUDING_ONNX_RUNTIME_ROOT` 指定官方 ORT 1.23.2 SDK，详见 [ONNX 导出与推理](../api/onnx.md)。此适配仅增加 Windows ROCm 10.1.0 LibTorch 2.14.0 精确组合，不扩展到其他 2.14.0 包。
 
-GPU 训练后的模型通过独立 CPU 副本导出，原训练模型继续保留设备、精度和梯度。视觉 CLI 使用 CPU FP32 eval 副本导出 opset 17；FP16/BF16 训练不代表 ONNX 采用同一精度。ONNX Runtime 的 Provider 独立于 LibTorch，本组合使用 CPU Provider 验证导出图，不据此声明 ORT 的 AMD GPU 执行。
+GPU 训练后的模型通过独立 CPU 副本导出，原训练模型继续保留设备、精度和梯度。视觉 CLI 使用 CPU FP32 eval 副本导出 opset 17；FP16/BF16 训练不代表 ONNX 采用同一精度。ONNX Runtime 的 Provider 独立于 LibTorch，默认 ORT 组合使用 CPU。
+
+Windows 可显式选择独立的 ORT 1.24.4 / DirectML 1.15.4 组合；W7900 已验证 Linear、ResNet18 的 FP32 动态 batch 数值、实际 GPU 节点、并发调用、结果所有权及安装消费。设备参数采用 DXGI 索引，同一会话串行执行；精确配置和取消契约见 [ONNX 后端选择](../api/onnx.md#runtime-与后端选择)。这不授予其他图、精度、适配器或性能资格。
 
 ## 本地推理
 
-可选 `serving` 组件已验证本组合的 native bundle 与显式可信 TorchScript GPU 加载、warmup 和数值前向，以及并发租约、取消、版本切换和安装消费。使用前仍须调用 `initialize_runtime()`。`onnx_serving` 已验证 ORT 1.23.2 CPU Provider；它不会根据 ROCm LibTorch 自动选择 AMD GPU。组件仍为 Preview，接口与边界见 [Serving](../api/serving.md)。
+可选 `serving` 组件已验证本组合的 native bundle 与显式可信 TorchScript GPU 加载、warmup 和数值前向，以及并发租约、取消、版本切换和安装消费。使用前仍须调用 `initialize_runtime()`。`onnx_serving` 已验证 ORT 1.23.2 CPU Provider，以及显式 DirectML 组合的合成多输入输出图加载、warmup、并发请求和关闭；它不会根据 ROCm LibTorch 自动选择 AMD GPU。组件仍为 Preview，接口与边界见 [Serving](../api/serving.md)。
 
 可选原生 TensorBoard/OTLP、WinHTTP 发送、Ed25519 签名和 headless CPU 渲染已验证该组合的组件契约与安装消费，遥测另经锁定官方 reader 和 Collector 检查。签名的私钥/策略符号链接负例受当前环境限制仍未验证；完整范围见兼容矩阵。
 

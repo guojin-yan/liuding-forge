@@ -608,6 +608,27 @@ endforeach()
     endif()
 endif()
 
+if(TARGET jyppx::liuding::onnx_runtime)
+    jyppx_add_gtest(jyppx_test_onnx_provider_options
+        LINK_TARGET jyppx::liuding::onnx_runtime
+        deployment/onnx_runtime/test_directml_options.cpp)
+    target_include_directories(jyppx_test_onnx_provider_options PRIVATE "${PROJECT_SOURCE_DIR}/src")
+    if(JYPPX_LIUDING_ONNX_RUNTIME_DIRECTML)
+        target_compile_definitions(jyppx_test_onnx_provider_options PRIVATE JYPPX_TEST_ORT_DIRECTML=1)
+    endif()
+    jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_provider_options)
+endif()
+
+if(JYPPX_LIUDING_TEST_DIRECTML)
+    jyppx_add_gtest(jyppx_test_onnx_directml
+        LINK_TARGET jyppx::liuding::models
+        deployment/onnx_runtime/test_directml.cpp)
+    target_link_libraries(jyppx_test_onnx_directml PRIVATE
+        jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime nlohmann_json::nlohmann_json)
+    target_compile_definitions(jyppx_test_onnx_directml PRIVATE JYPPX_TEST_ORT_VERSION="${ONNXRuntime_VERSION}")
+    jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_directml)
+endif()
+
 if(TARGET jyppx::liuding::onnx_export)
     if(JYPPX_LIUDING_TEST_CLI_CUDA AND TARGET jyppx::liuding::core AND
        TARGET jyppx::liuding::onnx_runtime)
@@ -645,7 +666,11 @@ if(TARGET jyppx::liuding::onnx_export)
             jyppx::liuding::onnx_runtime ONNXRuntime::onnxruntime)
         target_compile_definitions(jyppx_test_onnx_export PRIVATE
             JYPPX_LIUDING_TEST_ONNX_RUNTIME=1 JYPPX_LIUDING_HAS_ONNX_RUNTIME=1
-            JYPPX_LIUDING_TEST_GENERIC_ONNX_RUNTIME=1)
+            JYPPX_LIUDING_TEST_GENERIC_ONNX_RUNTIME=1
+            JYPPX_TEST_ORT_VERSION="${ONNXRuntime_VERSION}")
+        if(JYPPX_LIUDING_ONNX_RUNTIME_DIRECTML)
+            target_compile_definitions(jyppx_test_onnx_export PRIVATE JYPPX_TEST_ORT_DIRECTML=1)
+        endif()
         jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_export)
     endif()
 endif()
@@ -671,6 +696,11 @@ if(JYPPX_LIUDING_ONNX_REFERENCE_PYTHON)
         target_link_libraries(jyppx_test_onnx_runtime_reference PRIVATE
             jyppx::liuding::onnx_runtime
             jyppx::liuding::interop nlohmann_json::nlohmann_json GTest::gtest_main)
+        target_compile_definitions(jyppx_test_onnx_runtime_reference PRIVATE
+            JYPPX_TEST_ORT_VERSION="${ONNXRuntime_VERSION}")
+        if(JYPPX_LIUDING_ONNX_RUNTIME_DIRECTML)
+            target_compile_definitions(jyppx_test_onnx_runtime_reference PRIVATE JYPPX_TEST_ORT_DIRECTML=1)
+        endif()
         set(JYPPX_ORT_REFERENCE_MODEL_ARGS)
         if(TARGET jyppx::liuding::models)
             target_link_libraries(jyppx_test_onnx_runtime_reference PRIVATE
@@ -711,6 +741,9 @@ if(TARGET jyppx::liuding::onnx_serving AND TARGET jyppx::liuding::onnx_export)
         deployment/onnx_serving/test_backend.cpp)
     target_link_libraries(jyppx_test_onnx_serving PRIVATE
         jyppx::liuding::onnx_export nlohmann_json::nlohmann_json)
+    if(JYPPX_LIUDING_TEST_DIRECTML)
+        target_compile_definitions(jyppx_test_onnx_serving PRIVATE JYPPX_TEST_DIRECTML=1)
+    endif()
     jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_serving)
 endif()
 

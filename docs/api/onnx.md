@@ -28,7 +28,9 @@ target_link_libraries(my_app PRIVATE
     jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime)
 ```
 
-Windows 应将安装目录 `bin/onnxruntime*.dll` 放在应用程序目录；仅调整 `PATH` 可能仍先加载系统自带的旧版 ORT。Linux 应确保加载安装包对应的共享库。
+Windows 应将安装目录 `bin/onnxruntime*.dll` 放在应用程序目录，DirectML 组合还需同目录的 `DirectML.dll`；仅调整 `PATH` 可能仍先加载系统自带的旧版 ORT。Linux 应确保加载安装包对应的共享库。
+
+Windows DirectML 使用独立、显式的配置：设置 `JYPPX_LIUDING_ONNX_RUNTIME_DIRECTML=ON`，`JYPPX_LIUDING_ONNX_RUNTIME_ROOT` 指向官方 `Microsoft.ML.OnnxRuntime.DirectML 1.24.4` 的 x64 SDK，`JYPPX_LIUDING_DIRECTML_ROOT` 指向 `Microsoft.AI.DirectML 1.15.4` 的 x64 Release SDK。前者布局为 `VERSION_NUMBER`、`LICENSE`、`ThirdPartyNotices.txt`、`include/` 和 `lib/`（DLL 与 import library）；后者布局为 `VERSION_NUMBER`（内容 `1.15.4`）、`LICENSE.txt`、`include/` 和 `bin/DirectML.dll`。使用独立构建目录，避免覆盖默认 ORT 1.23.2 配置；配置过程校验精确版本和官方载荷，不下载或使用系统 DLL。两个包的来源与摘要见[依赖清单](../../dependency-manifest.json)。
 
 ## 从 C++ 模型导出并执行
 
@@ -78,7 +80,7 @@ LayerNorm 按 `normalized_shape` 指定的末尾维度计算总体方差，weigh
 
 导出会真实执行 forward，并可能为动态 batch 校验再次执行。调用方负责设定 eval 模式、CPU 设备、数据类型和预处理，保证 forward 确定且不修改输入、模型状态或外部资源。trace 只捕获实际执行路径；动态 batch 会用另一 batch 检查图结构，遇到形状常量或路径变化明确拒绝，不能据此推导任意数据相关控制流均可导出。当前动态轴仅支持 batch 维；其他维度须固定。
 
-AMD GPU 训练后的模型同样需要显式准备 CPU 导出副本；导出器不会原地移动训练模型。视觉 CLI 的 `export` 会创建独立 CPU FP32 eval 副本，训练时使用 FP16/BF16 不代表导出的 ONNX 保留该精度。ROCm LibTorch 与 ONNX Runtime 的 Provider 独立选择，本组合验证的是 ORT CPU 执行。
+AMD GPU 训练后的模型同样需要显式准备 CPU 导出副本；导出器不会原地移动训练模型。视觉 CLI 的 `export` 会创建独立 CPU FP32 eval 副本，训练时使用 FP16/BF16 不代表导出的 ONNX 保留该精度。ROCm LibTorch 与 ONNX Runtime 的 Provider 独立选择；默认 ORT 组合使用 CPU，DirectML 需显式启用独立组合。
 
 `ExportOptions` 设置 batch 上下界、命名和字节上限；`dynamic_batch=false` 导出固定形状。符号 batch 不会在 ONNX 中编码业务上下界，运行端还应设置 `max_batch_size` 并检查自己的最小 batch。输出大小限制不等于进程内存或显存硬配额。
 
@@ -88,7 +90,7 @@ Runtime 接收一个或多个具名 FP32 稠密输入，返回独立持有数据
 
 只有前导 batch 维可以动态变化。同名 batch 符号必须取相同大小，不同输入的独立符号可取不同大小；输出的动态符号必须由输入绑定，其他维度固定。I/O 位于主机内存，输入数据由调用方持有且在调用期间保持不变，adapter 不复制 FP32 输入数据；设备传输由所选 Provider 处理。
 
-`available_providers()` 查询实际加载的 ORT 库，`provider_append_supported(name)` 查询 adapter 是否接入对应的追加 API。CPU、CUDA、TensorRT、OpenVINO 及通用 Provider 均显式指定名称和参数；实际可用性取决于 ORT 构建、驱动与 SDK。列出 Provider 或创建 session 成功，均不代表已验证模型实际使用该后端执行。
+`available_providers()` 查询实际加载的 ORT 库，`provider_append_supported(name)` 查询 adapter 是否接入对应的追加 API。CPU、CUDA、DirectML、TensorRT、OpenVINO 及通用 Provider 均显式指定名称和参数；实际可用性取决于 ORT 构建、驱动与 SDK。列出 Provider 或创建 session 成功，均不代表已验证模型实际使用该后端执行。
 
 非 CPU 请求默认 `allow_cpu_fallback=false`，缺失后端或不支持的图明确失败；调用方显式允许后才接受 CPU 分区回退。`profile_prefix` 启用 ORT profiling，`end_profiling()` 返回可核对实际 Provider 与算子的文件。各后端的数值、kernel 与资源资格分别验证，CPU 结果不代表 GPU 结果。
 
@@ -104,6 +106,8 @@ options.provider = runtime::cuda_execution_provider({
 ```
 
 需要完整的 ORT GPU SDK、与其匹配的 CUDA/cuDNN、驱动和实际设备。`arena_memory_limit_bytes` 只限制 CUDA arena，不是总显存上限；未设置时沿用 ORT 的 arena 限额。默认使用启发式卷积算法搜索，关闭 TF32 和最大 cuDNN workspace，可通过 `allow_tf32`、`allow_max_conv_workspace` 显式启用。当前主机 I/O 与并发接口不接受启用 CUDA Graph、自定义 stream/allocator 或非默认流拷贝的配置。
+
+DirectML 的类型化选择为 `options.provider = directml_execution_provider({.device_id = 0});`，名称为 `DmlExecutionProvider`。`device_id` 是独立的非负 DXGI 适配器索引，不能用 LibTorch/HIP ordinal 推断对应关系；原始参数映射也只接受这个字段。DirectML 会话使用 sequential 执行并关闭 memory pattern，同一会话的 `run()` 串行准入，不同会话互不共享准入锁。排队期间检查取消与 deadline，不影响当前执行的调用；借用输入在排队和执行期间都须保持有效且不变。取消为协作式，I/O 字节上限不限制 DirectML 总显存。开发者可显式开启 `JYPPX_LIUDING_TEST_DIRECTML=ON` 运行真实设备门禁，缺设备或后端失败不会计为跳过通过。
 
 Runtime 在解析前检查完整字节 SHA-256 和大小，执行前检查形状、batch、输入大小与有限数值，输出独立拥有；取消与 deadline 为协作式中断。`max_io_tensors` 限制输入与输出的总个数，`max_input_bytes`、`max_output_bytes` 分别限制一次调用的全部输入、全部输出字节数，所有输出大小在分配输出数据前统一检查。I/O 上限不覆盖元数据、图中间量与设备分配，哈希不代表来源可信；不可信模型须额外隔离。
 

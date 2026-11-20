@@ -33,6 +33,12 @@ foreach(language IN ITEMS C CXX)
     endif()
 endforeach()
 set(generator_args)
+if(consumer_source_dir MATCHES "/deployment_consumer$")
+    load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_source_
+        JYPPX_LIUDING_TEST_DIRECTML)
+    list(APPEND config_args
+        "-DJYPPX_TEST_DIRECTML=${_jyppx_consumer_source_JYPPX_LIUDING_TEST_DIRECTML}")
+endif()
 if(JYPPX_CMAKE_GENERATOR)
     list(APPEND generator_args -G "${JYPPX_CMAKE_GENERATOR}")
 endif()

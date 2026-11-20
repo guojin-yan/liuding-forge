@@ -686,7 +686,7 @@ TEST_P(NativeOnnxUnaryRuntime, PreservesComputationTypeAndIntegralValues) {
       ASSERT_TRUE(at::allclose(native.front(), expected.front(), 1e-6, 1e-6));
       try {
         CheckOfficialCpu(artifact, examples, expected);
-        FAIL() << "ORT 1.23.2 CPU unexpectedly accepted Double Erf";
+        FAIL() << "Selected ORT CPU unexpectedly accepted Double Erf";
       } catch (const Ort::Exception& error) {
         EXPECT_EQ(error.GetOrtErrorCode(), ORT_NOT_IMPLEMENTED);
         EXPECT_NE(std::string(error.what()).find("Erf"), std::string::npos);
