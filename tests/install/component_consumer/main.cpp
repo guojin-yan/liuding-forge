@@ -20,6 +20,7 @@
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
+#include <jyppx/liuding/core/device.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/data_image/annotation_files.hpp>
@@ -87,6 +88,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <span>
 #include <string>
 #include <string_view>
@@ -342,16 +344,18 @@ int main() {
   copy_memory.pin_memory = true;
   copy_memory.non_blocking = true;
   copy_memory.target_device = jyppx::liuding::Device(torch::kCUDA, 0);
-  if (torch::cuda::is_available()) {
+  if (jyppx::liuding::cuda_is_available()) {
     ImageBatchCopyStream copies(copy_memory, 1, true);
     auto transfer = copies.submit(prepare_image_batch(batch, copy_memory));
     auto received = transfer.receive();
-    if (!torch::equal(received.images.cpu(), batch.images) ||
+    if (!received.images.is_cuda() || !received.masks->is_cuda() ||
+        !torch::equal(received.images.cpu(), batch.images) ||
         !torch::equal(received.masks->cpu(), *batch.masks))
       return 1;
     transfer.wait();
     if (copies.pending() != 0 || !transfer.timeline().copy_complete) return 1;
     copies.close();
+    std::cout << "installed image copy device=cuda:0\n";
   } else {
     try {
       ImageBatchCopyStream copies(copy_memory);
