@@ -118,6 +118,8 @@ def main():
                    "parent_path": os.environ.get("PATH"),
                    "stdin": sys.stdin.buffer.read().hex()}
         write_all(1, json.dumps(payload, ensure_ascii=True).encode("ascii"))
+    elif mode == "inspect-environment":
+        write_all(1, json.dumps({name: os.environ.get(name) for name in arguments}).encode("ascii"))
     elif mode == "exit":
         write_all(1, b"ordinary-output\x00\xff")
         write_all(2, b"ordinary-error\x00\xfe")

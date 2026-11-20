@@ -123,6 +123,8 @@ Windows 将示例中的程序和工作目录改成真实绝对路径，JSON 中�
 
 运行器保留的 `JYPPX_LIUDING_LOCAL_` 前缀不区分 ASCII 大小写，不进入环境摘要；启用完整绑定时，先移除继承环境中的这些字段，再由 worker 注入当前任务、attempt 和训练身份。其余变量的增加、删除、空值变化或内容变化均须匹配冻结摘要；显式覆盖的父值变化不改变有效环境。首次准入、重试准入与 worker 均检查，最终原生启动复用已核验的同一份快照，不重新继承父环境。
 
+Windows 子进程不继承 Intel/LLVM OpenMP 自动产生的 `__KMP_REGISTERED_LIB_<十进制PID>` 登记字段，它属于父进程的运行库状态；因此有效环境摘要也不包含这些被移除的继承项。显式设置同名字段仍保留并参与绑定；普通 `KMP_`、`OMP_` 配置与非数字后缀字段不受此规则影响。父进程环境不变。
+
 摘要不符时首次请求不创建 STORE，重试准入保持已确认前缀，已预约 worker 按启动失败提交并释放确认的预约；已终态任务继续只读重放。搜索的 `execution` 也可声明此字段，所有 trial 共用同一摘要，因此环境值须固定，不能包含 trial 占位符；变化的配置仍通过参数和冻结配置传入。未声明摘要的旧计划保留原语义。环境摘要是调用者显式选择公开的内容指纹，不保存整份环境值，也不证明动态库文件、外部服务或训练结果身份；这些仍需各自的运行文件及训练合同。
 
 每次 attempt 是独立 child run，关联 parent job、冻结计划和原始输出。`JYPPX_LIUDING_LOCAL_` 前缀由运行器保留，不区分 ASCII 大小写；显式环境覆盖使用该前缀时，新任务在创建 Store 和启动进程前以 `invalid_argument` 拒绝。程序可从 `JYPPX_LIUDING_LOCAL_JOB_ID`、`JYPPX_LIUDING_LOCAL_ATTEMPT_ID`、`JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX` 读取身份；工作目录由调用者提供并在重试间复用，应用负责按 attempt ID 隔离自己的可变文件。运行器不猜测训练程序的 checkpoint/resume 参数，也不解析退出码为训练完成或暂停语义。

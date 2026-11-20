@@ -37,7 +37,8 @@ struct JsonLineProcessOptions {
   std::map<std::string, std::string>
       environment;  ///< UTF-8 child-only overrides.
   bool inherit_environment =
-      false;  ///< Explicitly opt in to a parent snapshot.
+      false;  ///< Explicitly opt in to a parent snapshot, excluding inherited
+              ///< Windows OpenMP __KMP_REGISTERED_LIB_<decimal PID> entries.
   std::size_t max_request_bytes = 16U * 1024U * 1024U;  ///< Excludes final LF.
   std::size_t max_reply_bytes = 128U * 1024U;           ///< Excludes final LF.
   std::size_t max_stderr_bytes = 64U * 1024U;  ///< Cumulative discard quota.

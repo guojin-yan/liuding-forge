@@ -48,7 +48,8 @@ struct LocalProcessOptions {
   std::map<std::string, std::string>
       environment;  ///< Child-only UTF-8 overrides.
   bool inherit_environment =
-      false;  ///< Explicit opt-in to the parent snapshot.
+      false;  ///< Explicit opt-in to the parent snapshot; Windows OpenMP PID
+              ///< registrations are omitted from inheritance.
   std::optional<std::string>
       environment_sha256;  ///< Bind the effective native environment, excluding
                            ///< runner-owned JYPPX_LIUDING_LOCAL_ context.
@@ -86,7 +87,9 @@ std::vector<std::uint32_t> local_process_available_cpu_ids();
 
 /** @brief Hashes the effective native environment without launching a child.
  * Inherited runner context is removed; explicit runner context is excluded
- * from the identity. Values are never returned. The digest is
+ * from the identity. Inherited Windows __KMP_REGISTERED_LIB_<decimal PID>
+ * entries are removed from the child snapshot; explicit overrides still bind.
+ * Values are never returned. The digest is
  * platform-specific.
  * @param options Environment inheritance, explicit overrides and launch cap.
  * @return SHA-256 of the canonical effective native environment.

@@ -416,6 +416,85 @@ TEST(LocalProcessTest,
   EXPECT_FALSE(fs::exists(directory.root / "ready"));
 }
 
+#ifdef _WIN32
+class ScopedNativeEnvironment {
+ public:
+  explicit ScopedNativeEnvironment(std::wstring name) : name_(std::move(name)) {
+    SetLastError(ERROR_SUCCESS);
+    const auto size = GetEnvironmentVariableW(name_.c_str(), nullptr, 0);
+    if (size) {
+      std::wstring value(size, L'\0');
+      const auto length =
+          GetEnvironmentVariableW(name_.c_str(), value.data(), size);
+      if (length >= size)
+        throw std::runtime_error("Native environment read failed");
+      value.resize(length);
+      previous_ = std::move(value);
+    } else if (GetLastError() != ERROR_ENVVAR_NOT_FOUND) {
+      previous_ = L"";
+    }
+  }
+  ~ScopedNativeEnvironment() {
+    SetEnvironmentVariableW(name_.c_str(),
+                            previous_ ? previous_->c_str() : nullptr);
+  }
+  void set(const wchar_t* value) const {
+    if (!SetEnvironmentVariableW(name_.c_str(), value))
+      throw std::runtime_error("Native environment write failed");
+  }
+
+ private:
+  std::wstring name_;
+  std::optional<std::wstring> previous_;
+};
+
+TEST(LocalProcessTest, WindowsOmitsOnlyInheritedOpenmpPidRegistration) {
+  const std::string registration = "__KMP_REGISTERED_LIB_4294967294";
+  const std::string control = "__KMP_REGISTERED_LIB_fixture";
+  ScopedNativeEnvironment registered(L"__KMP_REGISTERED_LIB_4294967294");
+  ScopedNativeEnvironment ordinary(L"__KMP_REGISTERED_LIB_fixture");
+  registered.set(L"parent-registration-one");
+  ordinary.set(L"ordinary-one");
+  ProcessDirectory directory;
+  auto options = directory.options("inspect-environment");
+  options.arguments.insert(options.arguments.end(), {registration, control});
+  options.environment_sha256 = cli::local_process_environment_sha256(options);
+  registered.set(L"parent-registration-two");
+  EXPECT_EQ(cli::local_process_environment_sha256(options),
+            *options.environment_sha256);
+  ordinary.set(L"ordinary-two");
+  EXPECT_NE(cli::local_process_environment_sha256(options),
+            *options.environment_sha256);
+  ordinary.set(L"ordinary-one");
+  auto result = cli::LocalProcessRunner{}.run(options);
+  ASSERT_EQ(result.exit_code, 0U);
+  auto observed = Json::parse(result.stdout_capture);
+  EXPECT_TRUE(observed.at(registration).is_null());
+  EXPECT_EQ(observed.at(control), "ordinary-one");
+  // Sanitization applies to ordinary launches too, not only bound ones.
+  options.environment_sha256.reset();
+  result = cli::LocalProcessRunner{}.run(options);
+  ASSERT_EQ(result.exit_code, 0U);
+  EXPECT_TRUE(Json::parse(result.stdout_capture).at(registration).is_null());
+  options.environment[registration] = "explicit-registration";
+  const auto explicit_digest = cli::local_process_environment_sha256(options);
+  options.environment[registration] = "changed-explicit-registration";
+  EXPECT_NE(cli::local_process_environment_sha256(options), explicit_digest);
+  options.environment[registration] = "explicit-registration";
+  options.environment_sha256 = explicit_digest;
+  result = cli::LocalProcessRunner{}.run(options);
+  ASSERT_EQ(result.exit_code, 0U);
+  EXPECT_EQ(Json::parse(result.stdout_capture).at(registration),
+            "explicit-registration");
+  std::array<wchar_t, 64> parent{};
+  ASSERT_GT(
+      GetEnvironmentVariableW(L"__KMP_REGISTERED_LIB_4294967294", parent.data(),
+                              static_cast<DWORD>(parent.size())),
+      0U);
+  EXPECT_EQ(std::wstring(parent.data()), L"parent-registration-two");
+}
+#endif
+
 void expect_resource_usage(const cli::LocalProcessResult& result) {
   ASSERT_TRUE(result.resource_usage);
   const auto& usage = *result.resource_usage;

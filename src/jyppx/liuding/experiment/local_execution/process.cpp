@@ -315,6 +315,22 @@ struct EnvironmentOrder {
 
 using NativeEnvironment = std::vector<wchar_t>;
 
+bool openmp_process_registration(std::wstring_view entry) {
+  // Intel/LLVM OpenMP registers its loaded DLL under a PID-specific variable.
+  // This belongs to this process, not to a newly spawned execution domain.
+  constexpr std::wstring_view prefix = L"__KMP_REGISTERED_LIB_";
+  const auto separator = entry.find(L'=');
+  const auto name = entry.substr(0U, separator);
+  if (name.size() <= prefix.size() ||
+      CompareStringOrdinal(name.data(), static_cast<int>(prefix.size()),
+                           prefix.data(), static_cast<int>(prefix.size()),
+                           TRUE) != CSTR_EQUAL)
+    return false;
+  return std::all_of(
+      name.begin() + prefix.size(), name.end(),
+      [](wchar_t value) { return value >= L'0' && value <= L'9'; });
+}
+
 NativeEnvironment child_environment(const JsonLineProcessOptions& options,
                                     bool local_binding = false) {
   std::map<std::wstring, std::wstring, EnvironmentOrder> values;
@@ -325,6 +341,7 @@ NativeEnvironment child_environment(const JsonLineProcessOptions& options,
       for (const auto* position = block; *position;
            position += std::wcslen(position) + 1U) {
         std::wstring entry(position);
+        if (openmp_process_registration(entry)) continue;
         if (local_binding && runner_environment_entry(std::wstring_view(entry)))
           continue;
         const auto separator =
