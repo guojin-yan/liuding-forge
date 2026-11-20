@@ -13,6 +13,30 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "windows-clangcl24-rocm101-gfx1100-5b23c5e-onnx",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001; ONNX Runtime 1.23.2 CPU EP",
+          "build_type": "Release",
+          "commit": "5b23c5e39f0d9984799d8d37e24425fa20380c5a",
+          "tests": "134项不同CTest通过、零CTest跳过，其中97项在干净提交增量重建后复验；另通过BF16分类完整流程。Linux/RTX2060新增3项GPU导出回归通过、零跳过。",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "quality_evidence": {
+            "source_identity": "干净5b23c5e重新配置、增量重建及97项关键复验；CLI实际输出该提交和rocm:available:1。首轮134项对应实现未再修改；交付前8个变更文件快照逐SHA与该提交工作副本一致。",
+            "gpu_export": "FP32/FP16/BF16真实GPU前向、反向和SGD更新；独立CPU FP32副本导出，batch1/2/5的ORT结果与标量公式按atol1e-6核对；原GPU模型模式、设备、dtype、权重及梯度保持，直接序列化GPU模型明确拒绝。",
+            "native_contracts": "90项原生ONNX/ORT测试通过，覆盖通用算子、数据类型、动态batch、报告、错误与资源边界；导出使用LibTorch原生JIT/ONNX serializer，产品无Python依赖。",
+            "installation": "DeploymentInstallConsumer使用实际安装的公开头、静态库和导入targets编译、链接并执行CPU ORT数值对照；干净提交再次安装消费通过。",
+            "vision": "FP32/FP16分类、FP16 YOLO26n检测以及独立BF16分类完成训练、精确raw/EMA恢复、验证、预测、CPU FP32 ONNX导出、官方checker与C++ native/ORT数值对照；仅合成测试夹具。",
+            "independent_checker": "干净Windows AMD构建生成的Linear、ResNet18、自定义网络和多输入输出图，在独立Linux测试环境通过ONNX1.19.1 checker、strict shape inference、官方torch2.14.1/torchvision0.29.1及ORT1.23.2 CPU数值核对。Python仅充当独立参考。",
+            "component_profile": "既有ROCm基础八组件、data_image、models、vision_ops、models_yolo、models_rcnn、models_vision、vision_tasks及CLI/转换工具，增加onnx_export和onnx_runtime；onnx_serving关闭。",
+            "nvidia_regression": "同一干净提交在Ubuntu22.04.5、GCC11.4.0、LibTorch2.14.1+cu126、CUDA12.6.3及RTX2060上通过新增FP32/FP16/BF16三项测试；复用原CUDA构建，不重授完整SDK或视觉资格。",
+            "scope": "仅所列Windows/W7900原生开发组合及CPU导出/ORT CPU执行；不授予其他AMD GPU、WSL/Linux AMD、ORT GPU Provider、NVML进程预约、真实数据精度、吞吐、coverage、sanitizer或正式发布资格。",
+            "validation_receipt_sha256": "d92db694c61d9330d7202438127eca4f60a3787f560e22c9f25c463e99a6175a"
+          }
+        },
+        {
           "id": "windows-clangcl24-rocm101-gfx1100-4e07368-training",
           "distribution": "amd-rocm10.1.0",
           "os": "windows-11",
