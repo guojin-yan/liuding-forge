@@ -93,7 +93,9 @@ ImageBatch Batch(ImageBatchLayout layout = ImageBatchLayout::stack,
     if (mask) {
       sample.mask_target.emplace();
       sample.mask_target->ids = torch::full(
-          {sample.height, sample.width}, 9007199254740993LL + i, torch::kInt64);
+          {sample.height, sample.width},
+          std::int64_t{9007199254740993} + static_cast<std::int64_t>(i),
+          torch::kInt64);
       sample.mask_target->width = sample.width;
       sample.mask_target->height = sample.height;
       sample.mask_target->ignore_id = -7;
