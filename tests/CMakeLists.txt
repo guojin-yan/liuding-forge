@@ -547,7 +547,7 @@ set_tests_properties(OptionalComponentMatrix PROPERTIES
 endif()
 
 # Exercise the SDK and independent Preview consumers from installed artifacts.
-foreach(preview_component IN ITEMS sdk data_image vision_render models vision_tasks serving telemetry_native telemetry_http)
+foreach(preview_component IN ITEMS sdk data_image vision_render models vision_tasks serving telemetry_native telemetry_http bundle_signing)
     if(TARGET jyppx::liuding::${preview_component})
         set(consumer_labels "${preview_component};packaging")
         if(preview_component STREQUAL "sdk")
@@ -564,6 +564,8 @@ foreach(preview_component IN ITEMS sdk data_image vision_render models vision_ta
             set(preview_test_name NativeTelemetryInstallConsumer)
         elseif(preview_component STREQUAL "telemetry_http")
             set(preview_test_name NativeTelemetryHttpInstallConsumer)
+        elseif(preview_component STREQUAL "bundle_signing")
+            set(preview_test_name BundleSigningInstallConsumer)
         else()
             set(preview_test_name ServingInstallConsumer)
         endif()
