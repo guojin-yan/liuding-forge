@@ -793,6 +793,44 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cu126-15a5529-transfer-cli-gpu",
+          "distribution": "bundled-cuda",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;NVIDIA RTX3060 Laptop sm86;driver576.02",
+          "build_type": "Release",
+          "instrumentation": "复用既有Release构建与依赖、离线配置，CLI和recipe-gate最小重建至多两个编译任务；每次一个原套件、compute线程1、原1200秒套件上限。",
+          "commit": "15a5529f185da8baa630a8b38b665ebed94c7b16",
+          "tests": "干净15a5529原四GPU迁移学习CLI套件（18/18/4/6，共46个unittest用例）与五仓库门禁全部通过，零失败、零跳过；按本机实际CUDA环境单独登记。",
+          "quality_evidence": {
+            "source_identity": "实际两个CLI --version JSON、完整二进制SHA、cache和build-provenance绑定干净15a5529；GPU可见且指纹为cuda:available，注册命令和测试脚本SHA保留。原权重逐一核对完整SHA后读取，未修改脚本、预算、seed或数值容差。",
+            "fixed_weights": "ResNet50 A1 safetensors SHA773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb；DINOv2-small Liuding safetensors SHAf3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5。",
+            "original_contracts": "Cli_transfer_recipe_CUDA、Cli_transfer_recipe_group_rates_CUDA、Cli_transfer_adamw_recipe_CUDA和Cli_transfer_update_recipe_CUDA；原自制4图、4更新任务覆盖ResNet50/DINOv2-small frozen和finetune、骨干/head/buffer与BN策略、实际分组学习率、AdamW状态、update调度、完整检查点和新进程恢复、下一RNG、模型/bundle读者、配置与来源拒绝、实际quality_passed与accuracy对应。",
+            "scope": "仅该精确NVIDIA GPU/运行时的所列FP32 CLI微任务和恢复合同；不授真实数据质量、完整finetune、独立预训练数值、其他精度/模型/选项、性能、AMD GPU、多卡或发布资格。原独立CPU梯度参考与历史训练SHA失败不由本批改判。",
+            "receipt_sha256": "b349bf342408c0cb94febb387cf0055ee51348cef06db6cfea5e4d77e5ef912c"
+          }
+        },
+        {
+          "id": "local-ubuntu22045-gcc114-cu126-15a5529-transfer-cli-gpu",
+          "distribution": "bundled-cuda",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.6.3;cuDNN9.10.2.21;NVIDIA RTX2060 sm75;driver580.178.04",
+          "build_type": "Release",
+          "instrumentation": "复用既有Release构建与依赖、离线配置，CLI和recipe-gate最小重建至多两个编译任务；每次一个原套件、compute线程1、原1200秒套件上限。",
+          "commit": "15a5529f185da8baa630a8b38b665ebed94c7b16",
+          "tests": "干净15a5529原四GPU迁移学习CLI套件（18/18/4/6，共46个unittest用例）与五仓库门禁全部通过，零失败、零跳过；按本机实际CUDA环境单独登记。",
+          "quality_evidence": {
+            "source_identity": "实际两个CLI --version JSON、完整二进制SHA、cache和build-provenance绑定干净15a5529；GPU可见且指纹为cuda:available，注册命令和测试脚本SHA保留。原权重逐一核对完整SHA后读取，未修改脚本、预算、seed或数值容差。",
+            "fixed_weights": "ResNet50 A1 safetensors SHA773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb；DINOv2-small Liuding safetensors SHAf3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5。",
+            "original_contracts": "Cli_transfer_recipe_CUDA、Cli_transfer_recipe_group_rates_CUDA、Cli_transfer_adamw_recipe_CUDA和Cli_transfer_update_recipe_CUDA；原自制4图、4更新任务覆盖ResNet50/DINOv2-small frozen和finetune、骨干/head/buffer与BN策略、实际分组学习率、AdamW状态、update调度、完整检查点和新进程恢复、下一RNG、模型/bundle读者、配置与来源拒绝、实际quality_passed与accuracy对应。",
+            "scope": "仅该精确NVIDIA GPU/运行时的所列FP32 CLI微任务和恢复合同；不授真实数据质量、完整finetune、独立预训练数值、其他精度/模型/选项、性能、AMD GPU、多卡或发布资格。原独立CPU梯度参考与历史训练SHA失败不由本批改判。",
+            "receipt_sha256": "7e95441b256d9172d1b05ec46cd1777fcfb06bdb46ca59d16cab0574d7b1de9b"
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cpu-0255524-classification-evaluation-example",
           "os": "windows-11",
           "architecture": "x86_64",
