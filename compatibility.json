@@ -13,6 +13,89 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001; ONNX Runtime 1.23.2 CPU EP",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-c271354-local-process",
+          "commit": "c27135498392aecdd20fac094645a6d902600130",
+          "tests": "W7900首次实现28项通过；干净提交25项通过、零跳过。Linux/RTX2060同提交17项通过。Windows原提交22项通过、2项环境摘要失败，后由4a32c6a修复并独立复验。",
+          "quality_evidence": {
+            "source_identity": "干净提交离线配置、最小重建及25项复验；CLI指纹匹配提交及rocm:available:1。19个变更文件与首次28项实现快照逐SHA一致。",
+            "device_binding": "HIP UUID与PCI稳定身份；ordinal、架构及显存在首次、重试和worker启动前复检；四个可见性变量绑定物理选择，子进程逻辑设备零。",
+            "admission": "Windows使用HIP/WDDM全局显存保守计量；独立原生进程分配并写入2GiB显存验证竞争准入，包含预约、释放、重试、拒绝与收据。逻辑预约和启动前采样不构成显存硬配额。",
+            "installation": "AcceleratorInstallConsumer及ExperimentInstallConsumer通过；真实GPU执行、安装组件和公共API消费均按所列profile验证。",
+            "nvidia_regression": "Ubuntu22.04.5/GCC11.4/LibTorch2.14.1+cu126/CUDA12.6.3/RTX2060同提交17项通过、零跳过；Windows原失败不得记为全过，后续结果见4a32c6a lane。",
+            "scope": "仅此Windows/W7900单卡本地执行组合；不授予其他AMD卡、Linux/WSL AMD、多卡、显存硬配额、性能或发布资格。",
+            "validation_receipt_sha256": "61ec8ed3b613f62a31c81372f0cfbfccc69a0afc683710f054a0c6485ddbf93c",
+            "followup_receipt_sha256": "4059e4a9e625d81b5ec55522746e93ba6ca30a7151d18c2a714b53678d0f58c6"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001; ONNX Runtime 1.23.2 CPU EP",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-2fc30c6-optimizer-matrix",
+          "commit": "2fc30c622cec9f3dcbe95f4fe090c0e19ca17452",
+          "tests": "W7900干净提交29项通过、零跳过；既有优化器/调度器/AMP回归238通过、8个精确LibTorch2.5.1夹具条件跳过。Linux/RTX2060同提交25项通过；Windows/RTX3060于4a32c6a另25项通过，均零跳过。",
+          "quality_evidence": {
+            "source_identity": "干净提交离线配置、最小重建、指纹及29项复验；首轮回归实现内容与提交相同，跳过项逐项保留。",
+            "matrix": "8优化器（SGD/Adam/AdamW/Adagrad/Adadelta/RMSprop/NAdam/LAMB）×15调度器×FP32/FP16 autocast+GradScaler/BF16 autocast，共360组合；主权重FP32。",
+            "numerics": "独立标量前向/导数按输入dtype和点积长度误差界核对；同梯度CPU/GPU优化器更新对照。CPU/GPU对照不是独立算法证明。",
+            "continuation": "6步后保存optimizer/scheduler/scaler，新对象精确恢复并继续6步；每步权重/梯度torch::equal，LR、步数、scale及tracker核对。八优化器共享溢出时共同跳步、下一有限周期共同恢复。",
+            "nvidia_regression": "Ubuntu22.04.5/GCC11.4/LibTorch2.14.1+cu126/CUDA12.6.3/RTX2060同提交25项；Windows11/MSVC19.44/LibTorch2.14.1+cu126/Toolkit12.9/RTX3060于4a32c6a的25项，均通过且零跳过。",
+            "scope": "合成小矩阵执行与恢复资格；不授予全部算法选项、低精度主权重、模型准确率、性能、其他AMD卡或Linux/WSL AMD资格。8个精确2.5.1夹具未运行。",
+            "validation_receipt_sha256": "09d5d0f12f6e4de76dfa5b37c53e8cbdb4122862850f72add8c1669807ac38ee",
+            "followup_receipt_sha256": "cc7114dfee471048710bf857248592c396215d9734e267a34b5e769074f45cd7"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001; ONNX Runtime 1.23.2 CPU EP",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-4a32c6a-process-environment",
+          "commit": "4a32c6a5f38ff44c02abd4135dad5f4f0781ab5e",
+          "tests": "W7900环境/进程/schema真实GPU实现36项、sidecar18项通过；干净提交关键11项复验通过。Windows/RTX3060干净提交97项通过、零跳过，含原两个schema失败和25项训练矩阵。",
+          "quality_evidence": {
+            "source_identity": "干净4a32c6a重新配置与最小重建后11项关键复验；36/18项对应同一提交实现，明确区分提交前实现与干净复验。",
+            "environment": "Windows实际子进程环境移除继承的__KMP_REGISTERED_LIB_非空十进制PID字段，摘要使用同一真实快照；普通OMP/KMP、非数字后缀、驱动器伪变量及显式同名覆盖保留，父环境不变。",
+            "regression": "Windows11/MSVC19.44/LibTorch2.14.1+cu126/Toolkit12.9/RTX3060干净97项通过：安装GPU/experiment消费、身份与制品存储、进程/sidecar、360训练组合及两个schema均实际执行。",
+            "scope": "修复OpenMP初始化引入的进程PID登记导致等价环境摘要不同；不扩大其他AMD硬件/OS、完整SDK或性能资格。",
+            "validation_receipt_sha256": "4059e4a9e625d81b5ec55522746e93ba6ca30a7151d18c2a714b53678d0f58c6"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001; ONNX Runtime 1.23.2 CPU EP",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-417d9ce-serving",
+          "commit": "417d9ce6edca6de66ba3c77fbaa0d01631e7304a",
+          "tests": "干净提交63项CTest通过、零跳过：Serving、TorchScript CPU/GPU、ONNX Serving、三项结构门禁、CompatibilitySource及Serving/Deployment安装消费者。",
+          "quality_evidence": {
+            "source_identity": "干净提交最小重建及CLI指纹匹配；首次4a32c6a为61通过、1跳过，417d9ce补齐测试运行时初始化后干净63项全过，未将首轮跳过算通过。",
+            "gpu": "真实W7900 native bundle数值前向与drain；可信TorchScript真实GPU加载、warmup、前向、结果所有权、关闭及信任拒绝路径。",
+            "contracts": "native/ONNX动态batch、版本重载、并发租约、取消/截止、有限OOM拆分重试、存储所有权和数值契约通过。ONNX使用ORT1.23.2 CPU EP。",
+            "installation": "ServingInstallConsumer和DeploymentInstallConsumer通过公开安装头、库及targets完成编译链接和执行；组件增加serving/onnx_serving，既有ROCm/视觉/ONNX profile保留。",
+            "scope": "Preview单进程与合成执行夹具；不授予AMD ONNX GPU Provider、HTTP/gRPC服务、真实模型准确率、吞吐、其他AMD卡/OS或正式发布资格。",
+            "validation_receipt_sha256": "80ea3a3312a7366cb8525bc5f21dd269f61c253fcdfac242798168dc26741fad"
+          }
+        },
+        {
           "id": "windows-clangcl24-rocm101-gfx1100-5b23c5e-onnx",
           "distribution": "amd-rocm10.1.0",
           "os": "windows-11",
