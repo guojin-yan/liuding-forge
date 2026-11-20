@@ -5,6 +5,7 @@
 /** @file image_onnx.cpp @brief Prepares CIFAR-10 inputs, signs a native ONNX
  * delivery and evaluates its trusted CPU Serving instance without Python. */
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data_image/image_batch.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/deployment/bundle_signing/provider.hpp>
@@ -541,6 +542,7 @@ int main(int argc, char* argv[]) {
     return 0;
   }
   try {
+    jyppx::liuding::initialize_runtime();
     Require(std::endian::native == std::endian::little,
             "This example requires little-endian tensor output");
     at::set_num_threads(1);

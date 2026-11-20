@@ -7,6 +7,7 @@
 
 #include "cifar10_model_support.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data_image/image_output_sink.hpp>
 #include <jyppx/liuding/experiment/run_store.hpp>
@@ -150,6 +151,7 @@ int Recover(const fs::path& output) {
 int Run(const fs::path& model_path, std::string_view expected_sha,
         const fs::path& validation_root, const fs::path& output, bool durable) {
   Require(!fs::exists(output), "Use a new output directory");
+  forge::initialize_runtime();
   at::set_num_threads(1);
   at::set_num_interop_threads(1);
   at::globalContext().setDeterministicAlgorithms(true, false);

@@ -7,11 +7,14 @@
 
 #include "cifar10_model_support.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
+
 namespace {
 using namespace cifar10_example;
 
 int Run(const fs::path& model_path, std::string_view expected_sha,
         const fs::path& validation_root) {
+  forge::initialize_runtime();
   at::set_num_threads(1);
   at::set_num_interop_threads(1);
   at::globalContext().setDeterministicAlgorithms(true, false);

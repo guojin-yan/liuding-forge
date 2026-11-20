@@ -8,6 +8,7 @@
  * @brief Restores native model state, exports a multi-input graph and runs ORT.
  */
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/verification.hpp>
 #include <jyppx/liuding/interop/file_state_archive.hpp>
@@ -275,6 +276,7 @@ int Main(std::span<const fs::path> arguments) {
     return 2;
   }
   try {
+    jyppx::liuding::initialize_runtime();
     RunExample(arguments[1]);
     return 0;
   } catch (const std::invalid_argument& error) {

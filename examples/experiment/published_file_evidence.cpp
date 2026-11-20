@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data_image/image_output_sink.hpp>
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
@@ -53,6 +54,7 @@ int main(int argc, char **argv) {
           << "Usage: liuding-forge-example-published-file [NEW_DIRECTORY]\n";
       return 2;
     }
+    jyppx::liuding::initialize_runtime();
     const WorkDirectory work(argc == 2
                                  ? std::optional<std::filesystem::path>(argv[1])
                                  : std::nullopt);

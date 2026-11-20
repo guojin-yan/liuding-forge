@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 /** @file onnx.cpp @brief Builds real multi-I/O ONNX bundles in C++, verifies
  * independent scalar references and publishes an ORT serving version safely. */
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/environment.hpp>
 #include <jyppx/liuding/deployment/onnx_serving/backend.hpp>
@@ -348,6 +349,7 @@ class Bundle final {
 
 int main() {
   try {
+    jyppx::liuding::initialize_runtime();
     using namespace std::chrono_literals;
     at::set_num_threads(1);
     at::set_num_interop_threads(1);

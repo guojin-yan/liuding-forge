@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 #include "linear_bundle.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
+
 #include <charconv>
 #include <cmath>
 #include <iostream>
@@ -141,6 +143,7 @@ int main(int argc, char** argv) {
     }
     if (demo == !directory.empty())
       throw InvalidArgument("Select exactly one local model source");
+    initialize_runtime();
     std::unique_ptr<example::BundleFixture> generated;
     if (demo) {
       generated = std::make_unique<example::BundleFixture>(device);

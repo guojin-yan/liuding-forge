@@ -6,6 +6,8 @@
 // example. It needs no downloaded weights, Python process or network listener.
 #include "linear_bundle.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -49,6 +51,7 @@ void SetCandidateState(app::BundleFixture& bundle) {
 }  // namespace
 int main() {
   try {
+    initialize_runtime();
     using namespace std::chrono_literals;
     app::BundleFixture initial;
     initial.Publish();

@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/models/heads.hpp>
 #include <jyppx/liuding/models/registry.hpp>
 #include <jyppx/liuding/models/weights.hpp>
@@ -163,6 +164,7 @@ int main(int argc, char** argv) {
     const auto policy = std::string(argv[2]) == "frozen"
                             ? BackbonePolicy::frozen
                             : BackbonePolicy::finetune;
+    lf::initialize_runtime();
     at::set_num_threads(1);
     at::set_num_interop_threads(1);
     torch::manual_seed(20261029);
