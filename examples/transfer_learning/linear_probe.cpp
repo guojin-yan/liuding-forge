@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/models/heads.hpp>
 #include <jyppx/liuding/models/registry.hpp>
@@ -286,6 +287,7 @@ HeadResult train_head(const FeatureCache& cache) {
 int main(int argc, char** argv) {
   try {
     const auto options = parse_options(argc, argv);
+    lf::initialize_runtime();
     at::set_num_threads(1);
     at::set_num_interop_threads(1);
     torch::manual_seed(20261029);

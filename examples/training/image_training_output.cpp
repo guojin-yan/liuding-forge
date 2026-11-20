@@ -30,6 +30,7 @@ int Main(int argc, Character* argv[]) {
     const auto mode = fs::path(argv[4]).string();
     Require(device == "cpu" || device == "cuda:0", "Choose cpu or cuda:0");
     Require(mode == "current" || mode == "copy", "Choose current or copy");
+    forge::initialize_runtime();
     at::set_num_threads(1);
     at::set_num_interop_threads(1);
     at::globalContext().setDeterministicAlgorithms(true, false);
