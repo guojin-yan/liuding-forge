@@ -4,7 +4,7 @@
 
 [pedestrian_detector.cpp](detection/pedestrian_detector.cpp) 从随机初始化训练直接预测行人框的小型卷积模型，使用 `Trainer`、完整检查点和实际 detection evaluator 生成质量报告。模型声明和实现在同模块的 [model/](detection/model/) 子目录，训练与评估入口在 `detection/` 内。预测只读取 RGB；实例掩码用于训练目标和评估真值，不参与预测或解码。这是小规模接线示例，不能据此推导生产检测精度或完整平台支持。
 
-本例已验收的完整训练与新进程恢复组合为 Ubuntu 的 CPU/CUDA 和 Windows 的 CUDA；Windows CPU 尚未验收。各组合使用[兼容矩阵](../../compatibility.json)列出的工具链与 LibTorch，不保证跨设备权重或数值相同。
+本例已在[兼容矩阵](../../compatibility.json)列出的 Ubuntu CPU/NVIDIA CUDA、Windows CPU/NVIDIA CUDA 及 Windows ROCm 分发的 CPU 路径完成完整训练与新进程恢复。AMD GPU 任务资格须独立验证；不保证跨设备权重或数值相同。
 
 ## 准备数据与构建
 
