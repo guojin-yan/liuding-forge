@@ -10,7 +10,10 @@
 #include <jyppx/liuding/training/amp/grad_scaler.hpp>
 #include <jyppx/liuding/vision/tasks/training/musgd.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/preflight.hpp>
-#if defined(JYPPX_VISION_WITH_CUDA)
+#if defined(JYPPX_VISION_WITH_HIP)
+#include <c10/core/DeviceGuard.h>
+#include <hip/hip_runtime_api.h>
+#elif defined(JYPPX_VISION_WITH_CUDA)
 #include <c10/cuda/CUDAGuard.h>
 #include <cuda_runtime_api.h>
 #endif
@@ -23,7 +26,14 @@ using J = nlohmann::json;
 using I = std::int64_t;
 std::uint64_t Free(const Device& device) {
   if (!device.is_cuda()) return 0;
-#if defined(JYPPX_VISION_WITH_CUDA)
+#if defined(JYPPX_VISION_WITH_HIP)
+  c10::DeviceGuard guard(device);
+  std::size_t free = 0, total = 0;
+  if (hipDeviceSynchronize() != hipSuccess ||
+      hipMemGetInfo(&free, &total) != hipSuccess)
+    throw DeviceError("HIP batch probe could not query free memory");
+  return free;
+#elif defined(JYPPX_VISION_WITH_CUDA)
   c10::cuda::CUDAGuard guard(device);
   std::size_t free = 0, total = 0;
   if (cudaDeviceSynchronize() != cudaSuccess ||
@@ -31,7 +41,7 @@ std::uint64_t Free(const Device& device) {
     throw DeviceError("CUDA batch probe could not query free memory");
   return free;
 #else
-  throw DeviceError("This build has no CUDA batch probe");
+  throw DeviceError("This build has no CUDA/HIP batch probe");
 #endif
 }
 std::unique_ptr<training::amp::AutocastGuard> Autocast(const RecipeSpec& r) {

@@ -11,7 +11,11 @@
 #include "model_checkpoint/record_function_observer.hpp"
 #include <c10/core/StorageImpl.h>
 #ifdef JYPPX_LIUDING_NN_CUDA_METRICS
+#if defined(USE_ROCM)
+#include <c10/hip/HIPCachingAllocator.h>
+#else
 #include <c10/cuda/CUDACachingAllocator.h>
+#endif
 #endif
 
 #include <algorithm>

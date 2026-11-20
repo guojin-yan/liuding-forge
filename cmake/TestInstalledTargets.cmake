@@ -22,6 +22,16 @@ set(consumer_build_dir "${test_root}/b")
 file(REMOVE_RECURSE "${install_dir}")
 file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_dir}")
 set(config_args)
+# Keep installed-consumer checks on the selected toolchain, including clang-cl
+# for ROCm. A PATH default can silently select a different Windows compiler.
+load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_toolchain_
+    CMAKE_C_COMPILER CMAKE_CXX_COMPILER)
+foreach(language IN ITEMS C CXX)
+    if(_jyppx_consumer_toolchain_CMAKE_${language}_COMPILER)
+        list(APPEND config_args
+            "-DCMAKE_${language}_COMPILER=${_jyppx_consumer_toolchain_CMAKE_${language}_COMPILER}")
+    endif()
+endforeach()
 set(generator_args)
 if(JYPPX_CMAKE_GENERATOR)
     list(APPEND generator_args -G "${JYPPX_CMAKE_GENERATOR}")

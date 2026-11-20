@@ -1,6 +1,13 @@
 {
   "audit_date": "2026-11-12",
   "dependency_notice_states": {
+    "amd-rocm-windows-amd-torch-device-gfx1100": "pending",
+    "amd-rocm-windows-amd-torch-device-gfx110x": "pending",
+    "amd-rocm-windows-rocm-sdk-core": "pending",
+    "amd-rocm-windows-rocm-sdk-devel": "pending",
+    "amd-rocm-windows-rocm-sdk-device-gfx1100": "pending",
+    "amd-rocm-windows-rocm-sdk-libraries": "pending",
+    "amd-rocm-windows-torch": "pending",
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
     "libtorch-candidate-cuda-cu124": "pending",

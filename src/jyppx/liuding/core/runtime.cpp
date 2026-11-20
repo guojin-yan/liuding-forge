@@ -7,11 +7,24 @@
 #include <torch/version.h>
 
 #include <ATen/Parallel.h>
+#if defined(USE_ROCM)
+#include <torch/cuda.h>
+
+#include <ATen/hip/HIPContextLight.h>
+#endif
 #include <mutex>
 
 namespace jyppx::liuding {
 
 void initialize_runtime() {
+#if defined(USE_ROCM)
+  // Keep a real torch_hip import: otherwise the Windows linker can discard
+  // the backend DLL and its operator/hook registrations before main starts.
+  // No device context is requested when the selected SDK has no visible GPU.
+  if (torch::cuda::is_available()) {
+    (void)at::cuda::getDeviceProperties(0);
+  }
+#endif
 #if defined(_WIN32) && AT_PARALLEL_OPENMP && TORCH_VERSION_MAJOR == 2 && \
     TORCH_VERSION_MINOR == 14 && TORCH_VERSION_PATCH == 1
   static std::once_flag initialized;

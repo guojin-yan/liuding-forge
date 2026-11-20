@@ -35,6 +35,7 @@
 - Python 3 仅用于构建/开发校验与独立参考；安装后的 C++ 库、CLI 和原生示例不需要 Python。
 - 精确的 LibTorch、编译器、操作系统和 CUDA 组合，以 [compatibility.json](compatibility.json) 为准。
 - CUDA 还需要匹配的 GPU、驱动、toolkit 和 LibTorch 构建信息。
+- AMD ROCm 开发组合使用独立的 LibTorch/HIP 和 `cuda:0` 设备接口，构建与使用见 [AMD GPU](docs/user-guide/amd_rocm.md)。
 
 未列入兼容矩阵的组合可以用于开发排查，但不得写成正式支持。Windows 官方 LibTorch 使用 Release CRT，构建时保持 `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` 和 `_ITERATOR_DEBUG_LEVEL=0`。
 

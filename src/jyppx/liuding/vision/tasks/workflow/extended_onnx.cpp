@@ -3,6 +3,8 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 #include "extended_io.hpp"
+
+#include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/vision/ops/deformable.hpp>
 #include <jyppx/liuding/vision/ops/roi.hpp>
 #if defined(JYPPX_VISION_WITH_EXTENDED)

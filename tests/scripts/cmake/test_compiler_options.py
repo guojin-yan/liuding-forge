@@ -1,7 +1,7 @@
 # Copyright 2026 JYPPX Training Framework Contributors
 # Licensed under the Apache License, Version 2.0.
 
-"""Check actual GNU/Clang commands from the framework's compiler policy."""
+"""Check GNU, Clang and clang-cl commands from the compiler policy."""
 
 import json
 import os
@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parents[3]
 CMAKE = os.environ.get("CMAKE_COMMAND") or shutil.which("cmake")
 ROOT = Path(os.environ.get(
     "JYPPX_COMPILER_FLAGS_TEST_ROOT", REPO / "out/build/compiler-flags"))
+MSVC_FRONTEND = os.environ.get("JYPPX_COMPILER_FLAGS_TEST_FRONTEND") == "MSVC"
 
 
 @unittest.skipUnless(CMAKE and shutil.which("ninja"), "CMake and Ninja are required")
@@ -65,16 +66,25 @@ class CompilerConfigurationFlagsTest(unittest.TestCase):
         self.assertEqual(len(commands), 3, commands)
         for argv in commands:
             with self.subTest(command=argv):
-                optimizations = [a for a in argv if re.fullmatch(r"-O(?:[0-3sgz]|fast)", a)]
-                debugging = [a for a in argv if re.fullmatch(r"-g[0-3]?", a)]
+                optimization_pattern = r"/O[12dx]" if MSVC_FRONTEND else r"-O(?:[0-3sgz]|fast)"
+                debug_pattern = r"/Z[7iI]" if MSVC_FRONTEND else r"-g[0-3]?"
+                optimizations = [a for a in argv if re.fullmatch(optimization_pattern, a)]
+                debugging = [a for a in argv if re.fullmatch(debug_pattern, a)]
                 self.assertEqual(optimizations[-1:] or [None], [optimization])
                 self.assertEqual(debugging[-1:] or [None], [debug])
-                self.assertEqual("-DNDEBUG" in argv, ndebug)
+                self.assertEqual(any(a in argv for a in ("-DNDEBUG", "/DNDEBUG")), ndebug)
+                if any(a.endswith("main.cpp") for a in argv):
+                    warning = "/clang:-Wall" if MSVC_FRONTEND else "-Wall"
+                    self.assertIn(warning, argv)
+                    if MSVC_FRONTEND:
+                        self.assertNotIn("-Wall", argv)
+                        self.assertNotIn("/Wall", argv)
                 if sanitizers:
                     self.assertIn("-fsanitize=address", argv)
                     self.assertIn("-fsanitize=undefined", argv)
                     self.assertIn("-fno-omit-frame-pointer", argv)
 
+    @unittest.skipIf(MSVC_FRONTEND, "GNU sanitizer combination requires the GNU frontend")
     def test_custom_debug_sanitizer_profile_keeps_requested_flags(self):
         commands = self.configure(
             "Ninja", "-DCMAKE_BUILD_TYPE=Debug",
@@ -83,19 +93,34 @@ class CompilerConfigurationFlagsTest(unittest.TestCase):
             "-DJYPPX_LIUDING_ENABLE_ASAN=ON", "-DJYPPX_LIUDING_ENABLE_UBSAN=ON")
         self.assert_profile(commands, "-O1", "-g1", sanitizers=True)
 
+    @unittest.skipUnless(MSVC_FRONTEND, "clang-cl frontend profile")
+    def test_custom_clang_cl_debug_profile_keeps_requested_flags(self):
+        commands = self.configure(
+            "Ninja", "-DCMAKE_BUILD_TYPE=Debug",
+            "-DCMAKE_CXX_FLAGS_DEBUG=/O1 /Z7",
+            "-DCMAKE_C_FLAGS_DEBUG=/O1 /Z7")
+        self.assert_profile(commands, "/O1", "/Z7")
+
     def test_custom_release_profile_keeps_toolchain_choices(self):
+        flags = "/O1 /DNDEBUG" if MSVC_FRONTEND else "-Os -g0 -DNDEBUG"
         commands = self.configure(
             "Ninja", "-DCMAKE_BUILD_TYPE=Release",
-            "-DCMAKE_CXX_FLAGS_RELEASE=-Os -g0 -DNDEBUG",
-            "-DCMAKE_C_FLAGS_RELEASE=-Os -g0 -DNDEBUG")
-        self.assert_profile(commands, "-Os", "-g0", ndebug=True)
+            f"-DCMAKE_CXX_FLAGS_RELEASE={flags}",
+            f"-DCMAKE_C_FLAGS_RELEASE={flags}")
+        self.assert_profile(commands, "/O1" if MSVC_FRONTEND else "-Os",
+                            None if MSVC_FRONTEND else "-g0", ndebug=True)
 
     def test_multi_config_retains_cmake_defaults(self):
         commands = self.configure("Ninja Multi-Config")
-        for config, optimization, debug, ndebug in (
+        profiles = (
                 ("Debug", None, "-g", False),
                 ("Release", "-O3", None, True),
-                ("RelWithDebInfo", "-O2", "-g", True)):
+                ("RelWithDebInfo", "-O2", "-g", True))
+        if MSVC_FRONTEND:
+            profiles = (("Debug", "/Od", "/Zi", False),
+                        ("Release", "/O2", None, True),
+                        ("RelWithDebInfo", "/O2", "/Zi", True))
+        for config, optimization, debug, ndebug in profiles:
             selected = [argv for argv in commands if any(
                 a.startswith("-DCMAKE_INTDIR=") and config in a for a in argv)]
             with self.subTest(configuration=config):

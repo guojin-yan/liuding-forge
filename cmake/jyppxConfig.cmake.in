@@ -2,6 +2,14 @@
 
 include(CMakeFindDependencyMacro)
 find_dependency(Torch REQUIRED)
+if("@JYPPX_ACCELERATOR_BUILD@" STREQUAL "rocm")
+    if(NOT TARGET torch_hip OR NOT Torch_VERSION VERSION_EQUAL "@Torch_VERSION@"
+       OR NOT "${ROCM_VERSION_DEV}" STREQUAL "@ROCM_VERSION_DEV@")
+        message(FATAL_ERROR "This jyppx SDK requires the matching ROCm LibTorch @Torch_VERSION@ distribution")
+    endif()
+elseif(TARGET torch_hip)
+    message(FATAL_ERROR "This jyppx SDK was not built against ROCm LibTorch; select a matching SDK")
+endif()
 if(@JYPPX_LIUDING_BUILD_EXPERIMENT@ OR @JYPPX_LIUDING_BUILD_SERVING@ OR @JYPPX_LIUDING_BUILD_BUNDLE_SIGNING@)
     find_dependency(Threads REQUIRED)
 endif()

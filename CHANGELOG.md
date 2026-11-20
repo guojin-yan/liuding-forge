@@ -6,6 +6,7 @@
 
 ### 训练与数据
 
+- 接入 AMD ROCm LibTorch/HIP 构建、GPU 设备发现与构建指纹，视觉 batch 预检使用 HIP 内存查询；AMD 继续使用 LibTorch 的 `cuda:<index>` 与既有训练/AMP/恢复接口。
 - 提供显式任务 step、模型适配、多优化器、梯度累积、裁剪、AMP、回调及可恢复调度器。
 - 提供 map/iterable 数据管线、确定性采样、线程 worker、结构化批次和游标恢复。
 - 协调保存模型、优化器、scheduler、RNG、数据、GradScaler、回调和训练控制状态，支持文件检查点及完整恢复。

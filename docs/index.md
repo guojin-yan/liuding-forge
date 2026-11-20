@@ -33,6 +33,7 @@
 - [部署](user-guide/deployment.md)
 - [模型包签名与信任策略](user-guide/bundle-signing.md)
 - [性能调优](user-guide/performance_tuning.md)
+- [AMD GPU 与 ROCm](user-guide/amd_rocm.md)
 - [故障排查](user-guide/troubleshooting.md)
 - [离线工作流示例](examples/offline_workflow.md)
 - [本地 Serving 与模型版本切换示例](../examples/serving/README.md)

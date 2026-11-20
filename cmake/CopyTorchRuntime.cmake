@@ -11,6 +11,14 @@ function(jyppx_add_torch_runtime_dependency target_name)
     if(NOT jyppx_torch_runtime_dlls)
         return()
     endif()
+    file(GLOB_RECURSE jyppx_torch_runtime_images CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE
+        "${jyppx_torch_runtime_dir}/aotriton.images/*")
+    list(APPEND jyppx_torch_runtime_dlls ${jyppx_torch_runtime_images})
+    if(EXISTS "${jyppx_torch_runtime_dir}/torch_hip.dll")
+        file(GLOB jyppx_torch_runtime_kpacks CONFIGURE_DEPENDS
+            "${jyppx_torch_runtime_dir}/../.kpack/*.kpack")
+        list(APPEND jyppx_torch_runtime_dlls ${jyppx_torch_runtime_kpacks})
+    endif()
 
     string(MD5 jyppx_binary_dir_hash "${CMAKE_CURRENT_BINARY_DIR}")
     string(SUBSTRING "${jyppx_binary_dir_hash}" 0 8 jyppx_binary_dir_id)

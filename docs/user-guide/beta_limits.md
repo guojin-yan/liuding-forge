@@ -52,4 +52,4 @@ TorchScript 仅用于显式可信既有制品的 LibTorch JIT 加载与 forward�
 
 ONNX Double `Erf` 在声明的 ORT CPU 配置中缺少内核，导出器明确拒绝该组合。CPU 结果不能用于判断 CUDA、TensorRT 或 OpenVINO；使用的 Provider、设备和依赖必须与实际构建匹配。
 
-当前不提供多进程分布式训练、远端 runner、HTTP/gRPC 服务托管或 INT8 量化入口。Windows、Ubuntu CPU/CUDA 按精确组合记录，macOS 未列入支持范围；应用自行承担网络服务和部署控制。
+当前不提供多进程分布式训练、远端 runner、HTTP/gRPC 服务托管或 INT8 量化入口。Windows、Ubuntu CPU/CUDA 及 [AMD ROCm](amd_rocm.md) 按精确组合记录，macOS 未列入支持范围；应用自行承担网络服务和部署控制。

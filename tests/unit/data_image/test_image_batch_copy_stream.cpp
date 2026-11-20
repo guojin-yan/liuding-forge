@@ -13,11 +13,17 @@
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)
 #include <c10/core/Event.h>
+#if defined(USE_ROCM)
+#include <c10/hip/HIPGuard.h>
+#include <c10/hip/HIPStream.h>
+#include <hip/hip_runtime_api.h>
+#else
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
+#include <cuda_runtime_api.h>
+#endif
 #include <chrono>
 #include <condition_variable>
-#include <cuda_runtime_api.h>
 #include <mutex>
 #endif
 
@@ -116,7 +122,11 @@ c10::cuda::CUDAStream CopyStream(const ImageBatchTransfer& ticket) {
 class Gate {
  public:
   explicit Gate(c10::cuda::CUDAStream stream) : stream_(stream) {
+#if defined(USE_ROCM)
+    if (hipLaunchHostFunc(stream.stream(), Callback, this) != hipSuccess)
+#else
     if (cudaLaunchHostFunc(stream.stream(), Callback, this) != cudaSuccess)
+#endif
       throw std::runtime_error("Cannot enqueue CUDA test gate");
     std::unique_lock lock(mutex_);
     if (!condition_.wait_for(lock, std::chrono::seconds(3),
@@ -140,7 +150,11 @@ class Gate {
   }
 
  private:
+#if defined(USE_ROCM)
+  static void Callback(void* opaque) {
+#else
   static void CUDART_CB Callback(void* opaque) {
+#endif
     auto& gate = *static_cast<Gate*>(opaque);
     std::unique_lock lock(gate.mutex_);
     gate.entered_ = true;
@@ -405,14 +419,26 @@ TEST(ImageBatchCopyStreamTest, RejectsGraphCaptureBeforeQueuingWork) {
   const auto prepared = prepare_image_batch(Batch(), Memory());
   auto ticket = stream.submit(prepared);
   ticket.wait();
+#if defined(USE_ROCM)
+  ASSERT_EQ(
+      hipStreamBeginCapture(consumer.stream(), hipStreamCaptureModeThreadLocal),
+      hipSuccess);
+#else
   ASSERT_EQ(cudaStreamBeginCapture(consumer.stream(),
                                    cudaStreamCaptureModeThreadLocal),
             cudaSuccess);
+#endif
   EXPECT_THROW(stream.submit(prepared), CompatibilityError);
   EXPECT_THROW(ticket.receive(), CompatibilityError);
+#if defined(USE_ROCM)
+  hipGraph_t graph = nullptr;
+  EXPECT_EQ(hipStreamEndCapture(consumer.stream(), &graph), hipSuccess);
+  if (graph) EXPECT_EQ(hipGraphDestroy(graph), hipSuccess);
+#else
   cudaGraph_t graph = nullptr;
   EXPECT_EQ(cudaStreamEndCapture(consumer.stream(), &graph), cudaSuccess);
   if (graph) EXPECT_EQ(cudaGraphDestroy(graph), cudaSuccess);
+#endif
   EXPECT_EQ(stream.pending(), 0);
   EXPECT_TRUE(torch::equal(ticket.receive().images.cpu(), prepared.images));
 }

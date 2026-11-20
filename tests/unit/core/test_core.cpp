@@ -10,6 +10,7 @@
 #include <jyppx/liuding/core/device.hpp>
 #include <jyppx/liuding/core/tensor_utils.hpp>
 #include <jyppx/liuding/core/types.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -71,6 +72,22 @@ TEST(TensorUtilsTest, HasNanDetectsNaN) {
   EXPECT_FALSE(has_nan(torch::ones({3})));
   EXPECT_TRUE(
       has_nan(torch::full({3}, std::numeric_limits<double>::quiet_NaN())));
+}
+
+TEST(DeviceTest, AcceleratorMatmulMatchesCpuAndReportsBackend) {
+  if (!cuda_is_available()) GTEST_SKIP() << "No CUDA-compatible GPU available";
+  const auto input = torch::arange(64, torch::kFloat32).reshape({8, 8});
+  const auto expected = torch::matmul(input, input.t());
+  const auto gpu = input.to(Device(torch::kCUDA, 0));
+  const auto result = torch::matmul(gpu, gpu.t()).cpu();
+  EXPECT_TRUE(torch::allclose(result, expected));
+  const auto fingerprint = current_build_fingerprint();
+#if defined(USE_ROCM)
+  EXPECT_EQ(fingerprint.libtorch_build.find("rocm-"), 0U);
+  EXPECT_EQ(fingerprint.accelerator_runtime.find("rocm:available:"), 0U);
+#else
+  EXPECT_EQ(fingerprint.accelerator_runtime.find("cuda:available:"), 0U);
+#endif
 }
 
 TEST(TensorUtilsTest, HasInfDetectsInfinity) {

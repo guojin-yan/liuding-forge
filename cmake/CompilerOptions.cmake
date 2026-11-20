@@ -44,7 +44,13 @@ foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(NOT TARGET ${JYPPX_TARGET})
         continue()
     endif()
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND MSVC)
+        # clang-cl interprets -Wall as MSVC /Wall (all compatibility/style
+        # diagnostics), rather than clang's normal -Wall warning group.
+        target_compile_options(${JYPPX_TARGET} PRIVATE
+            /clang:-Wall /clang:-Wextra /clang:-Wpedantic
+            /clang:-Wno-unused-parameter)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${JYPPX_TARGET} PRIVATE
             -Wall
             -Wextra

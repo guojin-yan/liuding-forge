@@ -17,8 +17,13 @@
 #include <ATen/autocast_mode.h>
 
 #ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+#if defined(USE_ROCM)
+#include <ATen/hip/HIPContextLight.h>
+#include <c10/hip/HIPCachingAllocator.h>
+#else
 #include <ATen/cuda/CUDAContextLight.h>
 #include <c10/cuda/CUDACachingAllocator.h>
+#endif
 #endif
 
 #include <algorithm>

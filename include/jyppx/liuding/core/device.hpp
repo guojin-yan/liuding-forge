@@ -22,14 +22,16 @@ namespace jyppx::liuding {
 
 /**
  * @brief Selects the default compute device.
- * @return A CUDA device when the backend is available; otherwise a CPU
+ * @return A CUDA-compatible device (NVIDIA CUDA or AMD ROCm) when available;
+ * otherwise a CPU
  * device.
  * @throws c10::Error If LibTorch cannot query CUDA availability.
  */
 Device get_default_device();
 
 /**
- * @brief Reports whether a usable CUDA backend is available.
+ * @brief Reports whether a usable CUDA-compatible GPU backend is available.
+ * AMD ROCm LibTorch uses this same API and the `cuda` device type.
  * @return `true` when LibTorch can use CUDA, or `false` otherwise.
  * @throws c10::Error If LibTorch cannot initialize the CUDA availability
  * query.
@@ -37,7 +39,7 @@ Device get_default_device();
 bool cuda_is_available();
 
 /**
- * @brief Returns the number of CUDA devices visible to LibTorch.
+ * @brief Returns the number of CUDA-compatible GPUs visible to LibTorch.
  * @return Non-negative visible CUDA device count.
  * @throws c10::Error If LibTorch cannot query the active CUDA runtime.
  */
@@ -47,7 +49,8 @@ int cuda_device_count();
  * @brief Parses a bounded device specification.
  *
  * Accepted values follow LibTorch's device grammar, for example `cpu`,
- * `cuda`, and `cuda:0`. The input must contain between 1 and 64 bytes and
+ * `cuda`, and `cuda:0`. AMD ROCm uses `cuda:<index>` as well; `hip` is not a
+ * device alias here. The input must contain between 1 and 64 bytes and
  * must not contain an embedded NUL byte. The size bound keeps malformed
  * configuration or protocol input from causing unbounded diagnostic
  * allocations.

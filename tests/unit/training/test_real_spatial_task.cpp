@@ -22,7 +22,11 @@
 #include <jyppx/liuding/training/single_device_strategy.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
 #if defined(JYPPX_LIUDING_SPATIAL_CUDA_METRICS)
+#if defined(USE_ROCM)
+#include <c10/hip/HIPCachingAllocator.h>
+#else
 #include <c10/cuda/CUDACachingAllocator.h>
+#endif
 #endif
 
 #include <algorithm>

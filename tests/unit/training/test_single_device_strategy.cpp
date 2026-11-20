@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/nn/model_adapter.hpp>
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
@@ -421,6 +422,7 @@ TEST(SingleDeviceStrategyTest, RejectsRestoreIntoClosedInstance) {
 }
 
 TEST(SingleDeviceStrategyTest, RunsOnRealCudaWhenAvailable) {
+  jyppx::liuding::initialize_runtime();
   if (!torch::cuda::is_available() || torch::cuda::device_count() == 0) {
     GTEST_SKIP() << "CUDA capability is unavailable";
   }

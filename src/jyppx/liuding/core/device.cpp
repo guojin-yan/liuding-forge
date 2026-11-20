@@ -7,6 +7,8 @@
 
 #include "jyppx/liuding/core/device.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
+
 #include <torch/cuda.h>
 
 #include <cstddef>
@@ -24,9 +26,13 @@ Device get_default_device() {
   return cuda_is_available() ? Device(torch::kCUDA) : Device(torch::kCPU);
 }
 
-bool cuda_is_available() { return torch::cuda::is_available(); }
+bool cuda_is_available() {
+  initialize_runtime();
+  return torch::cuda::is_available();
+}
 
 int cuda_device_count() {
+  initialize_runtime();
   return static_cast<int>(torch::cuda::device_count());
 }
 

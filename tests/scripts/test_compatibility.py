@@ -21,6 +21,20 @@ import compatibility  # noqa: E402
 class CompatibilityValidatorTest(unittest.TestCase):
     """Covers matrix identity, structure, and evidence invariants."""
 
+    def test_additional_distribution_is_validated(self) -> None:
+        """An extra SDK distribution must obey the same evidence contract."""
+        document = compatibility.load_document(REPOSITORY_ROOT / "compatibility.json")
+        extra = copy.deepcopy(document["libtorch"]["primary"])
+        extra["verified_lanes"] = []
+        extra["pending_lanes"] = []
+        extra["status"] = "candidate"
+        document["libtorch"]["test_extra_distribution"] = extra
+        compatibility.validate(document)
+        extra["status"] = "supported"
+        with self.assertRaisesRegex(compatibility.CompatibilityError,
+                                    "cannot be supported without verified lanes"):
+            compatibility.validate(document)
+
     def setUp(self) -> None:
         """Load a fresh copy of the repository compatibility source."""
         self.document = compatibility.load_document(

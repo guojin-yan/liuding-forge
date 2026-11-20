@@ -133,7 +133,7 @@ if(TARGET jyppx::liuding::data_image)
     jyppx_add_gtest(jyppx_test_image_batch_copy_stream
         LINK_TARGET jyppx::liuding::data_image
         data_image/test_image_batch_copy_stream.cpp)
-    if(TARGET torch_cuda)
+    if(TARGET torch_hip OR TARGET torch_cuda)
         target_compile_definitions(jyppx_test_image_batch_copy_stream PRIVATE
             JYPPX_LIUDING_IMAGE_TEST_CUDA=1)
     endif()
@@ -154,7 +154,7 @@ if(TARGET jyppx::liuding::data_image)
         data_image/test_image_batch.cpp
         data_image/test_batch_geometry.cpp
         data_image/test_image_dataset.cpp)
-    if(TARGET torch_cuda)
+    if(TARGET torch_hip OR TARGET torch_cuda)
         target_compile_definitions(jyppx_test_data_image_annotations PRIVATE
             JYPPX_LIUDING_IMAGE_TEST_CUDA=1)
     endif()
@@ -279,7 +279,7 @@ jyppx_add_gtest(jyppx_test_nn_model_checkpoint
 # header ABI in one test bridge without disabling project assertions/sanitizers.
 set_source_files_properties(nn/model_checkpoint/record_function_observer.cpp
     PROPERTIES COMPILE_DEFINITIONS NDEBUG)
-if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
     target_compile_definitions(jyppx_test_nn_model_checkpoint PRIVATE
         JYPPX_LIUDING_NN_CUDA_METRICS=1)
 endif()
@@ -389,7 +389,7 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image AND TAR
         jyppx::liuding::data_image jyppx::liuding::interop
         jyppx::liuding::optim jyppx::liuding::experiment
         nlohmann_json::nlohmann_json)
-    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
         target_compile_definitions(jyppx_test_training_real_spatial_task PRIVATE
             JYPPX_LIUDING_SPATIAL_CUDA_METRICS=1)
     endif()
@@ -510,12 +510,12 @@ if(TARGET jyppx::liuding::models)
         )
         target_link_libraries(jyppx_test_dinov2_pretrained_backward PRIVATE
             jyppx::liuding::optim)
-        if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+        if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
             target_compile_definitions(jyppx_test_dinov2_pretrained_backward PRIVATE
                 JYPPX_LIUDING_PRETRAINED_CUDA_TESTS=1)
         endif()
     endif()
-    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
         target_compile_definitions(jyppx_test_models_pretrained PRIVATE
             JYPPX_LIUDING_PRETRAINED_CUDA_TESTS=1)
     endif()
@@ -530,7 +530,7 @@ if(TARGET jyppx::liuding::models)
             jyppx::liuding::data_image)
         target_compile_definitions(jyppx_test_models_preprocessing PRIVATE
             JYPPX_LIUDING_PREPROCESS_IMAGE_TESTS=1)
-        if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+        if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
             target_compile_definitions(jyppx_test_models_preprocessing PRIVATE
                 JYPPX_LIUDING_PREPROCESS_CUDA_TESTS=1)
         endif()
@@ -546,7 +546,7 @@ if(TARGET jyppx::liuding::models)
         models/test_resnet_forward.cpp
         ENVIRONMENT "CUBLAS_WORKSPACE_CONFIG=:4096:8"
     )
-    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
         target_compile_definitions(jyppx_test_models PRIVATE
             JYPPX_LIUDING_MODELS_CUDA_METRICS=1)
     endif()
@@ -589,7 +589,7 @@ endforeach()
 ]])
         set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
             "${CMAKE_CURRENT_BINARY_DIR}/DinoRecoveryLimits.cmake")
-        if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+        if(TARGET torch_hip OR TARGET torch_cuda OR TORCH_CUDA_VERSION)
             target_compile_definitions(jyppx_test_models_amp PRIVATE
                 JYPPX_LIUDING_MODELS_CUDA_METRICS=1)
             target_compile_definitions(jyppx_test_models_recovery PRIVATE

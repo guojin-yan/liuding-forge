@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/foundation/random_checkpoint_participant.hpp>
@@ -23,8 +24,13 @@
 #include <torch/torch.h>
 
 #ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+#if defined(USE_ROCM)
+#include <ATen/hip/HIPContextLight.h>
+#include <c10/hip/HIPCachingAllocator.h>
+#else
 #include <ATen/cuda/CUDAContextLight.h>
 #include <c10/cuda/CUDACachingAllocator.h>
+#endif
 #endif
 
 #include <algorithm>
@@ -675,6 +681,7 @@ INSTANTIATE_TEST_SUITE_P(
 }  // namespace
 
 int main(int argc, char **argv) {
+  jyppx::liuding::initialize_runtime();
   torch::set_num_threads(1);
   torch::set_num_interop_threads(1);
   ::testing::InitGoogleTest(&argc, argv);

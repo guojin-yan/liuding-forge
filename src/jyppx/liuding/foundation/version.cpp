@@ -6,6 +6,9 @@
 #include "jyppx/liuding/foundation/error.hpp"
 
 #include <ATen/Context.h>
+#if defined(USE_ROCM)
+#include <ATen/hip/HIPContextLight.h>
+#endif
 #include <sstream>
 #include <string_view>
 
@@ -58,6 +61,13 @@ BuildInfo build_info() noexcept {
 
 BuildFingerprint current_build_fingerprint() {
   try {
+#if defined(USE_ROCM)
+    // Foundation-only consumers also need a live torch_hip import; the
+    // CUDA-compatible hooks otherwise remain CPU stubs on Windows.
+    if (at::getNumGPUs() > 0) {
+      (void)at::cuda::getDeviceProperties(0);
+    }
+#endif
     std::string accelerator = JYPPX_LIUDING_BUILD_ACCELERATOR;
     accelerator += at::globalContext().hasCUDA()
                        ? ":available:" + std::to_string(at::getNumGPUs())

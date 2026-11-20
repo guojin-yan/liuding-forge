@@ -18,6 +18,8 @@
 namespace jyppx::liuding::vision::tasks {
 namespace detail {
 std::map<std::string, onnx_export::OperatorLowering> vision_onnx_lowerings();
+void add_extended_onnx_lowerings(
+    std::map<std::string, onnx_export::OperatorLowering>&);
 onnx_export::ForwardFunction make_rcnn_onnx_forward(
     const std::shared_ptr<nn::ModelAdapter>&, const VisionExportOptions&);
 void add_rcnn_onnx_lowerings(

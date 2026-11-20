@@ -93,6 +93,14 @@ def main():
                   'verify_image_contents': True}
         recipe_path = write('recipe.json', recipe)
         run('inspect', 'inspect', '--recipe', recipe_path, '--decode', '--output', root / 'audit.json')
+        run('preflight', 'preflight', '--recipe', recipe_path, '--batches', '1',
+            '--output', root / 'preflight.json')
+        preflight = json.loads((root / 'preflight.json').read_text(encoding='utf-8'))
+        assert preflight['recommended_batch'] == 1, preflight
+        assert preflight['probes'][0]['success'], preflight
+        assert preflight['probes'][0]['gradient_tensors'] > 0, preflight
+        if args.device.startswith('cuda'):
+            assert preflight['cuda_initial_free_bytes'] > 0, preflight
         run('continuous', 'train', '--recipe', recipe_path, '--output', root / 'continuous')
         run('paused', 'train', '--recipe', recipe_path, '--pause-after', 1, '--output', root / 'paused')
         run('resumed', 'resume', '--recipe', recipe_path, '--checkpoint', root / 'paused/last.checkpoint',

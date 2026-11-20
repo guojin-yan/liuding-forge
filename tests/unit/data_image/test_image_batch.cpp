@@ -12,8 +12,13 @@
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)
+#if defined(USE_ROCM)
+#include <c10/hip/HIPGuard.h>
+#include <c10/hip/HIPStream.h>
+#else
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
+#endif
 #endif
 
 #include <array>

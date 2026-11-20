@@ -74,6 +74,38 @@ class TorchRuntimeStagingTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in self.inventory()["files"]],
                          ["new.dll", "torch.dll"])
 
+    def test_rocm_images_keep_relative_layout_and_owned_removal(self) -> None:
+        image = self.sdk / "aotriton.images/amd-gfx110x/flash/attn_fwd.zip"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"synthetic device archive")
+        signature = image.parents[1] / "__signature__"
+        signature.write_bytes(b"synthetic signature")
+        self.stage()
+        self.assertEqual((self.output / image.relative_to(self.sdk)).read_bytes(), image.read_bytes())
+        self.assertEqual((self.output / signature.relative_to(self.sdk)).read_bytes(), signature.read_bytes())
+        image.unlink()
+        self.stage()
+        self.assertFalse((self.output / image.relative_to(self.sdk)).exists())
+        self.assertTrue((self.output / signature.relative_to(self.sdk)).exists())
+
+    def test_rocm_device_archives_keep_dll_parent_layout(self) -> None:
+        self.sdk = self.sdk / "lib"
+        self.sdk.mkdir()
+        (self.sdk / "torch_hip.dll").write_bytes(b"synthetic HIP backend")
+        packs = self.sdk.parent / ".kpack"
+        packs.mkdir()
+        (packs / "torch_gfx1100.kpack").write_bytes(b"synthetic HIP device archive")
+        self.output = self.root / "stage/bin"
+        self.stage()
+        output_pack = self.output.parent / ".kpack/torch_gfx1100.kpack"
+        self.assertEqual(output_pack.read_bytes(), b"synthetic HIP device archive")
+        (packs / "torch_gfx1100.kpack").unlink()
+        (packs / "torch_gfx1200.kpack").write_bytes(b"another device archive")
+        self.stage()
+        self.assertFalse(output_pack.exists())
+        self.assertEqual((output_pack.parent / "torch_gfx1200.kpack").read_bytes(),
+                         b"another device archive")
+
     def test_modified_old_dll_rejects_before_other_output_mutation(self) -> None:
         (self.sdk / "old.dll").write_bytes(b"old runtime")
         self.stage()

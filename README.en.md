@@ -35,6 +35,7 @@ Public headers use `<jyppx/liuding/...>` and namespace `jyppx::liuding`. The CMa
 - Python 3 only for build/development validation and independent references; installed C++ libraries, the CLI, and native examples do not require Python.
 - An exact LibTorch, compiler, operating-system, and CUDA combination listed in [compatibility.json](compatibility.json).
 - A matching GPU, driver, toolkit, and LibTorch build for CUDA.
+- The AMD ROCm development profile uses a separate LibTorch/HIP distribution and the `cuda:0` device interface; see [AMD GPUs](docs/user-guide/amd_rocm.md).
 
 An unlisted combination may be useful for development investigation but must not be described as officially supported. Official Windows LibTorch binaries use the Release CRT; keep `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` and `_ITERATOR_DEBUG_LEVEL=0`.
 

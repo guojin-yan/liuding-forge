@@ -1120,6 +1120,188 @@
       ],
       "linkage": "selected-source-reference-native-cpp-implementation",
       "support_status": "development-preview-not-official-weights-or-numerical-qualification"
+    },
+    {
+      "id": "amd-rocm-windows-amd-torch-device-gfx1100",
+      "scope": "optional-rocm-native",
+      "version": "2.14.0+rocm10.1.0",
+      "source": {
+        "type": "official-wheel-native-payload",
+        "url": "https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx1100/amd_torch_device_gfx1100-2.14.0%2Brocm10.1.0-cp312-cp312-win_amd64.whl",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "659a961e646345fe330aca0b36a1e7e84ef6f15cef2848ccdb9b3fb64bf0e401",
+        "size_bytes": 50351828
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-native-layout-with-device-data",
+      "support_status": "candidate"
+    },
+    {
+      "id": "amd-rocm-windows-amd-torch-device-gfx110x",
+      "scope": "optional-rocm-native",
+      "version": "2.14.0+rocm10.1.0",
+      "source": {
+        "type": "official-wheel-native-payload",
+        "url": "https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx110x/amd_torch_device_gfx110x-2.14.0%2Brocm10.1.0-cp312-cp312-win_amd64.whl",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "7f48df45ea1916e311c97528acc4ce3b966482dd2095216909694400ff315942",
+        "size_bytes": 307045455
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-native-layout-with-device-data",
+      "support_status": "candidate"
+    },
+    {
+      "id": "amd-rocm-windows-rocm-sdk-core",
+      "scope": "optional-rocm-native",
+      "version": "10.1.0",
+      "source": {
+        "type": "official-wheel-native-payload",
+        "url": "https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-core/rocm_sdk_core-10.1.0-py3-none-win_amd64.whl",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "b12f1c4cde14ed1cd8864006d17586c6b1e6a4e4695b9597cfe04ed7715e952f",
+        "size_bytes": 776978384
+      },
+      "license": {
+        "spdx": [
+          "LicenseRef-AMD-ROCm-Distribution"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-native-layout-with-device-data",
+      "support_status": "candidate"
+    },
+    {
+      "id": "amd-rocm-windows-rocm-sdk-devel",
+      "scope": "optional-rocm-native",
+      "version": "10.1.0",
+      "source": {
+        "type": "official-wheel-native-payload",
+        "url": "https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-devel/rocm_sdk_devel-10.1.0-py3-none-win_amd64.whl",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "58847f1b2b30f9194188c38de6f9f3c71b8fdf6a10a203e8e7ec73d34a5c0c7e",
+        "size_bytes": 246071895
+      },
+      "license": {
+        "spdx": [
+          "LicenseRef-AMD-ROCm-Distribution"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-native-layout-with-device-data",
+      "support_status": "candidate"
+    },
+    {
+      "id": "amd-rocm-windows-rocm-sdk-device-gfx1100",
+      "scope": "optional-rocm-native",
+      "version": "10.1.0",
+      "source": {
+        "type": "official-wheel-native-payload",
+        "url": "https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-device-gfx1100/rocm_sdk_device_gfx1100-10.1.0-py3-none-win_amd64.whl",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "89b6fc9b76c0ea8cbf437e53c5bf0cd992a2f642ec6ddd34829a94f07f89b0b0",
+        "size_bytes": 201201815
+      },
+      "license": {
+        "spdx": [
+          "LicenseRef-AMD-ROCm-Distribution"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-native-layout-with-device-data",
+      "support_status": "candidate"
+    },
+    {
+      "id": "amd-rocm-windows-rocm-sdk-libraries",
+      "scope": "optional-rocm-native",
+      "version": "10.1.0",
+      "source": {
+        "type": "official-wheel-native-payload",
+        "url": "https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-libraries/rocm_sdk_libraries-10.1.0-py3-none-win_amd64.whl",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "0c34bafbb4aa626cc710d8b130bb314f591194c3d79eeb5892b755ea0be06159",
+        "size_bytes": 118645973
+      },
+      "license": {
+        "spdx": [
+          "LicenseRef-AMD-ROCm-Distribution"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-native-layout-with-device-data",
+      "support_status": "candidate"
+    },
+    {
+      "id": "amd-rocm-windows-torch",
+      "scope": "optional-rocm-native",
+      "version": "2.14.0+rocm10.1.0",
+      "source": {
+        "type": "official-wheel-native-payload",
+        "url": "https://stable.repo.amd.com/rocm/whl-next/torch/torch-2.14.0%2Brocm10.1.0-cp312-cp312-win_amd64.whl",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "81e26c307846267d9490ff8c7421382b954909772abb7770a16baec740f44e4b",
+        "size_bytes": 115562766
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-native-layout-with-device-data",
+      "support_status": "candidate"
     }
   ]
 }

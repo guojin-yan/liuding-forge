@@ -14,7 +14,11 @@
 #include <torch/torch.h>
 
 #ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+#if defined(USE_ROCM)
+#include <c10/hip/HIPCachingAllocator.h>
+#else
 #include <c10/cuda/CUDACachingAllocator.h>
+#endif
 #endif
 
 #include <array>

@@ -35,6 +35,7 @@ if(Python3_Interpreter_FOUND)
                 "CMAKE_COMMAND=${CMAKE_COMMAND}"
                 "JYPPX_COMPILER_FLAGS_TEST_CXX=${CMAKE_CXX_COMPILER}"
                 "JYPPX_COMPILER_FLAGS_TEST_C=${CMAKE_C_COMPILER}"
+                "JYPPX_COMPILER_FLAGS_TEST_FRONTEND=${CMAKE_CXX_COMPILER_FRONTEND_VARIANT}"
                 "JYPPX_COMPILER_FLAGS_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/compiler-flags"
                 ${Python3_EXECUTABLE}
                 "${CMAKE_SOURCE_DIR}/tests/scripts/cmake/test_compiler_options.py")
@@ -333,6 +334,17 @@ endif()
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+if(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
+   CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 24)
+    # GoogleTest 1.14's char8_t printer predates Clang 24's character
+    # conversion diagnostic. Keep this exception inside the pinned dependency.
+    foreach(gtest_target IN ITEMS gtest gtest_main gmock gmock_main)
+        if(TARGET ${gtest_target})
+            target_compile_options(${gtest_target} PRIVATE
+                /clang:-Wno-error=character-conversion)
+        endif()
+    endforeach()
+endif()
 
 include(GoogleTest)
 
@@ -369,6 +381,27 @@ set(JYPPX_CONSUMER_GENERATOR_ARGS
 # Shallow staging leaves room for MSBuild's nested try_compile paths. The
 # scripts still enforce that staging remains inside this validation build.
 if(TARGET jyppx::liuding::sdk)
+if(JYPPX_LIUDING_TEST_CLI_CUDA)
+    add_test(NAME AcceleratorInstallConsumer
+        COMMAND ${CMAKE_COMMAND}
+            -DJYPPX_LIUDING_BUILD_DIR=${CMAKE_BINARY_DIR}
+            -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/accelerator_consumer
+            -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/accelerator/$<CONFIG>
+            -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+            "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
+            ${JYPPX_CONSUMER_GENERATOR_ARGS}
+            -DJYPPX_TORCH_DIR=${Torch_DIR}
+            -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
+            -DJYPPX_CUDA_STANDARD=${JYPPX_CONSUMER_CUDA_STANDARD}
+            -DJYPPX_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}
+            -DJYPPX_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}
+            -DJYPPX_CUDA_TOOLKIT_ROOT=${CUDAToolkit_ROOT}
+            -DJYPPX_TORCH_CUDA_ARCH_LIST=$ENV{TORCH_CUDA_ARCH_LIST}
+            -P ${CMAKE_SOURCE_DIR}/cmake/TestInstalledTargets.cmake)
+    set_tests_properties(AcceleratorInstallConsumer PROPERTIES
+        LABELS "core;training;packaging;accelerator"
+        RESOURCE_LOCK jyppx_install_consumer TIMEOUT 240 RUN_SERIAL TRUE)
+endif()
 add_test(
     NAME MigratedInstallConsumer
     COMMAND ${CMAKE_COMMAND}
@@ -630,6 +663,13 @@ function(jyppx_add_gtest test_name)
     endif()
     add_executable(${test_name} ${JYPPX_LIUDING_TEST_UNPARSED_ARGUMENTS})
     target_link_libraries(${test_name} PRIVATE ${JYPPX_LIUDING_TEST_LINK_TARGET} GTest::gtest_main)
+    # Follow the public runtime contract before hardware availability checks.
+    # Foundation/interop-only tests keep their independent component closure.
+    if(JYPPX_LIUDING_TEST_LINK_TARGET MATCHES
+       "^jyppx::liuding::(core|data|data_image|nn|optim|training|experiment|models|vision_.*|models_.*|sdk|all)$")
+        target_sources(${test_name} PRIVATE
+            "${JYPPX_TESTS_SOURCE_DIR}/test_utils/runtime_environment.cpp")
+    endif()
     jyppx_apply_instrumentation(${test_name})
     # Expose tests/test_utils/ to test sources via "test_utils/..." includes.
     target_include_directories(${test_name} PRIVATE "${JYPPX_TESTS_SOURCE_DIR}")

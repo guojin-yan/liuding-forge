@@ -7,6 +7,32 @@
     "dependency_manifest": "dependency-manifest.json"
   },
   "libtorch": {
+    "amd_rocm": {
+      "version": "2.14.0",
+      "distribution": "amd-rocm10.1.0",
+      "status": "candidate",
+      "verified_lanes": [],
+      "pending_lanes": [
+        {
+          "id": "windows-clangcl24-rocm101-gfx1100",
+          "distribution": "amd-rocm10.1.0",
+          "status": "candidate",
+          "verification_status": "unverified",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "Clang 24.0.0 (clang-cl), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001",
+          "build_type": "Release",
+          "instrumentation": "Native Release validation; no sanitizer or performance qualification",
+          "required_evidence": [
+            "Native C++ device discovery, GPU forward/backward and optimizer update",
+            "FP32 and explicitly tested AMP modes, RNG and checkpoint recovery",
+            "Component dependency and repository gates, installed SDK consumer",
+            "Vision training and HIP memory preflight for the selected profile"
+          ]
+        }
+      ]
+    },
     "primary": {
       "version": "2.14.1",
       "distribution": "bundled-cuda",

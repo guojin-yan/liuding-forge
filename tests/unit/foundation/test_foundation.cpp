@@ -199,6 +199,8 @@ TEST(FoundationVersionTest, ExposesStructuredAndJsonFingerprint) {
 #endif
   if (fingerprint.accelerator_runtime.starts_with("cuda:")) {
     EXPECT_TRUE(fingerprint.libtorch_build.starts_with("cuda-"));
+  } else if (fingerprint.accelerator_runtime.starts_with("rocm:")) {
+    EXPECT_TRUE(fingerprint.libtorch_build.starts_with("rocm-"));
   } else {
     EXPECT_TRUE(fingerprint.libtorch_build.starts_with("cpu-"));
   }

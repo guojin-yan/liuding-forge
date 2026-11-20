@@ -21,7 +21,11 @@
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 #endif
 #if defined(JYPPX_LIUDING_PREPROCESS_CUDA_TESTS)
+#if defined(USE_ROCM)
+#include <c10/hip/HIPGuard.h>
+#else
 #include <c10/cuda/CUDAGuard.h>
+#endif
 #endif
 
 namespace {

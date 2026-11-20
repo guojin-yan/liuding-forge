@@ -4,6 +4,7 @@
 *.cpp text eol=lf
 *.hpp text eol=lf
 *.inc text eol=lf
+/third_party/stb/*.h text eol=lf
 recipes/image-classification/fashion-mnist.LICENSE -text
 
 /src/jyppx/liuding/telemetry_native/detail/telemetry_proto/**/*.pb.c text eol=lf whitespace=-blank-at-eof

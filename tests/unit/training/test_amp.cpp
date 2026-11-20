@@ -142,6 +142,33 @@ TEST(GradScalerTest, InitialScaleMatchesOptions) {
   EXPECT_DOUBLE_EQ(custom.get_scale(), 128.0);
 }
 
+TEST(AutocastGuardCudaTest, MatmulAndBackwardUseRequestedGpuPrecision) {
+  if (!cuda_is_available()) GTEST_SKIP() << "No CUDA-compatible GPU available";
+  for (const auto dtype : {torch::kFloat16, torch::kBFloat16}) {
+    SCOPED_TRACE(c10::toString(dtype));
+    const auto cpu = torch::arange(32, torch::kFloat32).reshape({8, 4}) / 32;
+    const auto input = cpu.to(Device(torch::kCUDA, 0));
+    auto parameter = torch::full({4, 2}, 0.1, input.options());
+    parameter.set_requires_grad(true);
+    const auto before = parameter.detach().clone();
+    auto optimizer = make_optimizer({parameter});
+    Tensor output;
+    {
+      AutocastGuard guard(c10::DeviceType::CUDA, dtype);
+      output = torch::matmul(input, parameter);
+    }
+    EXPECT_EQ(output.scalar_type(), dtype);
+    EXPECT_TRUE(torch::allclose(output.to(torch::kCPU, torch::kFloat32),
+                                torch::matmul(cpu, before.cpu()), 0.02, 0.002));
+    output.to(torch::kFloat32).sum().backward();
+    ASSERT_TRUE(parameter.grad().defined());
+    EXPECT_TRUE(torch::isfinite(parameter.grad()).all().item<bool>());
+    static_cast<void>(optimizer->step());
+    EXPECT_FALSE(torch::equal(parameter, before));
+    EXPECT_EQ(optimizer->completed_steps(), 1U);
+  }
+}
+
 TEST(GradScalerTest, ScaleMultipliesLoss) {
   GradScaler scaler({.init_scale = 4.0});
   auto loss = torch::tensor(1.5, torch::TensorOptions().dtype(torch::kFloat32));

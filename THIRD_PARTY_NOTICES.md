@@ -10,6 +10,8 @@
 
 ### LibTorch / PyTorch
 
+AMD ROCm 配置使用 AMD 发布的 `2.14.0+rocm10.1.0` 原生 LibTorch 载荷及 ROCm SDK `10.1.0` 的 HIP、数学库和 gfx1100 设备数据。其来源 wheel 与摘要单独登记在 `dependency-manifest.json`；只使用原生目录，不让安装后的产品依赖 Python。该布局不是上游独立 LibTorch ZIP，也不与 CUDA 运行库混用。相关原文和传递组件的完整 notice/再分发审查仍为 pending；使用者提供匹配的外部 SDK、运行库和设备数据。
+
 上游为 <https://github.com/pytorch/pytorch>，提供 Tensor、autograd、设备和运行后端。PyTorch 主体使用 BSD 风格许可，随包组件分别适用其自身条款。
 
 锁定的 Windows `2.14.1+cu126` ZIP 未包含许可证或 notice 文件；已保留其构建提交 `5c4886908584029761b579af026dcfb627c84070` 的 PyTorch 源码 `LICENSE`。候选 `2.5.1+cu124` 同样尚未完成随包组件审查；对应依赖状态继续为 `pending`。

@@ -140,7 +140,11 @@ def validate(document: dict[str, Any]) -> None:
     require_string(project, "dependency_manifest", "project")
 
     libtorch = require_mapping(document, "libtorch", "root")
-    lane_names = ("primary", "compatibility_candidate")
+    # Keep the two baseline groups mandatory and validate every additional
+    # exact distribution (for example AMD ROCm) with the same evidence rules.
+    for required in ("primary", "compatibility_candidate"):
+        require_mapping(libtorch, required, "libtorch")
+    lane_names = tuple(libtorch)
     verified_lane_ids: set[str] = set()
     pending_lane_ids: set[str] = set()
     for lane_name in lane_names:
