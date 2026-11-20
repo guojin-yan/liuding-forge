@@ -599,6 +599,15 @@ endforeach()
 endif()
 
 if(TARGET jyppx::liuding::onnx_export)
+    if(JYPPX_LIUDING_TEST_CLI_CUDA AND TARGET jyppx::liuding::core AND
+       TARGET jyppx::liuding::onnx_runtime)
+        jyppx_add_gtest(jyppx_test_accelerator_onnx
+            LINK_TARGET jyppx::liuding::core
+            deployment/onnx_export/test_accelerator_export.cpp)
+        target_link_libraries(jyppx_test_accelerator_onnx PRIVATE
+            jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime)
+        jyppx_add_onnx_runtime_dependency(jyppx_test_accelerator_onnx)
+    endif()
     jyppx_add_gtest(jyppx_test_onnx_export
         LINK_TARGET jyppx::liuding::onnx_export
         deployment/onnx_export/test_exporter.cpp

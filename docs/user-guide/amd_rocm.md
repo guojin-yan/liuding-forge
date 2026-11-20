@@ -30,4 +30,10 @@ Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像
 
 视觉内存预检在 ROCm 配置下使用 HIP 查询当前设备的空闲显存。它是采样值，不是显存硬配额。模型架构、官方权重、精度、吞吐和显存收益须分别验证。
 
-NVML 物理 UUID 预约的本地进程执行器仍用于 NVIDIA；AMD 可直接使用原生 C++ Trainer 或视觉 CLI。原生 ONNX 导出器当前锁定 LibTorch 2.14.1，未将 ROCm 2.14.0 授予该可选组件资格；ONNX Runtime 的 Provider 也独立于 LibTorch GPU 后端。
+## ONNX 导出
+
+本组合可启用 `JYPPX_LIUDING_BUILD_ONNX_EXPORT=ON`；需要原生推理时再启用 `JYPPX_LIUDING_BUILD_ONNX_RUNTIME=ON` 并通过 `JYPPX_LIUDING_ONNX_RUNTIME_ROOT` 指定官方 ORT 1.23.2 SDK，详见 [ONNX 导出与推理](../api/onnx.md)。此适配仅增加 Windows ROCm 10.1.0 LibTorch 2.14.0 精确组合，不扩展到其他 2.14.0 包。
+
+GPU 训练后的模型通过独立 CPU 副本导出，原训练模型继续保留设备、精度和梯度。视觉 CLI 使用 CPU FP32 eval 副本导出 opset 17；FP16/BF16 训练不代表 ONNX 采用同一精度。ONNX Runtime 的 Provider 独立于 LibTorch，本组合使用 CPU Provider 验证导出图，不据此声明 ORT 的 AMD GPU 执行。
+
+NVML 物理 UUID 预约的本地进程执行器仍用于 NVIDIA；AMD 可直接使用原生 C++ Trainer 或视觉 CLI。

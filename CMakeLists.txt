@@ -234,7 +234,13 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
 endif()
 
 if(JYPPX_LIUDING_BUILD_ONNX_EXPORT AND NOT Torch_VERSION STREQUAL "2.14.1")
-    message(FATAL_ERROR "The native ONNX serializer requires the declared LibTorch 2.14.1 baseline")
+    # The AMD distribution exposes the same native JIT/ONNX serializer API.
+    # Keep this exception exact; other 2.14.0 packages are not qualified.
+    if(NOT (WIN32 AND TARGET torch_hip AND Torch_VERSION STREQUAL "2.14.0"
+            AND ROCM_VERSION_DEV STREQUAL "10.1.0"))
+        message(FATAL_ERROR
+            "The native ONNX serializer requires LibTorch 2.14.1 or Windows ROCm 10.1.0 LibTorch 2.14.0")
+    endif()
 endif()
 if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     find_package(ONNXRuntime 1.23.2 EXACT REQUIRED MODULE)

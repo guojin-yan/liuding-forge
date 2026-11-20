@@ -11,7 +11,7 @@
 
 ## 构建与接入
 
-准备 LibTorch 2.14.1；需要推理时再准备官方 ONNX Runtime 1.23.2 SDK。在现有 CMake 配置中启用需要的组件，两者互不强制依赖，也不要求启用项目的 `models` 组件。
+准备 LibTorch 2.14.1，或 [AMD 开发组合](../user-guide/amd_rocm.md)的 Windows ROCm 10.1.0 LibTorch 2.14.0；其他 2.14.0 包不在该导出组合中。需要推理时再准备官方 ONNX Runtime 1.23.2 SDK。在现有 CMake 配置中启用需要的组件，两者互不强制依赖，也不要求启用项目的 `models` 组件。
 
 ```sh
 cmake -S . -B out/build/your-profile \
@@ -77,6 +77,8 @@ BatchNorm 仅导出使用已有 running mean/variance 的推理模式；可选 w
 LayerNorm 按 `normalized_shape` 指定的末尾维度计算总体方差，weight/bias 均可省略。Double 中间输入保持 Double，使用先减均值、再求平方均值的方式计算方差，避免较大公共偏移下的消去误差；对外使用 Runtime 时仍须返回 FP32。
 
 导出会真实执行 forward，并可能为动态 batch 校验再次执行。调用方负责设定 eval 模式、CPU 设备、数据类型和预处理，保证 forward 确定且不修改输入、模型状态或外部资源。trace 只捕获实际执行路径；动态 batch 会用另一 batch 检查图结构，遇到形状常量或路径变化明确拒绝，不能据此推导任意数据相关控制流均可导出。当前动态轴仅支持 batch 维；其他维度须固定。
+
+AMD GPU 训练后的模型同样需要显式准备 CPU 导出副本；导出器不会原地移动训练模型。视觉 CLI 的 `export` 会创建独立 CPU FP32 eval 副本，训练时使用 FP16/BF16 不代表导出的 ONNX 保留该精度。ROCm LibTorch 与 ONNX Runtime 的 Provider 独立选择，本组合验证的是 ORT CPU 执行。
 
 `ExportOptions` 设置 batch 上下界、命名和字节上限；`dynamic_batch=false` 导出固定形状。符号 batch 不会在 ONNX 中编码业务上下界，运行端还应设置 `max_batch_size` 并检查自己的最小 batch。输出大小限制不等于进程内存或显存硬配额。
 

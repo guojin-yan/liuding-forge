@@ -19,7 +19,7 @@ owner audit 的 exit 0 仅表示静态归属有效，输出明确包含 `coverag
 
 Linux lane 使用 `v1-selected-cpu`，显式开启 Core/interop/data/nn/optim/training/experiment、data_image/vision_render/models/serving、onnx_export/onnx_runtime/onnx_serving、bundle_signing、telemetry_native/telemetry_http 和 tools。它对应该次选定的 19 个 owner；Windows 专用 WinHTTP 源码保持属于 telemetry_http，Linux 只编译其 curl 路径。该 CPU lane 不替代 Windows、声明 CUDA、实际网络、任务质量或资源资格。
 
-ONNX 导出要求精确 LibTorch 2.14.1，旧 2.5.1 CPU coverage 不能冒充本 profile。ORT、签名 OpenSSL、nanopb、Linux 系统 curl 以及图像依赖均由协调者先盘点并提供显式的已审阅依赖输入。lane 不猜 SDK 根、版本或摘要，也不会因缺输入静默关闭组件。
+本 Linux 采集 profile 的 ONNX 导出要求精确 LibTorch 2.14.1，旧 2.5.1 CPU coverage 不能冒充本 profile。ORT、签名 OpenSSL、nanopb、Linux 系统 curl 以及图像依赖均由协调者先盘点并提供显式的已审阅依赖输入。lane 不猜 SDK 根、版本或摘要，也不会因缺输入静默关闭组件。
 
 ```bash
 export CMAKE_PREFIX_PATH='<已审阅的绝对 LibTorch 路径>'
