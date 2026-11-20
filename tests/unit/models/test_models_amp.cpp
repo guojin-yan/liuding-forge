@@ -15,8 +15,10 @@
 
 #ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
 #if defined(USE_ROCM)
+#include <ATen/hip/HIPContextLight.h>
 #include <c10/hip/HIPCachingAllocator.h>
 #else
+#include <ATen/cuda/CUDAContextLight.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #endif
 #endif
@@ -227,7 +229,11 @@ TEST(ModelsAmpCuda, DinoV2GiantHalfStorageDynamicScalerResourceGate) {
   const auto live_cuda = stats.allocated_bytes[0].current;
   ASSERT_GT(peak_cuda, 0);
   EXPECT_LE(peak_cuda, 5LL << 30U);
-  EXPECT_LE(live_cuda, 32LL << 20U);
+  // BLAS workspaces belong to the backend, independently of model lifetime.
+  // All GPU work has quiesced before the explicit residency check.
+  at::cuda::clearCublasWorkspaces();
+  const auto released = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  EXPECT_LE(released.allocated_bytes[0].current, 32LL << 20U);
   c10::cuda::CUDACachingAllocator::emptyCache();
   const auto empty_stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
   const auto reserved_cuda = empty_stats.reserved_bytes[0].current;
@@ -238,6 +244,8 @@ TEST(ModelsAmpCuda, DinoV2GiantHalfStorageDynamicScalerResourceGate) {
             << " process_current_rss_after_destroy_bytes=" << current_rss
             << " peak_cuda_allocated_bytes=" << peak_cuda
             << " cuda_allocated_after_destroy_bytes=" << live_cuda
+            << " cuda_allocated_after_workspace_clear_bytes="
+            << released.allocated_bytes[0].current
             << " cuda_reserved_after_destroy_bytes="
             << stats.reserved_bytes[0].current
             << " cuda_reserved_after_empty_cache_bytes=" << reserved_cuda

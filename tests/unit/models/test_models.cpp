@@ -1108,7 +1108,14 @@ void CheckDinoV2GiantCudaResourceGate(
       stats_after_destroy.reserved_bytes[0].current;
   ASSERT_GT(peak_cuda, 0);
   EXPECT_LE(peak_cuda, 5LL << 30U);
-  EXPECT_LE(allocated_after_destroy, 32LL << 20U);
+  // Backend-owned BLAS workspaces outlive the model. Release them only after
+  // synchronization, as in the Huge+ and recovery residency gates.
+  at::cuda::clearCublasWorkspaces();
+  const auto stats_after_workspace_clear =
+      c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  const auto allocated_after_workspace_clear =
+      stats_after_workspace_clear.allocated_bytes[0].current;
+  EXPECT_LE(allocated_after_workspace_clear, 32LL << 20U);
   c10::cuda::CUDACachingAllocator::emptyCache();
   const auto stats_after_empty_cache =
       c10::cuda::CUDACachingAllocator::getDeviceStats(0);
@@ -1119,6 +1126,8 @@ void CheckDinoV2GiantCudaResourceGate(
             << " operation=" << operation
             << " peak_cuda_allocated_bytes=" << peak_cuda
             << " cuda_allocated_after_destroy_bytes=" << allocated_after_destroy
+            << " cuda_allocated_after_workspace_clear_bytes="
+            << allocated_after_workspace_clear
             << " cuda_reserved_after_destroy_bytes=" << reserved_after_destroy
             << " cuda_reserved_after_empty_cache_bytes="
             << reserved_after_empty_cache << '\n';
