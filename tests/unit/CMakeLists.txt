@@ -54,6 +54,13 @@ if(TARGET jyppx::liuding::nn)
     jyppx_add_gtest(jyppx_test_model_weight_import
         LINK_TARGET jyppx::liuding::interop
         interop/test_model_weight_import.cpp)
+    # These interop tests exercise NN state and require the public runtime
+    # bootstrap before querying accelerator availability or creating tensors.
+    foreach(jyppx_interop_runtime_test IN ITEMS
+            jyppx_test_torchscript_compatibility jyppx_test_model_weight_import)
+        target_sources(${jyppx_interop_runtime_test} PRIVATE
+            "${JYPPX_TESTS_SOURCE_DIR}/test_utils/runtime_environment.cpp")
+    endforeach()
     if(JYPPX_LIUDING_TEST_CLI_CUDA)
         target_compile_definitions(jyppx_test_torchscript_compatibility PRIVATE JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA=1)
         target_compile_definitions(jyppx_test_model_weight_import PRIVATE JYPPX_LIUDING_TEST_MODEL_IMPORT_CUDA=1)
