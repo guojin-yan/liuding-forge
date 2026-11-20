@@ -26,6 +26,27 @@ pwsh -NoProfile -File scripts/benchmarks/Run-Baseline.ps1 `
 
 资源 profile、存储身份、CUDA 要求、来源校验和证据布局见 scripts/benchmarks/RESOURCE_BASELINE.md。CUDA 训练和优化器套件使用 scripts/benchmarks/run_cuda_baseline.py。
 
+## ROCm 训练与优化器
+
+选择已验证的 ROCm LibTorch 后，开启 `JYPPX_LIUDING_BUILD_BENCHMARKS=ON`，编译 `jyppx_bench_rocm_training` 和 `jyppx_bench_rocm_optimizer`。它们复用固定工作负载，使用 HIP 设备查询、同步和 LibTorch HIP caching allocator；CUDA 构建继续提供原有 CUDA 目标和模式，CPU 构建不生成这两类设备目标。
+
+~~~powershell
+cmake --build out/build/rocm --config Release --parallel 2 `
+  --target jyppx_bench_rocm_training jyppx_bench_rocm_optimizer
+python scripts/benchmarks/run_rocm_baseline.py --suite training `
+  --benchmark out/build/rocm/tests/benchmarks/liuding-forge-bench-rocm-training.exe `
+  --output-dir out/baseline/rocm-training
+python scripts/benchmarks/run_rocm_baseline.py --suite optimizer `
+  --benchmark out/build/rocm/tests/benchmarks/liuding-forge-bench-rocm-optimizer.exe `
+  --output-dir out/baseline/rocm-optimizer
+~~~
+
+多配置生成器在可执行文件路径中增加 `Release/`。开发 runner 要求空输出目录，每模式至少一个独立预热进程和五个独立采样进程，默认每进程限时 180 秒；失败或超时保留原始 stdout、stderr 和退出记录。训练模式为 `rocm-fp32-single-sgd` 与 `rocm-fp16-multi-sgd-amp`，各 200 步，FP16 保留 FP32 主权重并检查两个优化器和 GradScaler 的更新边界；优化器套件覆盖八类算法的固定 FP32 稠密梯度 200 步。可用重复的 `--mode` 选择部分模式。
+
+`--identity` 原生入口报告可见设备零的 HIP UUID、PCI 地址、架构、内存及编译/运行时/API 版本；runner 核对采样前后及每个样本的设备、构建和线程身份，另记录 OS、CPU、Windows 显示驱动适配器列表和可执行文件 SHA-256。HIP driver API 版本不等于 Windows 显示驱动版本，适配器列表也不建立 HIP UUID 映射。`samples.json` 保留原始指标，`statistics.json` 给出中位数、p95、CV 和稳定性判定；默认 CV 上限 10%，不稳定结果不能写成 reference。`--reference` 和 `--write-reference` 仅用于同一可执行文件、源码、工作负载与环境，不能跨 CUDA/ROCm、设备或构建比较。
+
+训练计时覆盖 `Trainer::fit()` 与前后 HIP 同步，优化器计时覆盖更新循环与前后同步；不包含进程启动和模型准备。allocator 峰值包含计时起点已有分配，排除 driver/context 和此前准备期峰值。当前没有功耗、频率、温度及系统噪声采样，不能从本协议推导跨设备性能优势、任务准确率或长时间稳定性；图像和通用 resource runner 的设备支持分别说明，不由本入口推定。
+
 ## 图像读取到训练更新
 
 启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE=ON` 与 benchmark 后，编译 `jyppx_bench_image_training`。输入是至少两个非空类别的本地 ImageFolder 目录，每个类别下放 JPEG/PNG 文件。下面的 runner 先读取所有选中图像计算内容摘要，使每次明确采用 warm-cache 测量，再启动一个独立预热进程与五个独立采样进程；`--output` 必须指向代码仓库外的新文件。

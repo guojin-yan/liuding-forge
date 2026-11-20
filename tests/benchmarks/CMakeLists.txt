@@ -48,11 +48,20 @@ if(WIN32)
     endif()
 endif()
 
-# The target includes CUDA allocator APIs and is intentionally absent from
-# CPU-only LibTorch builds rather than compiling a benchmark that can only skip.
-if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
-    jyppx_add_bench(jyppx_bench_cuda_training bench_cuda_training.cpp)
-    jyppx_add_bench(jyppx_bench_cuda_optimizer bench_cuda_optimizer.cpp)
+# Compile against the allocator and device APIs of the selected LibTorch.
+# CPU-only builds have no accelerator targets.
+if(TARGET torch_hip)
+    foreach(suite training optimizer)
+        jyppx_add_bench(jyppx_bench_rocm_${suite} bench_cuda_${suite}.cpp)
+        target_compile_definitions(jyppx_bench_rocm_${suite} PRIVATE JYPPX_BENCH_ROCM=1)
+        target_link_libraries(jyppx_bench_rocm_${suite} PRIVATE
+            hip::host nlohmann_json::nlohmann_json)
+    endforeach()
+elseif(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    foreach(suite training optimizer)
+        jyppx_add_bench(jyppx_bench_cuda_${suite} bench_cuda_${suite}.cpp)
+        target_link_libraries(jyppx_bench_cuda_${suite} PRIVATE nlohmann_json::nlohmann_json)
+    endforeach()
 endif()
 
 # Resource evidence is opt-in with JYPPX_LIUDING_BUILD_BENCHMARKS. Preview executables

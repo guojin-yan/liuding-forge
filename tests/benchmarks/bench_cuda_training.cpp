@@ -5,13 +5,11 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "accelerator_support.hpp"
+
 #include <jyppx/liuding/liuding.hpp>
 
-#include <torch/cuda.h>
-
-#include <ATen/cuda/CUDAContextLight.h>
 #include <c10/core/Allocator.h>
-#include <c10/cuda/CUDACachingAllocator.h>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -39,23 +37,26 @@ constexpr std::size_t kWorkerCount = 2;
 constexpr std::size_t kPrefetchBatches = 4;
 constexpr std::uint64_t kSeed = 20261020;
 constexpr double kInitialScale = 128.0;
-constexpr std::string_view kWorkloadId = "jyppx.cuda.training.mlp/v1";
+constexpr std::string_view kWorkloadId =
+    "jyppx." JYPPX_BENCH_BACKEND ".training.mlp/v1";
 constexpr std::string_view kWorkloadDescriptor =
-    "id=jyppx.cuda.training.mlp/v1;batch=128;steps=200;input=1024;"
+    "id=jyppx." JYPPX_BENCH_BACKEND
+    ".training.mlp/v1;batch=128;steps=200;input=1024;"
     "hidden=2048;output=256;workers=2;prefetch=4;seed=20261020;"
     "pin_memory=true;non_blocking=true;stream=caller_current";
 
-/** @brief Selects one frozen CUDA training path. */
+/** @brief Selects one frozen accelerator training path. */
 enum class BenchmarkMode {
   fp32_single_sgd,     ///< Full precision with one SGD optimizer.
   fp16_multi_sgd_amp,  ///< Float16 autocast with two SGD optimizers and AMP.
 };
 
-/** @brief Dense regression network used by the CUDA Trainer benchmark. */
-class CudaBenchmarkModel final : public torch::nn::Module {
+/** @brief Dense regression network used by the Accelerator Trainer benchmark.
+ */
+class AcceleratorBenchmarkModel final : public torch::nn::Module {
  public:
   /** @brief Registers the frozen three-layer benchmark network. */
-  CudaBenchmarkModel()
+  AcceleratorBenchmarkModel()
       : network_(register_module(
             "network",
             torch::nn::Sequential(
@@ -76,11 +77,13 @@ class CudaBenchmarkModel final : public torch::nn::Module {
 
 /** @brief Owns the measured values and validated training counters. */
 struct BenchmarkResult {
-  double samples_per_second = 0.0;        ///< End-to-end committed sample rate.
-  double mean_step_milliseconds = 0.0;    ///< Mean wall time per Trainer step.
-  std::int64_t peak_allocated_bytes = 0;  ///< CUDA allocator allocated peak.
-  std::int64_t peak_reserved_bytes = 0;   ///< CUDA allocator reserved peak.
-  std::uint64_t global_step = 0;          ///< Trainer committed update count.
+  double samples_per_second = 0.0;      ///< End-to-end committed sample rate.
+  double mean_step_milliseconds = 0.0;  ///< Mean wall time per Trainer step.
+  std::int64_t peak_allocated_bytes =
+      0;  ///< Accelerator allocator allocated peak.
+  std::int64_t peak_reserved_bytes =
+      0;                          ///< Accelerator allocator reserved peak.
+  std::uint64_t global_step = 0;  ///< Trainer committed update count.
   std::vector<std::uint64_t>
       optimizer_steps;  ///< Completed count for every configured optimizer.
   std::optional<double> scaler_scale;  ///< Final scale for the AMP mode.
@@ -92,9 +95,9 @@ struct BenchmarkResult {
 std::string_view mode_name(BenchmarkMode mode) {
   switch (mode) {
     case BenchmarkMode::fp32_single_sgd:
-      return "cuda-fp32-single-sgd";
+      return JYPPX_BENCH_BACKEND "-fp32-single-sgd";
     case BenchmarkMode::fp16_multi_sgd_amp:
-      return "cuda-fp16-multi-sgd-amp";
+      return JYPPX_BENCH_BACKEND "-fp16-multi-sgd-amp";
   }
   throw std::logic_error("unreachable benchmark mode");
 }
@@ -103,8 +106,10 @@ std::string_view mode_name(BenchmarkMode mode) {
 BenchmarkMode parse_arguments(int argc, char** argv) {
   if (argc != 3 || std::string_view(argv[1]) != "--mode") {
     throw std::invalid_argument(
-        "usage: liuding-forge-bench-cuda-training --mode "
-        "<cuda-fp32-single-sgd|cuda-fp16-multi-sgd-amp>");
+        "usage: liuding-forge-bench-" JYPPX_BENCH_BACKEND
+        "-training --mode "
+        "<" JYPPX_BENCH_BACKEND "-fp32-single-sgd|" JYPPX_BENCH_BACKEND
+        "-fp16-multi-sgd-amp>");
   }
   const std::string_view value(argv[2]);
   if (value == mode_name(BenchmarkMode::fp32_single_sgd)) {
@@ -113,7 +118,7 @@ BenchmarkMode parse_arguments(int argc, char** argv) {
   if (value == mode_name(BenchmarkMode::fp16_multi_sgd_amp)) {
     return BenchmarkMode::fp16_multi_sgd_amp;
   }
-  throw std::invalid_argument("unsupported CUDA benchmark mode: " +
+  throw std::invalid_argument("unsupported accelerator benchmark mode: " +
                               std::string(value));
 }
 
@@ -135,45 +140,6 @@ std::string workload_digest() {
   return output.str();
 }
 
-/** @brief Escapes one string for compact JSON output. */
-std::string json_escape(std::string_view value) {
-  std::ostringstream output;
-  for (const unsigned char byte : value) {
-    switch (byte) {
-      case '\"':
-        output << "\\\"";
-        break;
-      case '\\':
-        output << "\\\\";
-        break;
-      case '\b':
-        output << "\\b";
-        break;
-      case '\f':
-        output << "\\f";
-        break;
-      case '\n':
-        output << "\\n";
-        break;
-      case '\r':
-        output << "\\r";
-        break;
-      case '\t':
-        output << "\\t";
-        break;
-      default:
-        if (byte < 0x20U) {
-          output << "\\u" << std::hex << std::setfill('0') << std::setw(4)
-                 << static_cast<unsigned int>(byte) << std::dec;
-        } else {
-          output << static_cast<char>(byte);
-        }
-        break;
-    }
-  }
-  return output.str();
-}
-
 /** @brief Creates deterministic CPU tensors for the frozen workload. */
 std::pair<jyppx::liuding::Tensor, jyppx::liuding::Tensor> make_dataset() {
   const auto sample_count = static_cast<std::int64_t>(kBatchSize * kSteps);
@@ -188,7 +154,7 @@ std::pair<jyppx::liuding::Tensor, jyppx::liuding::Tensor> make_dataset() {
   return {std::move(inputs), std::move(targets)};
 }
 
-/** @brief Creates the CPU-to-CUDA map pipeline used by both modes. */
+/** @brief Creates the CPU-to-Accelerator map pipeline used by both modes. */
 std::shared_ptr<jyppx::liuding::data::DataPipeline> make_pipeline(
     const jyppx::liuding::Tensor& inputs,
     const jyppx::liuding::Tensor& targets) {
@@ -244,13 +210,13 @@ std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
            .options = {.learning_rate = 1e-4}}});
 }
 
-/** @brief Runs and validates one end-to-end CUDA Trainer sample. */
+/** @brief Runs and validates one end-to-end accelerator Trainer sample. */
 BenchmarkResult run_benchmark(BenchmarkMode mode) {
   torch::manual_seed(kSeed);
   torch::cuda::manual_seed_all(kSeed);
   auto [inputs, targets] = make_dataset();
   auto pipeline = make_pipeline(inputs, targets);
-  auto holder = std::make_shared<CudaBenchmarkModel>();
+  auto holder = std::make_shared<AcceleratorBenchmarkModel>();
   auto model = std::make_shared<jyppx::liuding::nn::ModelAdapter>(
       jyppx::liuding::nn::adapt_tensor_module(holder));
 
@@ -404,16 +370,17 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
   }
   if (elapsed <= 0.0 || result.peak_allocated_bytes <= 0 ||
       result.peak_reserved_bytes <= 0) {
-    throw std::runtime_error("CUDA timing or allocator statistics are invalid");
+    throw std::runtime_error(
+        "Accelerator timing or allocator statistics are invalid");
   }
   return result;
 }
 
 /** @brief Writes the validated sample as one compact JSON document. */
 void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
-  const auto* properties = at::cuda::getDeviceProperties(0);
   std::cout << std::setprecision(17) << '{' << "\"schema_version\":1,"
-            << "\"kind\":\"jyppx-cuda-training-benchmark-sample\","
+            << "\"kind\":\"jyppx-" JYPPX_BENCH_BACKEND
+               "-training-benchmark-sample\","
             << "\"mode\":\"" << mode_name(mode) << "\","
             << "\"workload\":{"
             << "\"id\":\"" << kWorkloadId << "\","
@@ -427,12 +394,9 @@ void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
             << "\"worker_count\":" << kWorkerCount << ','
             << "\"prefetch_batches\":" << kPrefetchBatches << "},"
             << "\"build_fingerprint\":"
-            << jyppx::liuding::build_fingerprint_json() << ',' << "\"cuda\":{"
-            << "\"device_index\":0,"
-            << "\"device_name\":\"" << json_escape(properties->name) << "\","
-            << "\"compute_capability\":\"" << properties->major << '.'
-            << properties->minor << "\","
-            << "\"compile_toolkit_version\":" << CUDART_VERSION << "},"
+            << jyppx::liuding::build_fingerprint_json() << ',' << '\"'
+            << JYPPX_BENCH_BACKEND << "\":"
+            << jyppx::liuding::benchmarks::accelerator_identity().dump() << ','
             << "\"runtime\":{"
             << "\"intraop_threads\":" << torch::get_num_threads() << ','
             << "\"interop_threads\":" << torch::get_num_interop_threads()
@@ -467,15 +431,25 @@ int main(int argc, char** argv) {
   try {
     if (!jyppx::liuding::cuda_is_available()) {
       throw std::runtime_error(
-          "CUDA benchmark requires CUDA LibTorch and a visible NVIDIA GPU");
+          "Accelerator benchmark requires a matching LibTorch and visible GPU");
     }
     torch::set_num_threads(1);
     torch::set_num_interop_threads(1);
+    const auto identity = jyppx::liuding::benchmarks::benchmark_identity();
+    if (argc == 2 && std::string_view(argv[1]) == "--identity") {
+      std::cout << identity.dump() << '\n';
+      return 0;
+    }
     const auto mode = parse_arguments(argc, argv);
-    write_sample(mode, run_benchmark(mode));
+    const auto result = run_benchmark(mode);
+    if (jyppx::liuding::benchmarks::benchmark_identity() != identity) {
+      throw std::runtime_error("accelerator identity changed during sample");
+    }
+    write_sample(mode, result);
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << "CUDA training benchmark error: " << error.what() << '\n';
+    std::cerr << "Accelerator training benchmark error: " << error.what()
+              << '\n';
     return 2;
   }
 }

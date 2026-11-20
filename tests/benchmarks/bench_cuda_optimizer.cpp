@@ -5,12 +5,10 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "accelerator_support.hpp"
+
 #include <jyppx/liuding/liuding.hpp>
 
-#include <torch/cuda.h>
-
-#include <ATen/cuda/CUDAContextLight.h>
-#include <c10/cuda/CUDACachingAllocator.h>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -30,15 +28,17 @@ constexpr std::size_t kParameterCount = 8;
 constexpr std::size_t kElementsPerParameter = 262144;
 constexpr std::size_t kSteps = 200;
 constexpr std::uint64_t kSeed = 20261020;
-constexpr std::string_view kWorkloadId = "jyppx.cuda.optimizer.dense/v1";
+constexpr std::string_view kWorkloadId =
+    "jyppx." JYPPX_BENCH_BACKEND ".optimizer.dense/v1";
 constexpr std::string_view kGradientPolicy = "fixed-dense-per-parameter/v1";
 constexpr std::string_view kOptionProfile = "stateful-representative/v1";
 constexpr std::string_view kWorkloadDescriptor =
-    "id=jyppx.cuda.optimizer.dense/v1;parameters=8;elements_each=262144;"
+    "id=jyppx." JYPPX_BENCH_BACKEND
+    ".optimizer.dense/v1;parameters=8;elements_each=262144;"
     "steps=200;dtype=float32;seed=20261020;gradient=fixed-dense-per-"
     "parameter/v1;options=stateful-representative/v1";
 
-/** @brief Selects one optimizer under the frozen CUDA workload. */
+/** @brief Selects one optimizer under the frozen accelerator workload. */
 enum class BenchmarkMode {
   sgd,       ///< Delegated SGD with Nesterov momentum.
   adam,      ///< Delegated Adam with AMSGrad state.
@@ -54,32 +54,32 @@ enum class BenchmarkMode {
 struct BenchmarkResult {
   double parameter_elements_per_second = 0.0;  ///< Updated element rate.
   double mean_step_milliseconds = 0.0;         ///< Mean synchronized step time.
-  std::int64_t peak_allocated_bytes = 0;       ///< CUDA allocated-byte peak.
-  std::int64_t peak_reserved_bytes = 0;        ///< CUDA reserved-byte peak.
-  std::uint64_t completed_steps = 0;           ///< Committed optimizer steps.
-  bool parameters_finite = false;   ///< Whether all outputs are finite.
-  bool parameters_changed = false;  ///< Whether any output changed.
+  std::int64_t peak_allocated_bytes = 0;  ///< Accelerator allocated-byte peak.
+  std::int64_t peak_reserved_bytes = 0;   ///< Accelerator reserved-byte peak.
+  std::uint64_t completed_steps = 0;      ///< Committed optimizer steps.
+  bool parameters_finite = false;         ///< Whether all outputs are finite.
+  bool parameters_changed = false;        ///< Whether any output changed.
 };
 
 /** @brief Returns the stable command-line spelling of a benchmark mode. */
 std::string_view mode_name(BenchmarkMode mode) {
   switch (mode) {
     case BenchmarkMode::sgd:
-      return "cuda-fp32-optimizer-sgd";
+      return JYPPX_BENCH_BACKEND "-fp32-optimizer-sgd";
     case BenchmarkMode::adam:
-      return "cuda-fp32-optimizer-adam";
+      return JYPPX_BENCH_BACKEND "-fp32-optimizer-adam";
     case BenchmarkMode::adamw:
-      return "cuda-fp32-optimizer-adamw";
+      return JYPPX_BENCH_BACKEND "-fp32-optimizer-adamw";
     case BenchmarkMode::rmsprop:
-      return "cuda-fp32-optimizer-rmsprop";
+      return JYPPX_BENCH_BACKEND "-fp32-optimizer-rmsprop";
     case BenchmarkMode::adagrad:
-      return "cuda-fp32-optimizer-adagrad";
+      return JYPPX_BENCH_BACKEND "-fp32-optimizer-adagrad";
     case BenchmarkMode::nadam:
-      return "cuda-fp32-optimizer-nadam";
+      return JYPPX_BENCH_BACKEND "-fp32-optimizer-nadam";
     case BenchmarkMode::adadelta:
-      return "cuda-fp32-optimizer-adadelta";
+      return JYPPX_BENCH_BACKEND "-fp32-optimizer-adadelta";
     case BenchmarkMode::lamb:
-      return "cuda-fp32-optimizer-lamb";
+      return JYPPX_BENCH_BACKEND "-fp32-optimizer-lamb";
   }
   throw std::logic_error("unreachable optimizer benchmark mode");
 }
@@ -88,8 +88,10 @@ std::string_view mode_name(BenchmarkMode mode) {
 BenchmarkMode parse_arguments(int argc, char** argv) {
   if (argc != 3 || std::string_view(argv[1]) != "--mode") {
     throw std::invalid_argument(
-        "usage: liuding-forge-bench-cuda-optimizer --mode "
-        "<cuda-fp32-optimizer-{sgd|adam|adamw|rmsprop|adagrad|nadam|"
+        "usage: liuding-forge-bench-" JYPPX_BENCH_BACKEND
+        "-optimizer --mode "
+        "<" JYPPX_BENCH_BACKEND
+        "-fp32-optimizer-{sgd|adam|adamw|rmsprop|adagrad|nadam|"
         "adadelta|lamb}>");
   }
   const std::string_view value(argv[2]);
@@ -101,8 +103,9 @@ BenchmarkMode parse_arguments(int argc, char** argv) {
       return mode;
     }
   }
-  throw std::invalid_argument("unsupported CUDA optimizer benchmark mode: " +
-                              std::string(value));
+  throw std::invalid_argument(
+      "unsupported accelerator optimizer benchmark mode: " +
+      std::string(value));
 }
 
 /** @brief Computes the stable FNV-1a digest used for workload identity. */
@@ -120,45 +123,6 @@ std::string workload_digest() {
   std::ostringstream output;
   output << std::hex << std::setfill('0') << std::setw(16)
          << fnv1a64(kWorkloadDescriptor);
-  return output.str();
-}
-
-/** @brief Escapes one string for compact JSON output. */
-std::string json_escape(std::string_view value) {
-  std::ostringstream output;
-  for (const unsigned char byte : value) {
-    switch (byte) {
-      case '"':
-        output << "\\\"";
-        break;
-      case '\\':
-        output << "\\\\";
-        break;
-      case '\b':
-        output << "\\b";
-        break;
-      case '\f':
-        output << "\\f";
-        break;
-      case '\n':
-        output << "\\n";
-        break;
-      case '\r':
-        output << "\\r";
-        break;
-      case '\t':
-        output << "\\t";
-        break;
-      default:
-        if (byte < 0x20U) {
-          output << "\\u" << std::hex << std::setfill('0') << std::setw(4)
-                 << static_cast<unsigned int>(byte) << std::dec;
-        } else {
-          output << static_cast<char>(byte);
-        }
-        break;
-    }
-  }
   return output.str();
 }
 
@@ -253,7 +217,7 @@ std::unique_ptr<jyppx::liuding::optim::OptimizerAdapter> make_optimizer(
   throw std::logic_error("unreachable optimizer construction mode");
 }
 
-/** @brief Runs and validates one isolated CUDA optimizer sample. */
+/** @brief Runs and validates one isolated accelerator optimizer sample. */
 BenchmarkResult run_benchmark(BenchmarkMode mode) {
   torch::manual_seed(kSeed);
   torch::cuda::manual_seed_all(kSeed);
@@ -290,7 +254,8 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
   const auto allocator_stats =
       c10::cuda::CUDACachingAllocator::getDeviceStats(kDeviceIndex);
   // LibTorch stores the aggregate statistic in slot zero across supported
-  // 2.5.x CUDA distributions even though the owning enum moved namespaces.
+  // 2.5.x CUDA distributions even though the owning enum moved
+  // namespaces.
   constexpr std::size_t kAggregate = 0;
 
   bool parameters_finite = true;
@@ -313,7 +278,8 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
       .parameters_changed = parameters_changed};
   if (elapsed <= 0.0 || result.peak_allocated_bytes <= 0 ||
       result.peak_reserved_bytes <= 0) {
-    throw std::runtime_error("CUDA timing or allocator statistics are invalid");
+    throw std::runtime_error(
+        "Accelerator timing or allocator statistics are invalid");
   }
   if (result.completed_steps != kSteps) {
     throw std::runtime_error("optimizer did not commit the frozen step count");
@@ -326,9 +292,9 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
 
 /** @brief Writes the validated sample as one compact JSON document. */
 void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
-  const auto* properties = at::cuda::getDeviceProperties(0);
   std::cout << std::setprecision(17) << '{' << "\"schema_version\":1,"
-            << "\"kind\":\"jyppx-cuda-optimizer-benchmark-sample\","
+            << "\"kind\":\"jyppx-" JYPPX_BENCH_BACKEND
+               "-optimizer-benchmark-sample\","
             << "\"mode\":\"" << mode_name(mode) << "\","
             << "\"workload\":{"
             << "\"id\":\"" << kWorkloadId << "\","
@@ -341,12 +307,9 @@ void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
             << "\"gradient_policy\":\"" << kGradientPolicy << "\","
             << "\"option_profile\":\"" << kOptionProfile << "\"},"
             << "\"build_fingerprint\":"
-            << jyppx::liuding::build_fingerprint_json() << ',' << "\"cuda\":{"
-            << "\"device_index\":0,"
-            << "\"device_name\":\"" << json_escape(properties->name) << "\","
-            << "\"compute_capability\":\"" << properties->major << '.'
-            << properties->minor << "\","
-            << "\"compile_toolkit_version\":" << CUDART_VERSION << "},"
+            << jyppx::liuding::build_fingerprint_json() << ',' << '\"'
+            << JYPPX_BENCH_BACKEND << "\":"
+            << jyppx::liuding::benchmarks::accelerator_identity().dump() << ','
             << "\"runtime\":{"
             << "\"intraop_threads\":" << torch::get_num_threads() << ','
             << "\"interop_threads\":" << torch::get_num_interop_threads()
@@ -370,15 +333,26 @@ int main(int argc, char** argv) {
   try {
     if (!jyppx::liuding::cuda_is_available()) {
       throw std::runtime_error(
-          "CUDA optimizer benchmark requires CUDA LibTorch and a visible GPU");
+          "Accelerator optimizer benchmark requires matching LibTorch and a "
+          "visible GPU");
     }
     torch::set_num_threads(1);
     torch::set_num_interop_threads(1);
+    const auto identity = jyppx::liuding::benchmarks::benchmark_identity();
+    if (argc == 2 && std::string_view(argv[1]) == "--identity") {
+      std::cout << identity.dump() << '\n';
+      return 0;
+    }
     const auto mode = parse_arguments(argc, argv);
-    write_sample(mode, run_benchmark(mode));
+    const auto result = run_benchmark(mode);
+    if (jyppx::liuding::benchmarks::benchmark_identity() != identity) {
+      throw std::runtime_error("accelerator identity changed during sample");
+    }
+    write_sample(mode, result);
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << "CUDA optimizer benchmark error: " << error.what() << '\n';
+    std::cerr << "Accelerator optimizer benchmark error: " << error.what()
+              << '\n';
     return 2;
   }
 }

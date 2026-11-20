@@ -51,3 +51,7 @@ Windows 可显式选择独立的 ORT 1.24.4 / DirectML 1.15.4 组合；W7900 已
 ## 本地进程执行
 
 ROCm 构建支持 `local rocm-devices` 与 `rocm_device` 放置计划，以 HIP UUID 和 PCI 地址共同绑定设备身份，启动前重新检查 ordinal、架构和可用显存。Windows 使用 HIP 与 WDDM 全局专用显存统计的保守值，逻辑预约协调同一 STORE 的任务；子进程通过统一可见性变量将所选卡作为 `cuda:0` 使用。完整字段、恢复和采样限制见[本地进程运行器](../development/local_process_runner.md#amd-gpu-实际准入与-rocm-放置)。启动器须从未屏蔽 GPU 的环境启动；不要在 HIP 初始化后修改可见性变量。
+
+## 开发资源测量
+
+ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 设备身份、同步计时和 allocator 显存峰值，并由开发脚本运行独立预热及重复采样；命令、计时范围和环境绑定见 [benchmark 指南](../benchmarks/README.md#rocm-训练与优化器)。这不授予图像/resource 入口、真实任务性能优势或长时间稳定性资格。
