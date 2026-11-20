@@ -25,7 +25,7 @@ def main():
     rows = []
     for index in range(args.iterations):
         for threads in (2, 4, 8):
-            for mode in ("normal", "unwind"):
+            for mode in ("normal", "unwind", "configure-only"):
                 started = time.monotonic()
                 # Preserve and then reconfigure nontrivial application parallelism.
                 env = dict(os.environ, OMP_NUM_THREADS=str(threads), MKL_NUM_THREADS=str(threads))
@@ -39,7 +39,8 @@ def main():
                     raise AssertionError((index, threads, mode, result.returncode,
                                           result.stdout, result.stderr))
                 row = json.loads(result.stdout.decode("utf-8"))
-                if row != dict(body_completed=True, threads=threads, gradient_checked=True,
+                if row != dict(body_completed=True, threads=threads,
+                               gradient_checked=mode != "configure-only",
                                unwound=mode == "unwind"):
                     raise AssertionError((index, threads, mode, row))
                 rows.append(dict(index=index, mode=mode, **row,
@@ -47,7 +48,9 @@ def main():
                 if args.evidence:
                     args.evidence.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(dict(passed=True, processes=len(rows), threads=[2, 4, 8],
-                          modes=["normal", "unwind"], gradient_checked=True)))
+                          modes=["normal", "unwind", "configure-only"],
+                          gradient_modes=["normal", "unwind"],
+                          configuration_only_checked=True)))
 
 
 if __name__ == "__main__":

@@ -19,8 +19,25 @@ int main(int argc, char** argv) {
     const auto parsed =
         std::from_chars(count.data(), count.data() + count.size(), threads);
     if (parsed.ec != std::errc{} || parsed.ptr != count.data() + count.size() ||
-        threads < 2 || threads > 8 || (mode != "normal" && mode != "unwind"))
+        threads < 2 || threads > 8 ||
+        (mode != "normal" && mode != "unwind" && mode != "configure-only"))
       return 2;
+    if (mode == "configure-only") {
+      // Match applications that configure threads and return without tensor
+      // work, including test discovery. Do not query threads before startup.
+      jyppx::liuding::initialize_runtime();
+      at::set_num_threads(threads);
+      at::set_num_interop_threads(1);
+      jyppx::liuding::initialize_runtime();
+      if (at::get_num_threads() != threads ||
+          at::get_num_interop_threads() != 1)
+        throw std::runtime_error(
+            "Runtime initialization changed configured parallelism");
+      std::cout << "{\"body_completed\":true,\"threads\":" << threads
+                << ",\"gradient_checked\":false,\"unwound\":false}\n"
+                << std::flush;
+      return 0;
+    }
     const auto before = at::get_num_threads();
     const auto interop = at::get_num_interop_threads();
     jyppx::liuding::initialize_runtime();

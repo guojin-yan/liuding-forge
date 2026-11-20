@@ -26,7 +26,9 @@ void initialize_runtime() {
   }
 #endif
 #if defined(_WIN32) && AT_PARALLEL_OPENMP && TORCH_VERSION_MAJOR == 2 && \
-    TORCH_VERSION_MINOR == 14 && TORCH_VERSION_PATCH == 1
+    TORCH_VERSION_MINOR == 14 &&                                         \
+    (TORCH_VERSION_PATCH == 1 ||                                         \
+     (TORCH_VERSION_PATCH == 0 && defined(USE_ROCM)))
   static std::once_flag initialized;
   std::call_once(initialized, [] {
     const auto threads = at::get_num_threads();

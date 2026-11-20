@@ -41,6 +41,7 @@
 - 提供通用 C++ ONNX 导出、独立 ONNX Runtime、模型 bundle、Ed25519 签名、本地 Serving 与受控版本切换。
 - 修复 ONNX 归约类型提升、混合类型 cat/stack、可选仿射 BatchNorm 及 Double LayerNorm 方差计算。
 - 增加 `initialize_runtime()`，规避适用 Windows LibTorch OpenMP 配置的辅助线程池退出等待；原生 HTTP 完成回调采用无等待事件通知。
+- 将 Windows 辅助线程池退出处理扩展到 ROCm LibTorch 2.14.0，覆盖仅配置线程后退出的模型元数据与测试发现进程。
 
 ### 文档与仓库维护
 

@@ -22,7 +22,7 @@ Windows 官方 LibTorch 二进制使用 Release 动态 CRT。本项目选择 `/M
 
 ### Windows 训练完成后进程不退出
 
-在主线程首次配置或使用 LibTorch、启动 worker 之前调用 `jyppx::liuding::initialize_runtime()`。该入口针对 Windows LibTorch 2.14.1 的适用 OpenMP 配置初始化辅助线程池，规避 DLL 退出期间的锁等待。CLI 已调用；直接消费 SDK 的应用应在 `main` 开始时调用：
+在主线程首次配置或使用 LibTorch、启动 worker 之前调用 `jyppx::liuding::initialize_runtime()`。该入口针对 Windows LibTorch 2.14.1，以及 ROCm 10.1.0 LibTorch 2.14.0 的适用 OpenMP 配置初始化辅助线程池，规避 DLL 退出期间的锁等待；仅配置线程后退出也需要初始化。CLI 已调用；直接消费 SDK 的应用应在 `main` 开始时调用：
 
 ```cpp
 #include <jyppx/liuding/core/runtime.hpp>

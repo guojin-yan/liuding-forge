@@ -14,9 +14,10 @@ namespace jyppx::liuding {
  * threads, or invoking tensor/model operations. Repeated calls are harmless.
  * Preserves the configured intra-op and inter-op thread counts.
  *
- * On Windows LibTorch 2.14.1 with OpenMP, initializes the auxiliary Caffe2
- * pthreadpool without workers. This avoids its DLL-detach mutex deadlock after
- * Windows has terminated worker threads. OpenMP/MKL computation can still use
+ * On Windows OpenMP profiles with LibTorch 2.14.1 or ROCm LibTorch 2.14.0,
+ * initializes the auxiliary Caffe2 pthreadpool without workers. This avoids
+ * its DLL-detach mutex deadlock after Windows has terminated worker threads.
+ * OpenMP/MKL computation can still use
  * the caller's requested parallelism; auxiliary pthreadpool work runs inline.
  * ROCm builds retain an explicit HIP backend import and initialize visible
  * device properties. Use the selected SDK's runtime and device data files.
