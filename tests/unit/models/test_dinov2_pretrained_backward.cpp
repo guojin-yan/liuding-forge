@@ -55,7 +55,17 @@ void Compare(const Tensor& actual, const Tensor& expected,
   ASSERT_TRUE(torch::isfinite(cpu).all().item<bool>()) << label;
   EXPECT_TRUE(torch::allclose(cpu, expected, relative, absolute))
       << label
-      << " max_abs_error=" << (cpu - expected).abs().max().item<double>();
+      << " max_abs_error=" << (cpu - expected).abs().max().item<double>()
+      << " mismatched_elements="
+      << torch::isclose(cpu, expected, relative, absolute)
+             .logical_not()
+             .sum()
+             .item<std::int64_t>()
+      << '/' << cpu.numel() << " rtol=" << relative << " atol=" << absolute
+      << " actual_sha256="
+      << sha256_hex(std::span<const std::byte>(
+             static_cast<const std::byte*>(cpu.contiguous().const_data_ptr()),
+             cpu.nbytes()));
 }
 
 void CheckBackward(bool cuda) {
