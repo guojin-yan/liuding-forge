@@ -81,9 +81,9 @@ Options options(int argc, char** argv) {
   bench::require(result.precision == "fp32" || result.precision == "fp16" ||
                      result.precision == "bf16",
                  "--precision must be fp32, fp16 or bf16");
-  bench::require(result.seconds >= 2 && result.seconds <= 1800 &&
+  bench::require(result.seconds >= 2 && result.seconds <= 7200 &&
                      result.checkpoint_seconds < result.seconds &&
-                     result.max_steps <= 2000000 && result.pressure_mib <= 4096,
+                     result.max_steps <= 20000000 && result.pressure_mib <= 4096,
                  "stability budget outside supported bounds");
   bench::require(!result.directory.empty() &&
                      std::filesystem::create_directory(result.directory),

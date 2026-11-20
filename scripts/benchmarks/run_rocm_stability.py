@@ -82,9 +82,9 @@ def main() -> int:
     parser.add_argument("--pressure-mib", type=int, default=2048)
     parser.add_argument("--max-steps", type=int, default=1000000)
     args = parser.parse_args()
-    if not 2 <= args.seconds <= 1800 or not 1 <= args.checkpoint_seconds < args.seconds:
+    if not 2 <= args.seconds <= 7200 or not 1 <= args.checkpoint_seconds < args.seconds:
         raise ValueError("duration/checkpoint interval outside native limits")
-    if not 1 <= args.pressure_mib <= 4096 or not 1 <= args.max_steps <= 2000000:
+    if not 1 <= args.pressure_mib <= 4096 or not 1 <= args.max_steps <= 20000000:
         raise ValueError("pressure/step budget outside native limits")
     binary = args.benchmark.resolve(strict=True)
     binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
@@ -117,7 +117,7 @@ def main() -> int:
         "identity": before, "host": host_before, "binary_sha256": binary_sha,
         "protocol": {"independent_process_per_precision": True, "seconds_per_precision": args.seconds, "process_timeout_seconds": args.seconds + 120, "checkpoint_seconds": args.checkpoint_seconds, "max_steps": args.max_steps, "pressure_mib": args.pressure_mib},
         "results": summaries,
-        "limitations": ["Synthetic Linear/AdamW/StepLR workload with FP32 master weights; not all models or optimizers", "Process allocator quota OOM and synchronous shape rejection; not physical VRAM exhaustion, illegal memory access or driver reset recovery", "Repeated live-payload release and bounded allocator growth; RSS is observed without a leak threshold", "Pressure and checkpoint diagnostics are included in wall duration; this is not performance sampling or an hours-long soak test"],
+        "limitations": ["Synthetic Linear/AdamW/StepLR workload with FP32 master weights; not all models or optimizers", "Process allocator quota OOM and synchronous shape rejection; not physical VRAM exhaustion, illegal memory access or driver reset recovery", "Repeated live-payload release and bounded allocator growth; RSS is observed without a leak threshold", "Pressure and checkpoint diagnostics are included in wall duration; qualification is limited to the reported duration and precision, not performance sampling"],
     })
     return 0
 
