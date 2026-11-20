@@ -20,6 +20,8 @@ ROCm LibTorch 沿用 `torch::kCUDA`、`torch::cuda` 和 `cuda:<index>`。C++ 使
 
 在主线程首次使用 LibTorch、设置线程数或启动 worker 之前调用 `initialize_runtime()`。CLI 已调用；ROCm 构建通过实际 HIP 后端符号保留 Windows DLL 注册。`cuda_float16`、`cuda_bfloat16` 仍是 GPU 精度枚举名，是否适合任务由对应硬件、算子与实际验证决定。检查点与 RNG 使用既有接口，精确恢复要求匹配模型、数据、策略和运行身份，不承诺跨 CUDA/ROCm 逐位恢复。
 
+本组合已验证 SGD、Adam、AdamW、Adagrad、Adadelta、RMSprop、NAdam 和 LAMB 与十五类学习率调度器的 FP32、FP16 autocast、BF16 autocast 组合，主权重均为 FP32，FP16 启用 GradScaler。验证覆盖标量前向/梯度参考、CPU/GPU 更新对照，以及优化器、调度器和 scaler 恢复后的逐步精确续训；不代表所有算法选项、模型或低精度权重存储都已验证。
+
 ## 运行与安装
 
 Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像；应用仍需提供匹配的 HIP 运行库、数学库和设备数据。保留 HIP SDK 自身的 `.kpack`、数学库数据目录，按 SDK 激活脚本设置 `HIPBLASLT_TENSILE_LIBPATH`、`ROCBLAS_TENSILE_LIBPATH` 及运行库搜索路径。只复制 `torch_hip.dll` 不能构成完整部署。

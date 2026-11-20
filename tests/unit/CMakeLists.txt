@@ -176,6 +176,13 @@ jyppx_add_gtest(jyppx_test_optim
 endif()
 
 if(TARGET jyppx::liuding::optim)
+if(TARGET jyppx::liuding::training)
+jyppx_add_gtest(jyppx_test_optim_accelerator_matrix
+    LINK_TARGET jyppx::liuding::optim
+    optim/test_accelerator_matrix.cpp)
+target_link_libraries(jyppx_test_optim_accelerator_matrix PRIVATE jyppx::liuding::training)
+endif()
+
 jyppx_add_gtest(jyppx_test_optim_adadelta_adapter
     LINK_TARGET jyppx::liuding::optim
     optim/test_adadelta_adapter.cpp
