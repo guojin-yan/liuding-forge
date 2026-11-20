@@ -22,7 +22,8 @@ int main(int argc, char** argv) {
     require(std::find(names.begin(), names.end(), args.profile) != names.end(),
             "unknown model profile");
     const bool transformer = args.profile == "transformer_encoder";
-    const std::size_t steps = transformer ? 256 : 32;
+    constexpr std::size_t steps = 256;
+    constexpr std::size_t warmup_steps = 8;
     const std::vector<std::int64_t> shape =
         transformer ? std::vector<std::int64_t>{2, 16, 32}
                     : std::vector<std::int64_t>{2, 3, 32, 32};
@@ -32,7 +33,7 @@ int main(int argc, char** argv) {
                           {"seed", 20261021},
                           {"input", "arange%31 /31 -0.5 FP32"},
                           {"classes", 7},
-                          {"warmup_forwards", 1},
+                          {"warmup_forwards", warmup_steps},
                           {"forwards", steps},
                           {"transformer",
                            {{"dimension", 32},
@@ -43,6 +44,7 @@ int main(int argc, char** argv) {
                             {"gelu", true},
                             {"final_norm", true}}}},
                          steps);
+    sample["workload"]["id"] = args.profile + "/v2";
     const auto device = configure_device(args, sample);
     torch::NoGradGuard guard;
     jyppx::liuding::models::ModelOptions options;
@@ -81,9 +83,13 @@ int main(int argc, char** argv) {
           .value.toTensor();
     };
     torch::Tensor warmed;
-    metrics["warmup_seconds"] =
-        metric(device_seconds(device, [&] { warmed = forward(); }), "seconds",
-               "lower", false);
+    metrics["warmup_seconds"] = metric(
+        device_seconds(device,
+                       [&] {
+                         for (std::size_t step = 0; step < warmup_steps; ++step)
+                           warmed = forward();
+                       }),
+        "seconds", "lower", false);
     const auto output_elements = transformer ? 2 * 16 * 32 : 2 * 7;
     verify_tensor(warmed, device, output_elements);
     const std::vector<std::int64_t> expected_shape =

@@ -42,7 +42,7 @@ def sample(profile: str = "storage") -> dict:
                          "gate": not diagnostic, "scope": "fixture"}
     return {
         "schema_version": 1, "kind": "jyppx-resource-benchmark-sample", "profile": profile,
-        "workload": {"id": profile + "/v1", "descriptor": descriptor,
+        "workload": {"id": runner.workload_id(profile), "descriptor": descriptor,
                      "digest": "sha256:" + hashlib.sha256(runner.canonical(descriptor).encode()).hexdigest()},
         "build_fingerprint": {"git_commit": COMMIT, "jyppx_version": "0.3.0", "compiler": "GNU 13.3",
             "cxx_standard": "202002", "os_arch": "Linux-x86_64", "build_type": "Release",
@@ -112,6 +112,24 @@ def statistics_report(commit: str = COMMIT, *, row: dict | None = None, host_os:
 
 
 class ResourceEvidenceTest(unittest.TestCase):
+    def test_model_v2_rejects_short_workload_and_version_relabelling(self) -> None:
+        for profile in runner.MODELS:
+            current = sample(profile)
+            runner.validate_sample(current, profile, "cpu", COMMIT)
+            for change in ("version", "old-forwards", "old-warmup", "future-version"):
+                row = copy.deepcopy(current)
+                if change == "version":
+                    row["workload"]["id"] = profile + "/v1"
+                elif change == "future-version":
+                    row["workload"]["id"] = profile + "/v3"
+                else:
+                    key = "forwards" if change == "old-forwards" else "warmup_forwards"
+                    row["workload"]["descriptor"][key] = 32 if key == "forwards" else 1
+                    row["workload"]["digest"] = "sha256:" + hashlib.sha256(
+                        runner.canonical(row["workload"]["descriptor"]).encode()).hexdigest()
+                with self.subTest(profile=profile, change=change), self.assertRaisesRegex(ValueError, "fixed workload"):
+                    runner.validate_sample(row, profile, "cpu", COMMIT)
+
     def test_accepts_complete_fixed_profile(self) -> None:
         runner.validate_sample(sample(), "storage", "cpu", COMMIT)
 

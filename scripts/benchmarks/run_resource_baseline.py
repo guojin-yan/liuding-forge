@@ -107,6 +107,10 @@ def storage_identifier(profiles: Iterable[str], identifier: str | None) -> str |
     return None
 
 
+def workload_id(profile: str) -> str:
+    return profile + ("/v2" if profile in MODELS else "/v1")
+
+
 def workload(profile: str) -> tuple[dict[str, Any], int, tuple[int, int]]:
     if profile == "storage":
         return {"objects": 8, "bytes_per_object": 262144, "generator": "(i*37+i/251+object)%256",
@@ -119,11 +123,11 @@ def workload(profile: str) -> tuple[dict[str, Any], int, tuple[int, int]]:
                 "sink": "JSONL observer; stream flush, no fsync"}, 256, (25600, 4 << 20)
     if profile in MODELS:
         transformer = profile == "transformer_encoder"
-        steps = 256 if transformer else 32
+        steps = 256
         size = 4096 if transformer else 56
         return {"model": profile, "input_shape": [2, 16, 32] if transformer else [2, 3, 32, 32],
                 "seed": 20261021, "input": "arange%31 /31 -0.5 FP32", "classes": 7,
-                "warmup_forwards": 1, "forwards": steps,
+                "warmup_forwards": 8, "forwards": steps,
                 "transformer": {"dimension": 32, "heads": 4, "feedforward": 64, "layers": 2,
                                 "dropout": 0.0, "gelu": True, "final_norm": True}}, steps, (size, size)
     if profile == "serving":
@@ -173,7 +177,7 @@ def validate_sample(sample: dict[str, Any], profile: str, device: str, commit: s
     if sample.get("profile") != profile:
         raise ValueError("sample profile mismatch")
     expected, operations, size_bounds = workload(profile)
-    frozen = {"id": profile + "/v1", "descriptor": expected,
+    frozen = {"id": workload_id(profile), "descriptor": expected,
               "digest": "sha256:" + hashlib.sha256(canonical(expected).encode()).hexdigest()}
     if canonical(sample.get("workload")) != canonical(frozen):
         raise ValueError("fixed workload descriptor or digest mismatch")

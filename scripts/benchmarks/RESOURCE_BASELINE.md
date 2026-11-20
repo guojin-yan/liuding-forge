@@ -21,11 +21,13 @@ python3 scripts/benchmarks/run_resource_baseline.py --build-dir out/build/cuda-r
 | `storage` | 八个不同的 256 KiB CAS blob，SQLite FULL 发布、元数据重开、精确读取与完整性校验；发布/读取耗时、载荷和总磁盘字节 |
 | `checkpoint` | 四个不同的 1 MiB 同步 checkpoint；包含序列化、hash、发布的平均保存暂停、恢复耗时、精确恢复字节 |
 | `telemetry` | 256 个固定 envelope，16 轮编码，JSONL emit/stream flush，重开与重复重放；编码/写入/恢复耗时和输出字节 |
-| `resnet18`、`resnet50`、`mobilenet_v3_small`、`mobilenet_v3_large` | 随机初始化 FP32 模型，七分类，`[2,3,32,32]`，eval，一次预热、32 次 forward |
-| `transformer_encoder` | 两层、维度 32、四个 head、FFN 64、dropout 0、GELU/final norm；`[2,16,32]`，一次预热、256 次 forward |
+| `resnet18`、`resnet50`、`mobilenet_v3_small`、`mobilenet_v3_large` | 随机初始化 FP32 模型，七分类，`[2,3,32,32]`，eval，八次预热、256 次 forward，工作负载版本 `v2` |
+| `transformer_encoder` | 两层、维度 32、四个 head、FFN 64、dropout 0、GELU/final norm；`[2,16,32]`，八次预热、256 次 forward，工作负载版本 `v2` |
 | `serving` | 生成的 Linear bundle，NativeStateBackend 加载/预热，128 次 Predictor 调用、32 轮各八个 DynamicBatcher 请求；精确输出与实际合批计数 |
 
 负载均为有界合成数据。模型 `load_seconds` 包含架构构建、随机初始化和设备传输，不代表预训练权重加载。输入和初始化种子固定，验证形状、dtype、设备、有限值与 eval 可重复性。forward 输出在循环期间保持存活并计入内存。Serving 测量进程内接口及调度，不含 HTTP。
+
+模型 `v2` 延长固定预热和计量区间，以减少短负载的启动波动；描述符、摘要和环境键与原 `v1` 分离，原始测量须保留，两种版本不能共用 reference。Storage、checkpoint、telemetry 与 Serving 继续使用各自的 `v1`。
 
 Storage、checkpoint 和 telemetry 必须提供 `--storage-environment-id`，标识实际卷、文件系统、挂载选项及持久化设置；同一存储配置的新目录沿用该 ID，改变配置则换 ID。ID 由 1..256 个字母、数字或 `_ . : / + -` 组成，首字符为字母或数字，无空格。runner 只比较操作者声明，不探测或验证底层设备；复用错误 ID 会破坏比较有效性。仅模型或 Serving 的采样不要求此 ID。
 
