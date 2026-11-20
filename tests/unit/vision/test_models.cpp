@@ -3,13 +3,24 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/training/amp/autocast.hpp>
+#include <jyppx/liuding/training/amp/grad_scaler.hpp>
 #include <jyppx/liuding/vision/tasks/extended.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
 
 #include <torch/torch.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <gtest/gtest.h>
+#include <memory>
+#include <optional>
+#include <ostream>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace jyppx::liuding::vision::tasks {
 void PrintTo(const CapabilityRecord& entry, std::ostream* output) {
@@ -27,8 +38,19 @@ using I = std::int64_t;
 class VisionModelTraining
     : public ::testing::TestWithParam<t::CapabilityRecord> {};
 
-TEST_P(VisionModelTraining, CpuLossBackwardAndActualUpdate) {
-  const auto& entry = GetParam();
+c10::IValue on_device(const c10::IValue& value, const Device& device) {
+  if (value.isTensor()) return value.toTensor().to(device);
+  if (value.isTuple()) {
+    std::vector<c10::IValue> elements;
+    for (const auto& element : value.toTupleRef().elements())
+      elements.push_back(on_device(element, device));
+    return c10::ivalue::Tuple::create(std::move(elements));
+  }
+  throw std::runtime_error("Unexpected task fixture target type");
+}
+
+void train(const t::CapabilityRecord& entry, const Device& device,
+           c10::ScalarType dtype) {
   // The classic 4096-wide VGG region head needs a separate memory admission.
   if (entry.architecture == "fast_rcnn_vgg16" &&
       std::getenv("JYPPX_LIUDING_VISION_VGG_RESOURCE_GATE") == nullptr)
@@ -42,6 +64,7 @@ TEST_P(VisionModelTraining, CpuLossBackwardAndActualUpdate) {
   recipe.model.task = entry.task;
   recipe.model.variant = entry.variant;
   recipe.model.num_classes = 3;
+  recipe.device = device;
   recipe.training.source = "__execution_fixture__";
   recipe.classification_root = "__execution_fixture__";
   recipe.extension.training_manifest = "__execution_fixture__";
@@ -128,18 +151,49 @@ TEST_P(VisionModelTraining, CpuLossBackwardAndActualUpdate) {
   } else {
     target = boxes;
   }
+  binding.model->state().to(device);
+  for (auto& value : invocation.positional) value = on_device(value, device);
+  target = on_device(*target, device);
   binding.model->state().train();
   data::BatchEnvelope envelope;
   training::StepContext context;
-  auto output =
-      binding.step({*binding.model, envelope, invocation, target, context});
+  training::StepOutput output;
+  {
+    std::unique_ptr<training::amp::AutocastGuard> autocast;
+    if (dtype != torch::kFloat32)
+      autocast = std::make_unique<training::amp::AutocastGuard>(
+          c10::DeviceType::CUDA, dtype);
+    output =
+        binding.step({*binding.model, envelope, invocation, target, context});
+  }
   ASSERT_TRUE(output.loss.defined());
   ASSERT_EQ(output.loss.numel(), 1);
+  ASSERT_EQ(output.loss.device(), device);
+  ASSERT_EQ(output.sample_count, image.size(0));
   ASSERT_TRUE(torch::isfinite(output.loss).item<bool>());
-  output.loss.backward();
+  training::amp::GradScaler scaler(
+      {.init_scale = 8, .enabled = dtype == torch::kFloat16});
+  scaler.scale(output.loss).backward();
+  std::vector<optim::OptimizerParameterBinding> parameters;
+  std::vector<std::pair<Tensor, Tensor>> frozen;
+  for (const auto& item : binding.model->state().named_parameters())
+    if (item.value().requires_grad())
+      parameters.push_back(
+          {.parameter_id = item.key(), .parameter = item.value()});
+    else
+      frozen.emplace_back(item.value(), item.value().detach().clone());
+  auto optimizer = std::make_shared<optim::SgdOptimizerAdapter>(
+      "vision.optimizer", std::vector<optim::SgdParameterGroup>{
+                              {.group_id = "main",
+                               .parameters = std::move(parameters),
+                               .options = {.learning_rate = .001}}});
+  scaler.unscale(optimizer);
+  ASSERT_TRUE(scaler.cycle_allowed());
   Tensor strongest;
   double maximum = 0;
   for (const auto& parameter : binding.model->state().parameters()) {
+    ASSERT_EQ(parameter.device(), device);
+    ASSERT_EQ(parameter.scalar_type(), torch::kFloat32);
     if (!parameter.grad().defined()) continue;
     ASSERT_TRUE(torch::isfinite(parameter.grad()).all().item<bool>());
     const auto magnitude = parameter.grad().abs().max().item<double>();
@@ -150,11 +204,68 @@ TEST_P(VisionModelTraining, CpuLossBackwardAndActualUpdate) {
   }
   ASSERT_GT(maximum, 0);
   const auto before = strongest.detach().clone();
-  torch::optim::SGD optimizer(binding.model->state().parameters(),
-                              torch::optim::SGDOptions(.001));
-  optimizer.step();
+  optimizer->step();
+  scaler.mark_step(optimizer, true);
+  scaler.update();
+  EXPECT_EQ(optimizer->completed_steps(), 1U);
   EXPECT_FALSE(torch::equal(before, strongest));
+  for (const auto& [parameter, original] : frozen) {
+    EXPECT_FALSE(parameter.grad().defined());
+    EXPECT_TRUE(torch::equal(parameter, original));
+  }
 }
+
+TEST_P(VisionModelTraining, CpuLossBackwardAndActualUpdate) {
+  ASSERT_NO_FATAL_FAILURE(
+      train(GetParam(), Device(torch::kCPU), torch::kFloat32));
+}
+
+struct AcceleratorCase {
+  t::CapabilityRecord capability;
+  c10::ScalarType dtype;
+};
+void PrintTo(const AcceleratorCase& value, std::ostream* stream) {
+  *stream << value.capability.architecture << '_'
+          << t::task_name(value.capability.task) << '_'
+          << value.capability.variant << '_'
+          << (value.dtype == torch::kFloat32   ? "FP32"
+              : value.dtype == torch::kFloat16 ? "FP16"
+                                               : "BF16");
+}
+std::vector<AcceleratorCase> accelerator_cases() {
+  std::vector<AcceleratorCase> result;
+  for (const auto& entry : t::vision_catalog()) {
+    const bool selected =
+        entry.variant == "p5" &&
+        (entry.architecture == "resnet18" || entry.architecture == "yolo26n" ||
+         entry.architecture == "fcos_resnet50_fpn" ||
+         entry.architecture == "fcos_vit_adapter_tiny_fpn" ||
+         entry.architecture == "rtdetr_resnet18_vd" ||
+         entry.architecture == "fcn_resnet50" ||
+         entry.architecture == "depth_resnet50_fpn" ||
+         entry.architecture == "simmim_vit_tiny" ||
+         entry.architecture == "reid_resnet50");
+    if (selected)
+      for (const auto dtype :
+           {torch::kFloat32, torch::kFloat16, torch::kBFloat16})
+        result.push_back({entry, dtype});
+  }
+  return result;
+}
+class VisionAcceleratorTraining
+    : public ::testing::TestWithParam<AcceleratorCase> {};
+TEST_P(VisionAcceleratorTraining, FiniteTaskLossGradientsAndActualUpdate) {
+  if (!torch::cuda::is_available())
+    GTEST_SKIP() << "No CUDA-compatible GPU available";
+  const auto& test = GetParam();
+  ASSERT_NO_FATAL_FAILURE(
+      train(test.capability, Device(torch::kCUDA, 0), test.dtype));
+}
+INSTANTIATE_TEST_SUITE_P(RepresentativeTasks, VisionAcceleratorTraining,
+                         ::testing::ValuesIn(accelerator_cases()),
+                         [](const auto& info) {
+                           return ::testing::PrintToString(info.param);
+                         });
 
 INSTANTIATE_TEST_SUITE_P(InstalledCatalog, VisionModelTraining,
                          ::testing::ValuesIn(t::vision_catalog()),

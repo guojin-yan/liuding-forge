@@ -70,7 +70,11 @@ struct Deform:torch::nn::Module {
     torch::NoGradGuard guard;offsets->weight.zero_();weights->weight.zero_();weights->bias.zero_();std::vector<float> radial;for(I h=0;h<8;++h){double theta=2*std::numbers::pi*h/8,dx=std::cos(theta),dy=std::sin(theta),scale=(std::max)(std::abs(dx),std::abs(dy));for(I l=0;l<3;++l)for(I p=0;p<4;++p){radial.push_back(static_cast<float>(dx/scale*(p+1)));radial.push_back(static_cast<float>(dy/scale*(p+1)));}}offsets->bias.copy_(torch::tensor(radial));}
   Tensor forward(const Tensor& q,const Tensor& references,const Tensor& memory,std::span<const std::array<I,2>> shapes){auto b=q.size(0),n=q.size(1);auto off=offsets(q).view({b,n,8,3,4,2});auto weight=weights(q).view({b,n,8,12}).softmax(-1).view({b,n,8,3,4});
     auto xy=references.slice(-1,0,2).view({b,n,1,1,1,2}),wh=references.slice(-1,2,4).view({b,n,1,1,1,2});auto locations=xy+off/4*wh*.5;
-    return output(vision_ops::multiscale_deformable_attention(value(memory).view({b,memory.size(1),8,32}),shapes,locations,weight));}
+    // Reference coordinates can remain FP32 under autocast while the linear
+    // projections become FP16/BF16. Preserve coordinate precision and the
+    // sampler's common-dtype contract; these casts retain all gradients.
+    auto projected=value(memory).view({b,memory.size(1),8,32}).to(locations.scalar_type());
+    return output(vision_ops::multiscale_deformable_attention(projected,shapes,locations,weight.to(locations.scalar_type())));}
 };
 struct Decoder:torch::nn::Module {
   std::shared_ptr<Attention> self;std::shared_ptr<Deform> cross;std::array<torch::nn::LayerNorm,3> norms{nullptr,nullptr,nullptr};torch::nn::Linear f1{nullptr},f2{nullptr};
