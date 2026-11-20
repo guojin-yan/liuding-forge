@@ -237,7 +237,6 @@ std::shared_ptr<TinyUNet> trained(const torch::Device& device) {
 }
 void setup() {
   torch::manual_seed(20261028);
-  jyppx::liuding::initialize_runtime();
   torch::set_num_threads(2);
   at::globalContext().setAllowTF32CuDNN(false);
   at::globalContext().setAllowTF32CuBLAS(false);
@@ -862,6 +861,7 @@ int main(int argc, char** argv) {
     output_path = fs::absolute(argv[3]);
     const std::string name = argv[4];
     require(name == "cpu" || name == "cuda", "Device must be cpu or cuda");
+    jyppx::liuding::initialize_runtime();
     const torch::Device device(name == "cuda" ? "cuda:0" : "cpu");
     require(!device.is_cuda() || torch::cuda::is_available(),
             "Requested CUDA is unavailable");

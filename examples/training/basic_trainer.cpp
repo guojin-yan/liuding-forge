@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/foundation/random_checkpoint_participant.hpp>
@@ -125,6 +126,7 @@ jyppx::liuding::training::FitRequest make_request(
 
 int main() {
   try {
+    jyppx::liuding::initialize_runtime();
     torch::set_num_threads(1);
     torch::manual_seed(7);
     const auto inputs =

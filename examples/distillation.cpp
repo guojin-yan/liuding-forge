@@ -150,6 +150,7 @@ double train_student(const std::shared_ptr<Mlp>& teacher, bool distill,
 
 int main() {
   try {
+    initialize_runtime();
     torch::manual_seed(2026);
     auto train_x = torch::rand({800, 2}) * 3.0f - 0.5f;
     auto train_y = cluster_targets(train_x);

@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/experiment/evaluation.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
@@ -248,6 +249,7 @@ int main(int argc, char** argv) {
     require(mode == "full" || mode == "pause" || mode == "resume" ||
                 mode == "cancel" || mode == "reject-identity",
             "Unknown example mode");
+    liuding::initialize_runtime();
     torch::set_num_threads(1);
     torch::manual_seed(0);
     std::cout << std::setprecision(17);

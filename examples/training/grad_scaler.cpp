@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #include <jyppx/liuding/training/amp/grad_scaler.hpp>
 
@@ -131,6 +132,7 @@ void group_cycle(bool overflow) {
 
 int main(int argc, char** argv) {
   try {
+    jyppx::liuding::initialize_runtime();
     torch::set_num_threads(1);
     torch::set_num_interop_threads(1);
     const std::string_view mode = argc == 2 ? argv[1] : "";

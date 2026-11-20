@@ -9,6 +9,7 @@
  * @brief Demonstrates LR events and coordinated model/SGD/scheduler replay.
  */
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/nn/model_adapter.hpp>
 #include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
 #include <jyppx/liuding/optim/event_lr_scheduler.hpp>
@@ -196,6 +197,7 @@ void persistent_state(Domain& domain, bool saving,
 
 int main(int argc, char** argv) {
   try {
+    liuding::initialize_runtime();
     torch::set_num_threads(1);
     torch::manual_seed(7);
     require(argc >= 2, "Usage: program epoch|warmup|plateau OR save|restore PATH");

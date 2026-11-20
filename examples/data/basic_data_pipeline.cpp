@@ -9,6 +9,7 @@
  * @brief Demonstrates worker collation and persistent committed-cursor replay.
  */
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/data/tensor_dataset.hpp>
@@ -214,6 +215,7 @@ void restore(const std::filesystem::path& path, bool workers, bool inject_failur
 
 int main(int argc, char** argv) {
   try {
+    liuding::initialize_runtime();
     torch::set_num_threads(1);
     const std::string_view mode = argc == 1 ? "inline" : argv[1];
     if (argc <= 2 && (mode == "inline" || mode == "workers")) {
