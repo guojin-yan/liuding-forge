@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../foundation/nested_error.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/interop/model_weight_import.hpp>
@@ -192,7 +194,7 @@ void synchronize(const std::vector<Entry>& entries) {
     } catch (const c10::OutOfMemoryError&) {
       throw;
     } catch (const c10::Error&) {
-      std::throw_with_nested(DeviceError(
+      ::jyppx::liuding::detail::throw_nested_error(DeviceError(
           "Model import device synchronization failed",
           ErrorDetails{.component = "interop.model_weight_import",
                        .operation = "synchronize",
@@ -349,7 +351,7 @@ ModelWeightImportResult import_model_weights(
       }
     }
     if (restore_failures != 0U) {
-      std::throw_with_nested(InternalError(
+      ::jyppx::liuding::detail::throw_nested_error(InternalError(
           "Model import commit failed and rollback was incomplete",
           ErrorDetails{
               .component = "interop.model_weight_import",
@@ -367,7 +369,7 @@ ModelWeightImportResult import_model_weights(
   result.applied_tensors = plan.assignments().size();
   return result;
 } catch (const c10::OutOfMemoryError&) {
-  std::throw_with_nested(ResourceExhausted(
+  ::jyppx::liuding::detail::throw_nested_error(ResourceExhausted(
       "Model import exhausted backend memory",
       ErrorDetails{.component = "interop.model_weight_import",
                    .operation = "import_model_weights",
@@ -376,7 +378,7 @@ ModelWeightImportResult import_model_weights(
                    .hint = "Reduce the model or staging requirements and "
                            "inspect the nested backend error."}));
 } catch (const c10::Error&) {
-  std::throw_with_nested(BackendError(
+  ::jyppx::liuding::detail::throw_nested_error(BackendError(
       "Model import backend operation failed",
       ErrorDetails{
           .component = "interop.model_weight_import",
@@ -386,7 +388,7 @@ ModelWeightImportResult import_model_weights(
           .hint =
               "Inspect the nested backend error before retrying the import."}));
 } catch (const std::bad_alloc&) {
-  std::throw_with_nested(ResourceExhausted(
+  ::jyppx::liuding::detail::throw_nested_error(ResourceExhausted(
       "Model import exhausted host memory",
       ErrorDetails{.component = "interop.model_weight_import",
                    .operation = "import_model_weights",

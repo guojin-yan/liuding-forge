@@ -2,6 +2,8 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "../foundation/nested_error.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/random.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -139,8 +141,8 @@ c10::Device check_model_state(const nn::ModelAdapter& model) {
 }
 
 void restore_controls(const std::vector<Mode>& modes,
-                      const std::vector<Norm>& norms,
-                      const core::RngState& rng, bool include_cuda) {
+                      const std::vector<Norm>& norms, const core::RngState& rng,
+                      bool include_cuda) {
   std::exception_ptr failure;
   const auto attempt = [&](auto&& action) {
     try {
@@ -211,7 +213,8 @@ BatchNormCalibrationResult calibrate_batch_norm(
         if (value.device() != device ||
             !registered_buffers.contains(value.unsafeGetTensorImpl()))
           throw InvalidArgument(
-              "BN calibration statistics must be registered model-device buffers");
+              "BN calibration statistics must be registered model-device "
+              "buffers");
         if (!allowed.insert(value.unsafeGetTensorImpl()).second ||
             !allowed_storages.insert(value.storage().unsafeGetStorageImpl())
                  .second)
@@ -333,7 +336,7 @@ BatchNormCalibrationResult calibrate_batch_norm(
       try {
         std::rethrow_exception(rollback_failure);
       } catch (...) {
-        std::throw_with_nested(InternalError(
+        ::jyppx::liuding::detail::throw_nested_error(InternalError(
             "BN calibration failed and rollback was incomplete",
             ErrorDetails{.component = "training.batch_norm_calibration",
                          .operation = "rollback",

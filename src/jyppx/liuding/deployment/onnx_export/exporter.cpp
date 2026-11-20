@@ -4,10 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../../foundation/nested_error.hpp"
 #include "generic_lowering.hpp"
-#include <torch/csrc/jit/passes/dead_code_elimination.h>
-#include <torch/csrc/jit/passes/constant_propagation.h>
-#include <torch/csrc/jit/passes/remove_mutation.h>
 
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -15,6 +13,9 @@
 #include <torch/csrc/jit/frontend/tracer.h>
 #include <torch/csrc/jit/ir/constants.h>
 #include <torch/csrc/jit/ir/ir.h>
+#include <torch/csrc/jit/passes/constant_propagation.h>
+#include <torch/csrc/jit/passes/dead_code_elimination.h>
+#include <torch/csrc/jit/passes/remove_mutation.h>
 #include <torch/csrc/jit/serialization/export.h>
 
 #include <ATen/core/grad_mode.h>
@@ -681,7 +682,7 @@ ExportResult export_module(torch::nn::Module& module,
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
-    std::throw_with_nested(ResourceExhausted(
+    ::jyppx::liuding::detail::throw_nested_error(ResourceExhausted(
         "Native ONNX exporter allocation failed", Details("export")));
   } catch (const std::exception& exception) {
     auto details = Details("export");
@@ -692,7 +693,7 @@ ExportResult export_module(torch::nn::Module& module,
       details.actual.assign(diagnostic, length);
       if (length == limit) details.actual.append(" [truncated]");
     }
-    std::throw_with_nested(CompatibilityError(
+    ::jyppx::liuding::detail::throw_nested_error(CompatibilityError(
         "Native ONNX trace or serialization failed", std::move(details)));
   }
 }

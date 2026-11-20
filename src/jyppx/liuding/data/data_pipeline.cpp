@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../foundation/nested_error.hpp"
 #include "batch_transform_detail.hpp"
 
 #include <jyppx/liuding/data/data_pipeline.hpp>
@@ -401,7 +402,7 @@ DataWorkerContext make_worker_context(const DataPipelineOptions& options,
   } catch (const Error&) {
     throw;
   } catch (const std::exception& cause) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "DataPipeline batch factory failed",
         ErrorDetails{.component = kComponent,
                      .operation = std::string(operation),
@@ -409,7 +410,7 @@ DataWorkerContext make_worker_context(const DataPipelineOptions& options,
                      .actual = cause.what(),
                      .hint = "Inspect the nested factory error."}));
   } catch (...) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "DataPipeline batch factory failed",
         ErrorDetails{.component = kComponent,
                      .operation = std::string(operation),
@@ -1169,7 +1170,7 @@ void DataPipeline::set_epoch(std::uint64_t epoch) {
       try {
         impl_->sampler->load_state(previous_sampler_state);
       } catch (...) {
-        std::throw_with_nested(
+        ::jyppx::liuding::detail::throw_nested_error(
             InternalError("DataPipeline epoch preparation rollback failed"));
       }
     }
@@ -1451,7 +1452,7 @@ void DataPipeline::load_state(const StateReader& reader, RestorePolicy policy) {
         impl_->sampler->load_state(previous_sampler_state);
       }
     } catch (...) {
-      std::throw_with_nested(
+      ::jyppx::liuding::detail::throw_nested_error(
           InternalError("DataPipeline restore rollback failed"));
     }
     std::rethrow_exception(cause);

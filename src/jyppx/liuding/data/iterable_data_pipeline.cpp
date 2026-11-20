@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../foundation/nested_error.hpp"
 #include "batch_transform_detail.hpp"
 
 #include <jyppx/liuding/data/iterable_data_pipeline.hpp>
@@ -433,7 +434,7 @@ void validate_options(const IterableDataPipelineOptions& options) {
   } catch (const Error&) {
     throw;
   } catch (const std::exception& cause) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "IterableDataPipeline user operation failed",
         ErrorDetails{.component = kComponent,
                      .operation = std::string(operation),
@@ -441,7 +442,7 @@ void validate_options(const IterableDataPipelineOptions& options) {
                      .actual = cause.what(),
                      .hint = "Inspect the nested source or factory error."}));
   } catch (...) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "IterableDataPipeline user operation failed",
         ErrorDetails{.component = kComponent,
                      .operation = std::string(operation),

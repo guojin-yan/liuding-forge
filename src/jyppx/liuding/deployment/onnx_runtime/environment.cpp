@@ -2,6 +2,8 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0 (the "License");
+#include "../../foundation/nested_error.hpp"
+
 #include <jyppx/liuding/deployment/onnx_runtime/environment.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -209,13 +211,13 @@ EnvironmentLock parse_environment_lock(std::string_view encoded) {
     static_cast<void>(Document(result));
     return result;
   } catch (const InvalidArgument&) {
-    std::throw_with_nested(SerializationError(
+    ::jyppx::liuding::detail::throw_nested_error(SerializationError(
         "Invalid ONNX Runtime environment-lock declaration"));
   } catch (const Json::exception&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         SerializationError("Cannot parse ONNX Runtime environment lock"));
   } catch (const std::bad_alloc&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         ResourceExhausted("Cannot allocate ONNX Runtime environment lock"));
   }
 }
@@ -226,10 +228,10 @@ std::string serialize_environment_lock(const EnvironmentLock& environment) {
     Bound(result.size(), kEnvironmentLockMaxBytes);
     return result;
   } catch (const Json::exception&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         InvalidArgument("Cannot encode ONNX Runtime environment lock"));
   } catch (const std::bad_alloc&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         ResourceExhausted("Cannot allocate ONNX Runtime environment lock"));
   }
 }

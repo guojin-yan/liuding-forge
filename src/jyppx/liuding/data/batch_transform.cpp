@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../foundation/nested_error.hpp"
 #include "batch_memory_detail.hpp"
 #include "batch_transform_detail.hpp"
 
@@ -44,7 +45,7 @@ BatchMemoryUsage run_consumer_transform(
   } catch (const Error&) {
     throw;
   } catch (const std::exception& cause) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "Consumer batch transform failed",
         ErrorDetails{.component = "data.consumer_transform",
                      .operation = transform.id,
@@ -52,7 +53,7 @@ BatchMemoryUsage run_consumer_transform(
                      .actual = cause.what(),
                      .hint = "Inspect the nested callback error."}));
   } catch (...) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         BackendError("Consumer batch transform raised a non-standard exception",
                      ErrorDetails{.component = "data.consumer_transform",
                                   .operation = transform.id}));
@@ -126,7 +127,7 @@ void run_resource_lease_factory(const BatchResourceLeaseFactory& factory,
   } catch (const Error&) {
     throw;
   } catch (const std::exception& cause) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "Batch resource lease factory failed",
         ErrorDetails{.component = "data.resource_lease",
                      .operation = "acquire",
@@ -134,7 +135,7 @@ void run_resource_lease_factory(const BatchResourceLeaseFactory& factory,
                      .actual = cause.what(),
                      .hint = "Inspect the nested adapter error."}));
   } catch (...) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "Batch resource lease factory raised a non-standard exception",
         ErrorDetails{.component = "data.resource_lease",
                      .operation = "acquire"}));
@@ -152,13 +153,13 @@ std::shared_ptr<void> run_admission_factory(
   } catch (const Error&) {
     throw;
   } catch (const std::exception& cause) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         BackendError("Batch admission factory failed",
                      ErrorDetails{.component = "data.batch_admission",
                                   .operation = "acquire",
                                   .actual = cause.what()}));
   } catch (...) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         BackendError("Batch admission factory raised a non-standard exception",
                      ErrorDetails{.component = "data.batch_admission",
                                   .operation = "acquire"}));

@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../foundation/nested_error.hpp"
 #include "detail/memory_participant_state.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
@@ -485,7 +486,7 @@ std::vector<CallbackStateSnapshot> capture_callback_state(
   try {
     throw;
   } catch (...) {
-    std::throw_with_nested(InternalError(
+    ::jyppx::liuding::detail::throw_nested_error(InternalError(
         "Callback handler failed",
         ErrorDetails{
             .component = kComponent,
@@ -518,7 +519,7 @@ std::vector<CallbackStateSnapshot> capture_callback_state(
     try {
       std::rethrow_exception(dispatch_failure);
     } catch (...) {
-      std::throw_with_nested(InternalError(
+      ::jyppx::liuding::detail::throw_nested_error(InternalError(
           "Callback dispatch failed and rollback was incomplete",
           ErrorDetails{.component = kComponent,
                        .operation = "dispatch.rollback",

@@ -2,6 +2,8 @@
 // Project alias: JYPPX Training Framework
 #include "jyppx/liuding/foundation/error.hpp"
 
+#include "nested_error.hpp"
+
 #include <exception>
 
 namespace jyppx::liuding {
@@ -84,19 +86,19 @@ namespace detail {
 
   switch (context.failure_kind) {
     case BackendFailureKind::invalid_argument:
-      std::throw_with_nested(
+      ::jyppx::liuding::detail::throw_nested_error(
           InvalidArgument("Backend rejected an argument", std::move(details)));
     case BackendFailureKind::unsupported:
-      std::throw_with_nested(NotImplemented("Backend operation is unsupported",
-                                            std::move(details)));
+      ::jyppx::liuding::detail::throw_nested_error(NotImplemented(
+          "Backend operation is unsupported", std::move(details)));
     case BackendFailureKind::device:
-      std::throw_with_nested(
+      ::jyppx::liuding::detail::throw_nested_error(
           DeviceError("Backend device operation failed", std::move(details)));
     case BackendFailureKind::resource_exhausted:
-      std::throw_with_nested(ResourceExhausted("Backend resource was exhausted",
-                                               std::move(details)));
+      ::jyppx::liuding::detail::throw_nested_error(ResourceExhausted(
+          "Backend resource was exhausted", std::move(details)));
     case BackendFailureKind::unknown:
-      std::throw_with_nested(
+      ::jyppx::liuding::detail::throw_nested_error(
           BackendError("Backend operation failed", std::move(details)));
   }
   std::terminate();

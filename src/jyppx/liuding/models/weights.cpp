@@ -2,6 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "../foundation/nested_error.hpp"
 #include "detail.hpp"
 
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -68,7 +69,7 @@ decltype(auto) Filesystem(const char* operation, Function&& function) {
   try {
     return detail::Backend(operation, std::forward<Function>(function));
   } catch (const std::filesystem::filesystem_error&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         IoError("Weight cache filesystem operation failed",
                 detail::Details(operation, "accessible trusted local cache")));
   }

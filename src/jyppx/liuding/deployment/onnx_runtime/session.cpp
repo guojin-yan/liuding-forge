@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../../foundation/nested_error.hpp"
 #include "run_admission.hpp"
 
 #include <jyppx/liuding/deployment/onnx_runtime/session.hpp>
@@ -64,10 +65,10 @@ void ProviderCall(const ExecutionProvider& provider, const char* operation,
     if (std::string_view(operation) == "provider.options" &&
         error.GetOrtErrorCode() == ORT_INVALID_ARGUMENT) {
       details.hint = "Use provider options documented by the loaded ORT SDK.";
-      std::throw_with_nested(InvalidArgument(
+      ::jyppx::liuding::detail::throw_nested_error(InvalidArgument(
           "ONNX Runtime rejected provider options", std::move(details)));
     }
-    std::throw_with_nested(DeviceError(
+    ::jyppx::liuding::detail::throw_nested_error(DeviceError(
         "ONNX Runtime provider initialization failed", std::move(details)));
   }
 }
@@ -79,17 +80,17 @@ decltype(auto) Boundary(const char* operation, Function&& function) {
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
-    std::throw_with_nested(ResourceExhausted("ONNX Runtime allocation failed",
-                                             Details(operation)));
+    ::jyppx::liuding::detail::throw_nested_error(ResourceExhausted(
+        "ONNX Runtime allocation failed", Details(operation)));
   } catch (const Ort::Exception&) {
     if (std::string_view(operation) == "load")
-      std::throw_with_nested(
+      ::jyppx::liuding::detail::throw_nested_error(
           CompatibilityError("ONNX Runtime rejected the model or an operator",
                              Details(operation)));
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         BackendError("ONNX Runtime operation failed", Details(operation)));
   } catch (const std::exception&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         BackendError("ONNX Runtime operation failed", Details(operation)));
   }
 }
@@ -490,13 +491,13 @@ class Session::Impl {
     } catch (const Ort::Exception& error) {
       auto details = ProviderDetails(options.provider, "load", error.what());
       if (error.GetOrtErrorCode() == ORT_EP_FAIL)
-        std::throw_with_nested(
+        ::jyppx::liuding::detail::throw_nested_error(
             DeviceError("ONNX Runtime execution provider failed to initialize",
                         std::move(details)));
       details.hint =
           "Check the self-contained model, operator schemas and coverage "
           "of the requested execution provider.";
-      std::throw_with_nested(CompatibilityError(
+      ::jyppx::liuding::detail::throw_nested_error(CompatibilityError(
           "ONNX Runtime could not initialize the requested model/session",
           std::move(details)));
     }

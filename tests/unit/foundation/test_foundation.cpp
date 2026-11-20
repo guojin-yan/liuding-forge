@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -87,6 +88,96 @@ TEST(FoundationErrorTest, BackendTranslationUsesExplicitKindAndNestsCause) {
     }
   }
   FAIL() << "backend error was not translated";
+}
+
+TEST(FoundationErrorTest, CapturedBackendErrorsPreserveCauseAcrossThreads) {
+  using namespace jyppx::liuding;
+  using jyppx::liuding::detail::BackendFailureKind;
+  constexpr std::array kinds{
+      std::pair{BackendFailureKind::invalid_argument,
+                ErrorCode::invalid_argument},
+      std::pair{BackendFailureKind::unsupported, ErrorCode::not_implemented},
+      std::pair{BackendFailureKind::device, ErrorCode::device},
+      std::pair{BackendFailureKind::resource_exhausted,
+                ErrorCode::resource_exhausted},
+      std::pair{BackendFailureKind::unknown, ErrorCode::backend},
+  };
+  for (const auto& [kind, code] : kinds) {
+    SCOPED_TRACE(error_code_name(code));
+    std::string cause_text;
+    const auto capture = [&]() -> std::exception_ptr {
+      try {
+        TORCH_CHECK(false, "original asynchronous backend failure");
+      } catch (const c10::Error& cause) {
+        cause_text = cause.what();
+        try {
+          jyppx::liuding::detail::rethrow_backend_error(
+              cause, {.component = "FoundationTest",
+                      .operation = "async_backend",
+                      .failure_kind = kind,
+                      .expected = "supported operation",
+                      .hint = "Inspect the original cause."});
+        } catch (...) {
+          return std::current_exception();
+        }
+      }
+      return {};
+    };
+    auto saved = capture();
+    ASSERT_TRUE(saved);
+    for (int hop = 0; hop < 3; ++hop) {
+      SCOPED_TRACE(hop);
+      std::exception_ptr returned;
+      std::thread consumer([saved, &returned] {
+        try {
+          std::rethrow_exception(saved);
+        } catch (...) {
+          returned = std::current_exception();
+        }
+      });
+      consumer.join();
+      ASSERT_TRUE(returned);
+      saved = std::move(returned);
+      try {
+        std::rethrow_exception(saved);
+      } catch (const Error& error) {
+        EXPECT_EQ(error.code(), code);
+        EXPECT_EQ(error.details().component, "FoundationTest");
+        EXPECT_EQ(error.details().operation, "async_backend");
+        EXPECT_EQ(error.details().expected, "supported operation");
+        EXPECT_EQ(error.details().actual, cause_text);
+        EXPECT_EQ(error.details().hint, "Inspect the original cause.");
+        switch (kind) {
+          case BackendFailureKind::invalid_argument:
+            EXPECT_NE(dynamic_cast<const InvalidArgument*>(&error), nullptr);
+            break;
+          case BackendFailureKind::unsupported:
+            EXPECT_NE(dynamic_cast<const NotImplemented*>(&error), nullptr);
+            break;
+          case BackendFailureKind::device:
+            EXPECT_NE(dynamic_cast<const DeviceError*>(&error), nullptr);
+            break;
+          case BackendFailureKind::resource_exhausted:
+            EXPECT_NE(dynamic_cast<const ResourceExhausted*>(&error), nullptr);
+            break;
+          case BackendFailureKind::unknown:
+            EXPECT_NE(dynamic_cast<const BackendError*>(&error), nullptr);
+            break;
+        }
+        const auto* nested = dynamic_cast<const std::nested_exception*>(&error);
+        ASSERT_NE(nested, nullptr);
+        ASSERT_TRUE(nested->nested_ptr());
+        try {
+          std::rethrow_if_nested(error);
+          FAIL() << "original backend cause was lost";
+        } catch (const c10::Error& cause) {
+          EXPECT_EQ(cause.what(), cause_text);
+          EXPECT_EQ(dynamic_cast<const std::nested_exception*>(&cause),
+                    nullptr);
+        }
+      }
+    }
+  }
 }
 
 TEST(FoundationRandomTest, CpuStateRoundTripsAndHasVersion) {

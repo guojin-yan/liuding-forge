@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../foundation/nested_error.hpp"
 #include "detail/memory_participant_state.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
@@ -367,7 +368,7 @@ CheckpointDescriptor CheckpointCoordinator::restore(
       try {
         std::rethrow_exception(restore_failure);
       } catch (...) {
-        std::throw_with_nested(InternalError(
+        ::jyppx::liuding::detail::throw_nested_error(InternalError(
             "Checkpoint restore failed and rollback was incomplete",
             ErrorDetails{.component = "training.checkpoint",
                          .operation = "restore.rollback",

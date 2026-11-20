@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../../foundation/nested_error.hpp"
+
 #include <jyppx/liuding/deployment/onnx_export/report.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 
@@ -193,8 +195,7 @@ Json Document(const ExportReport& report) {
   return {{"format", "jyppx.liuding.onnx_export_report"},
           {"schema_version", ExportReport::format_version},
           {"model",
-           {{"digest", model_digest},
-            {"size_bytes", report.model_size_bytes}}},
+           {{"digest", model_digest}, {"size_bytes", report.model_size_bytes}}},
           {"build", build},
           {"source", source},
           {"exporter", "native-cpp-trace"},
@@ -251,7 +252,8 @@ std::string serialize_export_report(const ExportReport& report,
           "Native ONNX export report exceeds its byte limit");
     return encoded;
   } catch (const Json::exception&) {
-    std::throw_with_nested(SerializationError("Invalid ONNX report JSON"));
+    ::jyppx::liuding::detail::throw_nested_error(
+        SerializationError("Invalid ONNX report JSON"));
   }
 }
 
@@ -276,7 +278,8 @@ ExportReport deserialize_export_report(std::string_view json,
     result.build.libtorch_version = Text(build.at("libtorch_version"));
     result.build.libtorch_build = Text(build.at("libtorch_build"));
     result.build.accelerator_runtime = Text(build.at("accelerator_runtime"));
-    result.build.dependency_lock_digest = Text(build.at("dependency_lock_digest"));
+    result.build.dependency_lock_digest =
+        Text(build.at("dependency_lock_digest"));
     const auto& source = value.at("source");
     result.source.run_id = Optional(source.at("run_id"), false);
     result.source.source_digest = Optional(source.at("source_digest"), false);
@@ -320,7 +323,7 @@ ExportReport deserialize_export_report(std::string_view json,
       Invalid();
     return result;
   } catch (const Json::exception&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         SerializationError("Malformed native ONNX export report"));
   }
 }
@@ -335,7 +338,7 @@ void verify_export_report_model(const ExportReport& report,
     torch::jit::check_onnx_proto(
         std::string(reinterpret_cast<const char*>(onnx.data()), onnx.size()));
   } catch (const std::exception&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         CompatibilityError("Official ONNX report/model check failed"));
   }
 }

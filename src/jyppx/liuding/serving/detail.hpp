@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 #ifndef JYPPX_SERVING_DETAIL_HPP
 #define JYPPX_SERVING_DETAIL_HPP
+#include "../foundation/nested_error.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/serving/runtime.hpp>
 
@@ -65,7 +67,7 @@ decltype(auto) Backend(const char* operation, F&& function) {
   } catch (const Error&) {
     throw;
   } catch (const c10::OutOfMemoryError&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         ResourceExhausted("Inference backend allocation failed",
                           Details(operation, "available backend memory")));
   } catch (const c10::Error& e) {
@@ -76,7 +78,7 @@ decltype(auto) Backend(const char* operation, F&& function) {
             .expected = "supported inference operation",
             .hint = "Inspect nested backend cause."});
   } catch (const std::bad_alloc&) {
-    std::throw_with_nested(ResourceExhausted(
+    ::jyppx::liuding::detail::throw_nested_error(ResourceExhausted(
         "Inference allocation failed", Details(operation, "available memory")));
   }
 }

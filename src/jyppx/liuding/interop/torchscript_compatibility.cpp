@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../foundation/nested_error.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/interop/torchscript_compatibility.hpp>
@@ -81,23 +83,23 @@ decltype(auto) BackendBoundary(const char* operation, Function&& function) {
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         ResourceExhausted("TorchScript allocation failed",
                           Details(operation, "available memory")));
   } catch (const std::length_error&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         ResourceExhausted("TorchScript allocation size failed",
                           Details(operation, "bounded sizes")));
   } catch (const c10::OutOfMemoryError&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         ResourceExhausted("TorchScript backend allocation failed",
                           Details(operation, "available backend memory")));
   } catch (const c10::Error&) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "TorchScript backend operation failed",
         Details(operation, "a supported executable artifact and runtime")));
   } catch (const std::exception&) {
-    std::throw_with_nested(BackendError(
+    ::jyppx::liuding::detail::throw_nested_error(BackendError(
         "TorchScript backend operation failed",
         Details(operation, "a supported executable artifact and runtime")));
   }

@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0.
 #ifndef JYPPX_LIUDING_MODELS_DETAIL_HPP
 #define JYPPX_LIUDING_MODELS_DETAIL_HPP
+#include "../foundation/nested_error.hpp"
+
 #include <jyppx/liuding/core/types.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
@@ -40,7 +42,7 @@ decltype(auto) Backend(const char* operation, Function&& function) {
   } catch (const Error&) {
     throw;
   } catch (const c10::OutOfMemoryError&) {
-    std::throw_with_nested(
+    ::jyppx::liuding::detail::throw_nested_error(
         ResourceExhausted("Model backend memory exhausted",
                           Details(operation, "available memory")));
   } catch (const c10::Error& error) {
@@ -52,7 +54,7 @@ decltype(auto) Backend(const char* operation, Function&& function) {
          .expected = "a supported model invocation",
          .hint = "Inspect the nested backend cause."});
   } catch (const std::bad_alloc&) {
-    std::throw_with_nested(ResourceExhausted(
+    ::jyppx::liuding::detail::throw_nested_error(ResourceExhausted(
         "Model allocation failed", Details(operation, "available memory")));
   }
 }

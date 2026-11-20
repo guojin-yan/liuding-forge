@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../../foundation/nested_error.hpp"
+
 #include <jyppx/liuding/deployment/onnx_runtime/verification.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -268,7 +270,8 @@ ProfileObservation inspect_profile(std::string_view json,
           "ORT profile contains no actual provider kernel events");
     return result;
   } catch (const Json::exception&) {
-    std::throw_with_nested(SerializationError("Invalid ORT profiling JSON"));
+    ::jyppx::liuding::detail::throw_nested_error(
+        SerializationError("Invalid ORT profiling JSON"));
   }
 }
 

@@ -2,6 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0 (the "License");
+#include "../foundation/nested_error.hpp"
 #include "detail.hpp"
 
 #include <jyppx/liuding/core/value_schema.hpp>
@@ -575,11 +576,12 @@ PredictResponse Predictor::predict(const PredictRequest& request,
         retryable =
             impl->metadata.runtime.oom_retry_safe && detail::IsOom(error);
         if (retryable)
-          std::throw_with_nested(detail::RetryableOutOfMemoryWithTiming(
-              "Retry-safe native allocation failed",
-              detail::Details("predict.forward",
-                              "available memory for this batch"),
-              timing.queue));
+          ::jyppx::liuding::detail::throw_nested_error(
+              detail::RetryableOutOfMemoryWithTiming(
+                  "Retry-safe native allocation failed",
+                  detail::Details("predict.forward",
+                                  "available memory for this batch"),
+                  timing.queue));
         throw;
       }
       timing.compute =
@@ -765,7 +767,7 @@ std::shared_ptr<Predictor> NativeStateBackend::load(
                                   options.max_snapshot_bytes));
       }
     } catch (const std::filesystem::filesystem_error&) {
-      std::throw_with_nested(
+      ::jyppx::liuding::detail::throw_nested_error(
           IoError("Cannot snapshot immutable serving bundle"));
     }
     detail::Boundary(options.stop, options.deadline);
