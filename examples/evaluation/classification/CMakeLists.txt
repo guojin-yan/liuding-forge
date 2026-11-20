@@ -22,7 +22,12 @@ if(COMMAND jyppx_add_torch_runtime_dependency)
 endif()
 
 if(JYPPX_LIUDING_BUILD_TESTS OR BUILD_TESTING)
-    set(evaluation_example_root "${CMAKE_CURRENT_BINARY_DIR}/classification-output")
+    # Reports bind the build fingerprint and must reject differing content.
+    # Keep each configure's fixture group separate while sharing its outputs
+    # between the pause, resume and replay processes.
+    string(RANDOM LENGTH 16 ALPHABET 0123456789abcdef evaluation_example_run_id)
+    set(evaluation_example_root
+        "${CMAKE_CURRENT_BINARY_DIR}/classification-output/${evaluation_example_run_id}/$<CONFIG>")
     foreach(mode IN ITEMS full pause resume cancel reject-identity)
         if(mode STREQUAL "full")
             set(output_name full)
