@@ -69,6 +69,17 @@ constexpr const char* kManifestSha =
     "38386432386c0fc3b9560c98575677e150708b3dbfb4fc11825035309f4dbd95";
 constexpr const char* kWeightsSha =
     "983cddb5b67bd9bf6bc03819e128f914c41ef72de1ed7ca7c0bd31303bfac4d8";
+struct PinnedTaskWeights {
+  const char* filename;
+  const char* sha256;
+};
+constexpr PinnedTaskWeights kHistoricalWeights{"trained.safetensors",
+                                               kWeightsSha};
+// The native ROCm final-epoch artifact has a separate identity. Both artifacts
+// use the same recipe and the quality thresholds frozen before training.
+constexpr PinnedTaskWeights kRocmWeights{
+    "trained-rocm.safetensors",
+    "d5c8a67d38a846f0e042795e85c7a4e581bced1bd3944c40cfa79e29b376c603"};
 constexpr const char* kConfig =
     "penn-fudan.tiny-unet-8.final80.rgb128.bilinear-aa.mask-nearest-exact."
     "per-image-fp32.argmax.cc4-area16.mean-score.xyxy-exclusive/v1";
@@ -200,10 +211,11 @@ void save_weights(TinyUNet& module, const fs::path& path) {
                   sources, {{"dataset_manifest_sha256", kManifestSha},
                             {"recipe", kConfig}}));
 }
-std::shared_ptr<TinyUNet> trained(const torch::Device& device) {
+std::shared_ptr<TinyUNet> trained(const torch::Device& device,
+                                  const PinnedTaskWeights& weights) {
   auto module = std::make_shared<TinyUNet>();
-  const auto bytes = read(root() / "trained.safetensors", 1U << 20U);
-  if (sha256_hex(bytes) != kWeightsSha)
+  const auto bytes = read(root() / weights.filename, 1U << 20U);
+  if (sha256_hex(bytes) != weights.sha256)
     throw std::runtime_error("trained weight SHA-256 mismatch");
   const interop::SafeTensorsView view(bytes);
   if (view.directory().tensors.size() != module->named_parameters().size())
@@ -311,9 +323,9 @@ c10::IValue boxes(const Tensor& logits) {
   return output;
 }
 nn::ModelAdapter adapter(const torch::Device& device, bool detection,
-                         int& calls) {
+                         int& calls, const PinnedTaskWeights& weights) {
   return nn::adapt_module(
-      trained(device),
+      trained(device, weights),
       [detection, &calls](TinyUNet& module,
                           const nn::Invocation& in) -> c10::IValue {
         ++calls;
@@ -330,7 +342,8 @@ nn::ModelAdapter adapter(const torch::Device& device, bool detection,
 }
 template <class Result>
 std::string report(const Result& result, const std::string& task,
-                   const std::string& device) {
+                   const std::string& device,
+                   const PinnedTaskWeights& weights) {
   experiment::EvaluationSuite suite{.suite_id = "penn-fudan.fixed25." + task,
                                     .task = task,
                                     .dataset_digest = {.hex = kManifestSha},
@@ -352,7 +365,7 @@ std::string report(const Result& result, const std::string& task,
   experiment::EvaluationIdentity identity{
       .evaluation_id = "penn-fudan." + task + "." + device,
       .run_id = "penn-fudan.tiny-unet.final80",
-      .model_digest = {.hex = kWeightsSha},
+      .model_digest = {.hex = weights.sha256},
       .build_fingerprint = build_fingerprint_json(),
       .adapter_id = kConfig,
       .config_digest = {.hex = config_sha()}};
@@ -407,7 +420,7 @@ auto reopen(const fs::path& checkpoint, const ModelFactory& make_model,
   return result;
 }
 
-void task(bool cuda) {
+void task(bool cuda, const PinnedTaskWeights& weights) {
   setup();
   const auto started = std::chrono::steady_clock::now();
   const torch::Device device(cuda ? "cuda:0" : "cpu");
@@ -415,13 +428,13 @@ void task(bool cuda) {
   auto data = load("test");
   int calls = 0;
   const auto make_model = [&](bool detection) {
-    return adapter(device, detection, calls);
+    return adapter(device, detection, calls, weights);
   };
   // Export actual model predictions, not labels, for an independent evaluator.
   Tensor logits;
   {
     torch::NoGradGuard guard;
-    auto module = trained(device);
+    auto module = trained(device, weights);
     module->eval();
     logits = predict(*module, data.images.to(device)).cpu();
   }
@@ -491,7 +504,7 @@ void task(bool cuda) {
           SegmentationEvaluationIdentity{
               .evaluation_id = "penn-fudan." + name,
               .dataset_digest = {.hex = kManifestSha},
-              .model_digest = {.hex = kWeightsSha},
+              .model_digest = {.hex = weights.sha256},
               .config_digest = {.hex = config_sha()},
               .build_fingerprint = build_fingerprint_json()},
           options, 25, 25 * 128 * 128);
@@ -499,8 +512,8 @@ void task(bool cuda) {
     const auto resumed = reopen<SegmentationEvaluationSession>(
         out / (name + ".state"), [&] { return make_model(false); },
         make_session, source);
-    const auto encoded = report(result, name, cuda ? "cuda" : "cpu");
-    EXPECT_EQ(encoded, report(resumed, name, cuda ? "cuda" : "cpu"));
+    const auto encoded = report(result, name, cuda ? "cuda" : "cpu", weights);
+    EXPECT_EQ(encoded, report(resumed, name, cuda ? "cuda" : "cpu", weights));
     write(out / (name + "-report.json"), std::as_bytes(std::span(encoded)));
     results[name] = {
         {"overall", *result.overall.score},
@@ -581,7 +594,7 @@ void task(bool cuda) {
         DetectionEvaluationIdentity{
             .evaluation_id = "penn-fudan.box",
             .dataset_digest = {.hex = kManifestSha},
-            .model_digest = {.hex = kWeightsSha},
+            .model_digest = {.hex = weights.sha256},
             .config_digest = {.hex = config_sha()},
             .build_fingerprint = build_fingerprint_json()},
         options);
@@ -589,8 +602,8 @@ void task(bool cuda) {
   const auto resumed = reopen<DetectionEvaluationSession>(
       out / "box.state", [&] { return make_model(true); }, make_session,
       source);
-  const auto encoded = report(detection, "box", cuda ? "cuda" : "cpu");
-  EXPECT_EQ(encoded, report(resumed, "box", cuda ? "cuda" : "cpu"));
+  const auto encoded = report(detection, "box", cuda ? "cuda" : "cpu", weights);
+  EXPECT_EQ(encoded, report(resumed, "box", cuda ? "cuda" : "cpu", weights));
   write(out / "box-report.json", std::as_bytes(std::span(encoded)));
   const auto& c = detection.overall.per_class.front();
   results["detection"] = {{"ap50", *c.ap_by_iou[0]},
@@ -614,7 +627,7 @@ void task(bool cuda) {
   Json resources{
       {"device", device.str()},
       {"data_manifest_sha256", kManifestSha},
-      {"weights_sha256", kWeightsSha},
+      {"weights_sha256", weights.sha256},
       {"inference_calls", calls},
       {"peak_rss_bytes", peak_rss()},
       {"elapsed_seconds",
@@ -633,9 +646,7 @@ void task(bool cuda) {
   std::cout << "REAL_SPATIAL_RESULT " << results.dump() << '\n';
 }
 
-TEST(RealSpatialTask, TrainCUDA) {
-  if (!std::getenv("JYPPX_LIUDING_TRAIN_SPATIAL_TASK"))
-    GTEST_SKIP() << "Explicit external training run required";
+void train(const char* expected_weights_sha) {
   ASSERT_TRUE(torch::cuda::is_available());
   setup();
   const auto start = std::chrono::steady_clock::now();
@@ -726,7 +737,8 @@ TEST(RealSpatialTask, TrainCUDA) {
   EXPECT_EQ(result.completed_epochs, 80);
   EXPECT_EQ(result.global_step, 1200);
   save_weights(*holder, out / "trained.safetensors");
-  EXPECT_EQ(sha256_hex(read(out / "trained.safetensors")), kWeightsSha);
+  EXPECT_EQ(sha256_hex(read(out / "trained.safetensors")),
+            expected_weights_sha);
   trainer.close();
   const auto elapsed =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
@@ -750,15 +762,36 @@ TEST(RealSpatialTask, TrainCUDA) {
   write_json(out / "training.json", summary);
   std::cout << "REAL_SPATIAL_TRAINING " << summary.dump() << '\n';
 }
+TEST(RealSpatialTask, TrainCUDA) {
+  if (!std::getenv("JYPPX_LIUDING_TRAIN_SPATIAL_TASK"))
+    GTEST_SKIP() << "Explicit external training run required";
+  train(kWeightsSha);
+}
+TEST(RealSpatialTask, TrainRocmCUDA) {
+  if (!std::getenv("JYPPX_LIUDING_TRAIN_ROCM_SPATIAL_TASK"))
+    GTEST_SKIP() << "Explicit native ROCm reference training run required";
+  train(kRocmWeights.sha256);
+}
 TEST(RealSpatialTask, HeldOutInferenceAndDurableEvaluationCPU) {
   if (!std::getenv("JYPPX_LIUDING_SPATIAL_TASK_DIR"))
     GTEST_SKIP() << "Pinned external real task data and weights required";
-  task(false);
+  task(false, kHistoricalWeights);
 }
 TEST(RealSpatialTask, HeldOutInferenceAndDurableEvaluationCUDA) {
   if (!std::getenv("JYPPX_LIUDING_SPATIAL_TASK_DIR"))
     GTEST_SKIP() << "Pinned external real task data and weights required";
   ASSERT_TRUE(torch::cuda::is_available());
-  task(true);
+  task(true, kHistoricalWeights);
+}
+TEST(RealSpatialTask, RocmWeightsHeldOutInferenceAndDurableEvaluationCPU) {
+  if (!std::getenv("JYPPX_LIUDING_ROCM_SPATIAL_WEIGHTS_GATE"))
+    GTEST_SKIP() << "Explicit pinned native ROCm weights required";
+  task(false, kRocmWeights);
+}
+TEST(RealSpatialTask, RocmWeightsHeldOutInferenceAndDurableEvaluationCUDA) {
+  if (!std::getenv("JYPPX_LIUDING_ROCM_SPATIAL_WEIGHTS_GATE"))
+    GTEST_SKIP() << "Explicit pinned native ROCm weights required";
+  ASSERT_TRUE(torch::cuda::is_available());
+  task(true, kRocmWeights);
 }
 }  // namespace

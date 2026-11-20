@@ -12,6 +12,10 @@
 2. 将生成的 `trained.safetensors` 放入数据目录；测试仅接受源码中固定摘要的权重。其他 LibTorch/GPU 组合训练出的字节需要作为新的参考候选单独核验，不直接替换现有参考。
 3. 清除训练开关，分别运行 `RealSpatialTask.HeldOutInferenceAndDurableEvaluationCPU` 和 `RealSpatialTask.HeldOutInferenceAndDurableEvaluationCUDA`，每次使用新的输出目录。可通过 `--gtest_filter=测试名` 单独执行，或用 CTest 的精确 `-R` 选择，并保持 `-j 1`。
 
+原生 ROCm 的最终轮训练产物使用独立固定身份：设置 `JYPPX_LIUDING_TRAIN_ROCM_SPATIAL_TASK=1`，运行 `RealSpatialTask.TrainRocmCUDA`，将输出的 `trained.safetensors` 保存为数据目录下的 `trained-rocm.safetensors`。再清除训练开关、设置 `JYPPX_LIUDING_ROCM_SPATIAL_WEIGHTS_GATE=1`，分别运行 `RealSpatialTask.RocmWeightsHeldOutInferenceAndDurableEvaluationCPU` 和 `RealSpatialTask.RocmWeightsHeldOutInferenceAndDurableEvaluationCUDA`，每次仍使用新的输出目录。
+
+两套门禁分别核对各自固定的权重摘要，评估检查点和质量报告也绑定实际权重身份；训练配方、划分、质量和资源门槛共用原合同。`TrainCUDA` 继续核对历史参考的原摘要。训练字节一致性仅适用于实际验证的精确组合，参考产物在其他设备上的推理需要单独验证，不能由权重名称推定。
+
 输出包含实际前处理图像、实例 ID、模型 logits、候选框、统计值、质量报告、物理检查点与资源观测，便于独立参考核对。照片采用 FP32 RGB/255 和带抗锯齿的双线性缩放，离散实例 ID 用 nearest-exact；评估按单张图像执行前向，拆批不改变模型运算形状。IoU/Dice 和 AP 均核对 batch 1/4 等价，并销毁重建模型和会话后续评。
 
 候选框只来自模型预测前景的连通分量，不读取真实标注。它用于检验实际预测到 AP 的数据链路，不代表独立检测模型、完整检测配方、官方 benchmark 或训练性能优势。
