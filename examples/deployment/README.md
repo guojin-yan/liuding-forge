@@ -50,7 +50,7 @@ target_link_libraries(my_app PRIVATE
 
 ## 已训练的 CIFAR-10 模型交付
 
-[image_onnx.cpp](image_onnx.cpp) 连接已有原生训练记录、检查点重建导出、Ed25519 签名和本地 CPU Serving。它要求完整的 CIFAR-10 验证目录（10000 张图、每类 1000 张，类别顺序为 `airplane automobile bird cat deer dog frog horse ship truck`）、原训练的 `final.jyck`、`result.json` 及包含 `final-checkpoint`、`model-definition` 引用的原 `run-store`。检查点须属于十分类 ResNet18；图片处理与[分类配方](../../docs/tutorials/image_classification_recipe.md)一致：RGB float32 `[0,1]`、bilinear resize 32×32、NCHW，不添加 ImageNet 归一化。程序不会训练、下载数据或权重。
+[image_onnx.cpp](image_onnx.cpp) 连接已有原生训练记录、检查点重建导出、Ed25519 签名和本地 Serving，默认显式使用 CPUExecutionProvider。它要求完整的 CIFAR-10 验证目录（10000 张图、每类 1000 张，类别顺序为 `airplane automobile bird cat deer dog frog horse ship truck`）、原训练的 `final.jyck`、`result.json` 及包含 `final-checkpoint`、`model-definition` 引用的原 `run-store`。检查点须属于十分类 ResNet18；图片处理与[分类配方](../../docs/tutorials/image_classification_recipe.md)一致：RGB float32 `[0,1]`、bilinear resize 32×32、NCHW，不添加 ImageNet 归一化。程序不会训练、下载数据或权重。
 
 在现有兼容配置中另启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE`、`JYPPX_LIUDING_BUILD_BUNDLE_SIGNING` 和 `JYPPX_LIUDING_BUILD_ONNX_SERVING`；CLI 的检查点重建导出还需 `models`、`experiment` 和相关训练组件。组件依赖及 SDK 路径按[构建指南](../../CONTRIBUTING.md#构建与验证)配置，不通过额外启用全部组件解决依赖。示例 target 默认不参与 ALL，显式构建：
 
@@ -108,4 +108,6 @@ policy_sha=AUTHORIZED_PUBLIC_POLICY_SHA256
 
 `evaluate` 核验签名及独立预期摘要，在同次可信快照中读取原生参考和环境锁，解码并核对四个 owner 描述符与实际图签名，通过六种 batch 预热后逐批读取全部 10000 张图。Serving 接收预先准备好的 CPU NCHW Tensor；图片解码和 resize 在外部 C++ 数据流程完成。输出 `logits.f32`（little-endian 10000×10）、`labels.i64`（10000）、`samples.tsv` 及含混淆矩阵、摘要和准确率的 `evaluation.json`。准确率低于 0.65 返回非零，部分结果保留；成功返回 0。
 
-本案例仅验证 CPU FP32 ORT 推理及本地 Serving，不声明其他 Provider、GPU 零复制、自动合批、OOM 拆批恢复或生产签名资格。96 MiB 快照和 I/O 限制是逻辑载荷预算，不是进程 RSS 上限。确认交付包及结果摘要后，可删除重复的展开导出包和中间图片输入，保留原训练资产与唯一交付副本；不要将运行库或编译树存入记录目录。
+使用 Windows DirectML 时，先按 [ONNX API](../../docs/api/onnx.md) 准备独立的 DirectML 构建和匹配 SDK。在导出或打包命令中显式传入 `--provider DmlExecutionProvider --provider-option device_id=0`，为该 Provider 生成并验证新的包，再执行临时签名；`device_id` 是 DXGI 适配器索引，独立于 HIP 设备编号。对应 `smoke` 同样使用该 Provider 和选项，`evaluate` 在上述参数末尾追加 `DmlExecutionProvider`。省略末尾参数始终要求 CPUExecutionProvider；请求与签名包环境锁不一致、允许 CPU fallback、SDK 或适配器不可用都会失败。
+
+两种 Provider 均使用 FP32 CPU Tensor 输入输出，评估报告保存实际 Provider、选项和 I/O 设备。六种预热沿用 `atol=1e-5`、`rtol=1e-4`，通过预热不能推导其他图片的逐元素误差、任务质量或性能；实际设备和图的验证范围见[兼容清单](../../compatibility.json)。不声明 GPU 零复制、自动合批、OOM 拆批恢复或生产签名资格。96 MiB 快照和 I/O 限制是逻辑载荷预算，不是进程 RSS 上限。确认交付包及结果摘要后，可删除重复的展开导出包和中间图片输入，保留原训练资产与唯一交付副本；不要将运行库或编译树存入记录目录。

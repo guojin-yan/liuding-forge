@@ -3,7 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0 (the "License");
 /** @file image_onnx.cpp @brief Prepares CIFAR-10 inputs, signs a native ONNX
- * delivery and evaluates its trusted CPU Serving instance without Python. */
+ * delivery and evaluates its trusted FP32 host-I/O Serving instance. */
 
 #include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data_image/image_batch.hpp>
@@ -360,8 +360,14 @@ void Append(std::ofstream& stream, const at::Tensor& tensor) {
 }
 
 void Evaluate(std::span<const fs::path> args) {
-  Require(args.size() == 6,
-          "evaluate BUNDLE MANIFEST_SHA POLICY POLICY_SHA DATA OUTPUT");
+  Require(args.size() == 6 || args.size() == 7,
+          "evaluate BUNDLE MANIFEST_SHA POLICY POLICY_SHA DATA OUTPUT "
+          "[CPUExecutionProvider|DmlExecutionProvider]");
+  const auto requested_provider =
+      args.size() == 7 ? args[6].string() : "CPUExecutionProvider";
+  Require(requested_provider == "CPUExecutionProvider" ||
+              requested_provider == "DmlExecutionProvider",
+          "Use CPUExecutionProvider or DmlExecutionProvider explicitly");
   const auto policy =
       signing::Ed25519TrustPolicy::load(args[2], {.hex = args[3].string()});
   auto verify = signing::trusted_ed25519_options(policy);
@@ -412,9 +418,9 @@ void Evaluate(std::span<const fs::path> args) {
   }
   const auto environment =
       ort::parse_environment_lock(Text(snapshot.files.at("runtime-lock")));
-  Require(environment.provider.name == "CPUExecutionProvider" &&
+  Require(environment.provider.name == requested_provider &&
               !environment.allow_cpu_fallback,
-          "This example requires explicit CPU execution without fallback");
+          "Bundle provider must match the explicit request without fallback");
   serving::RuntimeDescriptor descriptor;
   descriptor.backend_id = environment.runtime.backend_id;
   descriptor.backend_version = environment.runtime.backend_version;
@@ -510,7 +516,10 @@ void Evaluate(std::span<const fs::path> args) {
        {"manifest_sha256", args[1].string()},
        {"policy_sha256", args[3].string()},
        {"signature_status", "trusted"},
-       {"provider", "CPUExecutionProvider"},
+       {"provider", environment.provider.name},
+       {"provider_options", environment.provider.options},
+       {"io_device", "cpu"},
+       {"allow_cpu_fallback", false},
        {"samples", kSamples},
        {"correct", correct},
        {"accuracy", accuracy},
@@ -534,11 +543,11 @@ int main(int argc, char* argv[]) {
 #endif
   const std::vector<fs::path> args(argv + 1, argv + argc);
   if (args.size() == 1 && args[0] == "--help") {
-    std::cout
-        << "Commands:\n  prepare DATA CHECKPOINT CHECKPOINT_SHA RESULT "
-           "RESULT_SHA OUTPUT\n"
-           "  sign UNSIGNED EXPECTED_MANIFEST_SHA OUTPUT\n"
-           "  evaluate BUNDLE MANIFEST_SHA POLICY POLICY_SHA DATA OUTPUT\n";
+    std::cout << "Commands:\n  prepare DATA CHECKPOINT CHECKPOINT_SHA RESULT "
+                 "RESULT_SHA OUTPUT\n"
+                 "  sign UNSIGNED EXPECTED_MANIFEST_SHA OUTPUT\n"
+                 "  evaluate BUNDLE MANIFEST_SHA POLICY POLICY_SHA DATA OUTPUT "
+                 "[CPUExecutionProvider|DmlExecutionProvider]\n";
     return 0;
   }
   try {
