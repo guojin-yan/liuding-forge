@@ -18,6 +18,28 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 installed preview contracts",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-6d8c4db-installed-preview-contracts",
+          "commit": "6d8c4dbb8ce67e281975b92fa9449daafcb42398",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，父子构建最多两个编译任务、串行CTest；ROCPROFILER_REGISTER_ENABLED=0，保持正常设备可见性以供LibTorch架构检测。",
+          "tests": "干净6d8c4db原安装preview合同与五仓库门禁共6项CTest全部通过，零失败、跳过或未执行；实际内部消费者结果另行逐项核对。",
+          "quality_evidence": {
+            "source_identity": "304件显式文件安装输入前后完整SHA、原CMake/消费者源码blob、cache/provenance、CLI运行身份及JUnit/native独立审核；保留嵌套cache和测试日志可观察修订，并区分运行前遗留文件。原命令、组件选择、断言未改。",
+            "contracts": "原core_before/models/serving/vision_render/all_previews/core_after六完整profile、二十消费者及全部缺依赖准确拒绝；保留原nm符号检查、关闭后头/库/聚合接口移除与ON到OFF清理合同；未缩减矩阵。",
+            "nested_results": "{\"PreviewComponentMatrix\": {\"cases\": 20, \"counts\": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], \"invocations\": 20}}",
+            "offline_dependencies": "继承父构建编译器、本地不可变FetchContent源码与FULLY_DISCONNECTED/UPDATES_DISCONNECTED；不共享可变依赖构建目录，不下载依赖或触发Actions。仅原脚本刷新自己out/范围安装暂存。",
+            "resource_contract": "保留原完整矩阵10800秒上限；父子构建最多两个编译任务，所有测试串行。",
+            "scope": "仅此WSL/GCC/ROCm分发上述开发profile安装合同；ORT仅CPU EP。既有数值失败保留；不授HTTP/TLS、真实数据质量、性能、其他系统/设备、正式二进制再分发或发布资格。",
+            "validation_receipt_sha256": "21127c696361a435ba2c33e5a5ecc7a6d960fec986c751db4d272332a4faa1b3",
+            "qualification_summary_sha256": "1db165f4593c950c41b4eec59f05c3a012daac57e9d3f30f56ef8890e287233b"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 installed optional contracts",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-718aa6d-installed-optional-contracts",
           "commit": "718aa6d6b09106c135862e505564c26f7bebb407",
