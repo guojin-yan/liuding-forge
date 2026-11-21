@@ -20,6 +20,28 @@
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-4bb4206-native-components",
+          "commit": "4bb420672dbac0025400d87d083dfbdd6b665351",
+          "tests": "干净4bb4206原native-components目标、五门禁及所列安装消费者共61项：61通过、0条件跳过、零失败；各组件范围以实际原用例为准。",
+          "quality_evidence": {
+            "source_and_profile": "WSL原生文件系统的干净同源测试副本，复用原Ninja Release树与精确Linux ROCm SDK；依赖离线复用，最多两个编译任务、CTest串行。实际版本与构建指纹、原生binary前后相同SHA和原JUnit/native日志保留；原断言、输入和超时不改。",
+            "conditional_skips": "[]",
+            "validation_receipt_sha256": "f4d6faae926c86d35159b264e0a7f59bc34f72bad837f0fe03f5aa4713693464",
+            "installed_execution_evidence_sha256": "2bcf83f2a91194d64ec0a19eabada7b71f333be207a30a30e2bb4242248e5e95",
+            "telemetry": "原生TensorBoard/OTLP离线映射原契约与安装消费者通过，nanopb锁定文件逐项核对；未运行独立官方reader或真实Collector，不授HTTP发送、TLS或遥测网络范围。",
+            "signing": "复用Linux测试机精确OpenSSL3.5.9静态SDK，局域网复制及184个SDK文件/链接的原清单、归档与WSL解包逐项核对。原RFC8032、篡改/边界/线程/私钥权限与安装消费者按原用例执行；动态符号和ldd核对私有Crypto归档未成为公开动态依赖，不生成产品签名身份。",
+            "render": "原CPU headless renderer及安装消费者通过；独立RGB画布、layout/alpha、非连续stride、mask/heatmap/RLE、标注几何、取消及像素/点数/聚合预算按原契约执行，不推导GPU渲染、编码器或训练质量。",
+            "scope": "仅所列WSL2/Ubuntu/GCC/W7900构建的原生离线遥测、签名和CPU渲染接口。条件跳过不授资格，不继承Windows独立官方reader/Collector结果，不授HTTP遥测、性能、多卡、其他系统/设备或发布资格。"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-43489b5-representative-vision",
           "commit": "43489b5a443b68348bfe0391a42fb364c47624c2",
           "tests": "干净43489b5原14个代表视觉任务各FP32/FP16/BF16共42个GPU组合、14个CPU对照、视觉契约、五仓库门禁及原安装消费者共91项全部通过、零跳过。仅原随机初始化单步训练断言，不授完整架构目录或真实质量。",
