@@ -19,8 +19,10 @@ namespace jyppx::liuding {
  * its DLL-detach mutex deadlock after Windows has terminated worker threads.
  * OpenMP/MKL computation can still use
  * the caller's requested parallelism; auxiliary pthreadpool work runs inline.
- * ROCm builds retain an explicit HIP backend import and initialize visible
- * device properties. Use the selected SDK's runtime and device data files.
+ * Windows ROCm builds retain an explicit HIP backend import and initialize
+ * visible device properties. Linux leaves framework device discovery to the
+ * operation that needs it; the SDK may inspect visibility during library load.
+ * Use the selected SDK's runtime and device data files.
  * Other profiles require no adjustment. This cannot repair a pool initialized
  * earlier by an application or a different library.
  *
