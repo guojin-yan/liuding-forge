@@ -19,6 +19,26 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-b16d8d1-standalone-gpu",
+          "commit": "b16d8d12b34237d56a1c925d59db9848024d6571",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm10.1.0 LibTorch2.14.0 standalone native CPU/GPU lessons",
+          "tests": "干净b16d8d1原11个独立示例进程和五仓库门禁通过；包含三个骨干CPU/GPU路径、两拒绝路径及三图像输出路线，GPU异步copy与current逐步状态和预览字节相同。",
+          "quality_evidence": {
+            "source_identity": "本批在原三精度两小时独占长测自然完成并重新应用原validator后执行；复用匹配Release树离线最小重建、至多两个编译任务，源码在该批运行期间保持干净不变。每批精确提交、原生binary SHA、实际命令和原始失败分别保留，不与前后提交或NVIDIA结果拼成全量资格。",
+            "validation_receipt_sha256": "a637e19b866cc354b988bd3f822584620429c64b6722bc4785ee5cf1d78d5096",
+            "original_protocol": "三个随机骨干DINOv2-S/DINOv3-S/ResNet18分别原CPU与AMD GPU冻结特征提取，核对4次backbone前向、12次head更新、骨干释放及CPU缓存/分类头；保留缓存预算和隐藏GPU拒绝。图像输出示例使用原12张native准备Fashion-MNIST图片，原CPU/current、GPU/current、GPU/copy三路线各2更新。",
+            "copy_contract": "原GPU current/copy路线逐步参数状态、最终状态和preview完整SHA相同，copy路线实际copy与consumer stream不同，全部资源归零且峰值不超原预算；五门禁全过。",
+            "scope": "仅所列教学微任务与异步拷贝/输出资源合同，骨干随机初始化；不授真实任务准确率、完整微调、独立算法数值、性能、其他AMD设备/OS、多卡或发布资格。",
+            "measured_summary": "{}"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-2eea48d-spatial-gpu",
           "commit": "2eea48df0638b939c93f51c98e4519a17b730554",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm10.1.0 LibTorch2.14.0 native FP32 detector/segmentation examples",

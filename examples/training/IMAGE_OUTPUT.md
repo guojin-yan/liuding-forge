@@ -9,7 +9,7 @@ cmake --build out/build/release --target jyppx_image_training_output --parallel 
 liuding-forge-example-image-training-output ./images ./new-output cpu current
 ```
 
-输入目录按 `images/类别/图像.png` 组织。输出目录必须不存在。CUDA 构建可以选择当前流传输或显式拷贝流；CPU-only 构建拒绝 CUDA 请求。
+输入目录按 `images/类别/图像.png` 组织。输出目录必须不存在。CUDA 或 ROCm 构建可以选择当前流传输或显式拷贝流；已验证的 Windows ROCm 组合使用 `cuda:0` 选择 AMD GPU，精确设备与任务范围见[兼容矩阵](../../compatibility.json)。CPU-only 构建拒绝 CUDA 请求。
 
 ```sh
 liuding-forge-example-image-training-output ./images ./new-current cuda:0 current
