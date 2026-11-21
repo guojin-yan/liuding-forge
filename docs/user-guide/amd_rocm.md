@@ -74,6 +74,8 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 该组合的本地进程运行器另通过真实 AMD 子进程放置、显存准入与重试前复检、冻结搜索及完成态重放；GPU 显存预约仍是逻辑协调。CPU/RSS 计量与进程树清理已验证，操作系统内存硬限制须提供可写的 cgroup v2 委托目录，详见[本地进程运行器](../development/local_process_runner.md)；缺少该目录时不能启用此边界。
 
+固定图像分类配方的 CPU 完整训练、精确重试与 image/paired 工作目录丢失恢复已通过；paired 任务另通过 CPU/GPU 真实训练和搜索在 2 GiB cgroup v2 硬内存限制下的恢复、进程清理和资源释放。CPU 图像任务还验证了取消、超时、搜索和 128 MiB 内核 OOM 后的失败持久化与租约释放。这些主存限制不构成显存硬配额。
+
 模型接口另已验证 CPU/GPU 特征提取、分类头替换与冻结训练，以及 ResNet 前向、梯度、更新和 buffer 对照；原生模型 bundle 与显式可信 TorchScript 均通过实际 GPU 加载、预热、推理和关闭。模型、Serving 与图像组件的独立安装消费者也已通过，图像消费者执行真实 GPU 图像和 mask 拷贝。这些结果限于兼容清单列出的原始用例，不授予预训练权重、任务质量或完整视觉目录资格。
 
 图像组件另通过标注、编解码、联合变换、组批、预算回收及 GPU 拷贝流契约；原生 CLI 的模型检查点、离线流程、本地任务生命周期、初始状态、update、AdamW 和 paired 套件也已通过。三个仅用于后端不可用的回收契约，在独立隐藏 GPU 的进程补验通过。默认未启用 BatchNorm 校准的 ResNet18 小样本配方仍未通过原质量门禁：固定 48 次更新后准确率为 0.5，低于 0.875；对应图像配方和本地重试套件保留失败，不包含在通过范围内。
@@ -88,7 +90,7 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 该 Linux 分发的 profiler 会在进入 `main` 前枚举设备并解析 GPU 可见性变量，可能让只计算环境摘要的命令因占位值直接终止。无需 profiling 的启动器可在启动进程前设置 `ROCPROFILER_REGISTER_ENABLED=0`，关闭 profiler 注册；GPU 计算仍使用原 HIP 后端。框架不会修改调用者的环境；需要 profiling 时保留 SDK 默认设置，并确保可见性变量合法。`initialize_runtime()` 无法修复动态库加载前发生的终止。
 
-在 WSL 原生文件系统中维护独立检出与构建目录，激活原生 Linux SDK，并让 `LIBTORCH_ROOT`、`ROCM_PATH` 分别指向 LibTorch 与 HIP 前缀。按[贡献指南](../../CONTRIBUTING.md#构建与验证)预置锁定依赖；核心 CLI 与安装清单中的原生转换工具可这样构建：
+在 WSL 原生文件系统中维护独立检出、构建和训练工作目录；模型包发布要求文件系统支持 Linux 原子不覆盖目录重命名，Windows 挂载目录可能拒绝该操作。激活原生 Linux SDK，让 `LIBTORCH_ROOT`、`ROCM_PATH` 分别指向 LibTorch 与 HIP 前缀。按[贡献指南](../../CONTRIBUTING.md#构建与验证)预置锁定依赖；核心 CLI 与安装清单中的原生转换工具可这样构建：
 
 ```sh
 cmake -S . -B out/build/wsl-rocm -G Ninja \

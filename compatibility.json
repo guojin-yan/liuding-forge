@@ -20,6 +20,30 @@
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-3dab113-image-task-memory",
+          "commit": "3dab1138956c23fd5177cce3d8ca78579da53a11",
+          "tests": "干净3dab113七套原完整CTest全部通过零跳过：CPU分类/本地重试、image/paired工作区丢失恢复、paired CPU/GPU真实任务硬内存和CPU图像recipe硬内存；内部方法共49，单独计数。",
+          "quality_evidence": {
+            "source_and_profile": "复用原干净同源WSL树与原生Linux ROCm SDK，保持原3dab113二进制前后SHA相同；原CTest输入/质量/资源/超时与断言不变，串行执行，不重训挑选。无外网或依赖变动，主力Windows检出开发与提交。",
+            "cpu_image_and_workspace": "完整原Cli_image_recipe和Cli_local_recipe的CPU质量/跨进程精确恢复/崩溃恢复/重放及拒绝契约通过；原image/paired工作目录丢失后的CAS备份恢复、完整状态续训、幂等重放和篡改/缺失拒绝套件均通过。CPU范围不替代两原GPU ResNet质量失败。",
+            "paired_cpu_gpu_memory": "两个完整原paired硬内存套件实际执行CPU/GPU本地重试与搜索，原质量与完整模型/检查点对照不变；主机准入、逻辑资源预约和2GiB cgroup v2内核硬内存同时生效，逐attempt保存非零内核peak、零OOM、原生进程树清理及资源释放，VRAM仍非硬配额。",
+            "paired_observed_peaks": "{\"cpu\": {\"maximum_kernel_peak_bytes\": 216559616, \"observed_attempts\": 8, \"receipt_sha256\": \"103c0b7833121076f097d3f8e0278679d45ba735ebe86638771f763bc991ecc3\"}, \"cuda\": {\"maximum_kernel_peak_bytes\": 550801408, \"observed_attempts\": 8, \"receipt_sha256\": \"a00ac687ecc5df1e8d3c5539f5c5bc673929708b64c7a6a87518a10ef5e3b8c5\"}}",
+            "cpu_recipe_memory": "原完整CPU图像recipe硬内存套件实际执行连续/分段质量与检查点、取消、检查点后超时、搜索恢复及128MiB原生OOM。OOM由内核SIGKILL且oom_kills>=1确认，只执行一次attempt并释放租约，无完成输出/重试，重复查看保持工作目录；正向边界2GiB。",
+            "delegation_and_cleanup": "仅临时user systemd service的memory委托子树，监督进程移到独立supervisor后创建空tasks父目录；每个完整套件结束检查无残留子组，最终删除任务父目录，service随运行结束回收。不修改持久服务、系统控制器、信任或权限配置。",
+            "internal_counts": "{\"Cli_image_recipe\": 6, \"Cli_local_paired_memory_cpu\": 10, \"Cli_local_paired_memory_cuda\": 10, \"Cli_local_recipe\": 7, \"Cli_local_recipe_memory\": 14, \"Cli_local_recipe_workspace_image\": 1, \"Cli_local_recipe_workspace_paired\": 1}",
+            "scope": "仅该WSL2/Ubuntu/GCC/W7900组合的上述完整固定任务与操作系统主存边界，不授GPU显存硬限制、原GPU ResNet小样本质量、预训练权重/真实数据质量、性能、长测、其他GPU/系统、多卡或发布资格。",
+            "validation_receipt_sha256": "6d269b44dc6c261ed87658be2697382b8477a170027e1bf9c7545507b3f60084",
+            "validated_summary_sha256": "a0e5b8b42d6ab414813105c087a4dc229f3081438de722a81aebd3cad5c5533e"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-3dab113-image-component-cli-contracts",
           "commit": "3dab1138956c23fd5177cce3d8ca78579da53a11",
           "tests": "干净3dab113原批次406入口中401通过/2质量相关失败/3个GPU隐藏契约跳过，原结果保留；同一二进制另在隐藏GPU进程仅执行3个原回收契约通过。仅登记图像组件、9套通过的GPU CLI、五门禁与安装消费者共404个不同入口的分阶段通过范围，未登记两失败套件；通过CLI内部50方法单独计数。",
@@ -35,7 +59,11 @@
             "installed_consumer": "原DataImageInstallConsumer按自身原配置/预算执行，原始嵌套CTest日志另保存，安装binary/provenance身份核对；独立消费者实际输出installed image copy device=cuda:0。没有重新运行安装用例来补采证据。",
             "scope": "仅上述WSL2/Ubuntu/GCC/W7900组合的原图像组件与所列9个通过的原GPU CLI契约，另列CPU隐藏后端不可用回收范围。两套默认未校准分类质量相关失败不在资格内；没有外部预训练迁移、paired/local recipe cgroup硬内存边界、完整真实数据任务质量、性能、长时间稳定性、其他GPU/系统、多卡或发布资格。",
             "validation_receipt_sha256": "81cafbad5ee679c156228ab2d3573aa54511401b26a3c431151714a9572077c3",
-            "installed_execution_evidence_sha256": "619a21aca593fffc57476cbf35faebb7a99d488826e5ef69570dd66c9ef2993e"
+            "installed_execution_evidence_sha256": "619a21aca593fffc57476cbf35faebb7a99d488826e5ef69570dd66c9ef2993e",
+            "fixed_cpu_gpu_diagnostic": "原固定配置只改device的一次保留产物对照：CPU/GPU初始122张量的布局与payload逐字节相同；GPU48更新后accuracy0.5及完整model SHA精确复现原失败，CPU48更新后accuracy1.0。未修改seed、数据、轮数、门槛或启用校准。首次DrvFS目录发布失败另保留；完整诊断在原生ext4输出路径完成。",
+            "zero_update_model_reload": "原同源安装SDK的私有C++诊断，严格载入全部122参数/buffer并对两个固定最终模型分别CPU/GPU评估；八张图、原sampler/batch4、实际输入payload相同，零更新且完整模型状态不变。CPU训练模型在两评估设备均accuracy1.0，GPU训练模型均0.5；同一模型logits最大绝对差分别3.0517578125e-5/3.337860107421875e-6。仅定位到训练后状态，具体算子/累计误差未定位，不授数值等价或原失败套件质量。",
+            "fixed_diagnostic_receipt_sha256": "5a3a333ff27f9f85735c509e632fc86ca291b7d66b6ae2267b6d8d007561eb19",
+            "zero_update_reload_receipt_sha256": "96cff3df520e9f8549d48541c932013317674cff58417090e731da824cb654c2"
           }
         },
         {
