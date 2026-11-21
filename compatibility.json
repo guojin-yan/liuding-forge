@@ -18,6 +18,27 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100 host; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU native examples and ONNX Runtime CPU EP",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-034c0e4-native-cpu-example-contracts",
+          "commit": "034c0e4687f597efd19cdf1be6aadb496810e4de",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。配置/构建正常设备可见；测试ROCPROFILER_REGISTER_ENABLED=0并隐藏HIP/ROCR/CUDA设备。",
+          "tests": "干净034c0e4十二原生CPU示例目标对应36项原CTest与五仓库门禁共41项全部通过，零失败、跳过或未执行。",
+          "quality_evidence": {
+            "source_identity": "实际编译十二个原生示例目标，完整选择其36项原CTest；十二binary前后SHA、原源码blob、cache/provenance、CLI运行身份及全部JUnit/native独立审核。无下载、额外依赖或示例/测试源码修改。",
+            "contracts": "原inline/worker数据流水线及保存/恢复/失败、基础训练、epoch/warmup/plateau调度与恢复、单/组GradScaler及溢出、检查点恢复/回滚/预算、分类评估完整/暂停/取消/恢复/重放/身份拒绝、本地进程SDK、bundle签名、文件证据、serving reload/ONNX与checkpoint-ONNX部署。原合成输入、数值/状态/身份/摘要、错误、取消和资源断言保持。",
+            "fixture_dependencies": "单次CTest选择保留原八组FIXTURES_SETUP/REQUIRED依赖；数据、调度、检查点及评估使用其原保存产物跨进程恢复或重放，无重复执行setup或改用内存替代。",
+            "resource_contract": "原CTest30/60/120/180秒及示例内部预算保持；仓库无超时条目补充600秒监督。所有测试串行并隐藏GPU，ORT仅CPU EP，本地原生文件系统。",
+            "scope": "仅此WSL/GCC/ROCm分发上述CPU原示例合同；serving为本地API示例，不授网络监听/HTTP服务、GPU推理、真实任务质量、完整数据集、长时稳定性、性能、其他设备/系统或发布资格。",
+            "validation_receipt_sha256": "e3b00c6d5a1ed7ad21aa4e25fc0e3df7428b3d20f683e3ebd961ebf9b5f25374",
+            "qualification_summary_sha256": "4a2c4019bb8b5db61995c6fe3a4e67fe66e3a77f2b0e3f0b807468c3d8de3811"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU CLI path",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-2431544-cpu-cli-lifecycle-recipe-data-contracts",
           "commit": "2431544061a84922778279c1ebf6ff0497eee8bf",
