@@ -78,7 +78,9 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 视觉训练另已验证 14 个代表任务的 FP32、FP16、BF16 共 42 个 GPU 组合及 14 个 CPU 对照，覆盖分类、检测、分割、姿态、旋转框、深度、SimMIM 与 ReID 入口；视觉契约和独立安装消费者也已通过。范围限于原随机初始化模型、合成小输入的单步前向、loss、反向与实际更新，不推导完整架构目录、预训练权重、收敛、恢复或真实数据质量。
 
-可选原生 TensorBoard/OTLP 离线映射、Ed25519 签名和 CPU headless 渲染已通过组件契约与三个独立安装消费者；Linux 私钥权限、链接和非普通文件拒绝用例也已执行。该范围尚不含独立官方 reader、真实 Collector、HTTP/TLS 发送或 GPU 渲染；签名使用精确 OpenSSL 3.5.9 静态 SDK，保持私有 Crypto 符号隔离。
+可选原生 TensorBoard/OTLP 离线映射、Ed25519 签名和 CPU headless 渲染已通过组件契约与三个独立安装消费者；Linux 私钥权限、链接和非普通文件拒绝用例也已执行。签名使用精确 OpenSSL 3.5.9 静态 SDK，保持私有 Crypto 符号隔离。
+
+原生 TensorBoard 示例、CLI 和 worker 另通过独立官方 reader/writer 检查，OTLP 示例通过官方 protobuf 解码与固定映射对照；默认空环境 worker 与安装版 worker 的原契约也已验证。该范围尚不含真实 Collector、HTTP/TLS 发送或 GPU 渲染。
 
 原生 ONNX 导出另已验证 FP32、FP16、BF16 GPU 训练状态经独立 CPU FP32 副本导出，以及 CPU ONNX Runtime 1.23.2、ONNX Serving 和独立安装消费者。固定参考图通过官方 checker、严格 shape inference 及原数值对照；这些结果仅覆盖兼容清单中的图与契约，不提供 AMD ORT GPU Execution Provider，也不继承 Windows DirectML 的验证范围。构建和使用见 [ONNX API](../api/onnx.md)。
 
