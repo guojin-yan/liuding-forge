@@ -17,6 +17,27 @@
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU reference path",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest。仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0；本批一个原生参考进程显式设置HIP_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES/CUDA_VISIBLE_DEVICES=-1，只执行CPU参考，不改系统环境。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-15f01fa-dinov3-huge-cpu-reference",
+          "commit": "15f01fa97e1384ea3cdb4e28ea0969d53790644c",
+          "tests": "干净15f01faDINOv3 Huge+原独立Meta CPU FP32架构参考与五仓库门禁共6项全部通过，零跳过、零未执行。",
+          "quality_evidence": {
+            "source_identity": "从主力Windows本机file源同步干净提交，复用原Ninja Release树，仅重建models目标、至多两个编译任务。三份既有固定文件复制到WSL原生目录并前后核对完整SHA/大小；原生binary前后SHA、源码、cache/provenance及全部JUnit/native日志独立审核，无下载、生成参考或SDK修改。",
+            "native_contract": "随机初始化DINOv3 ViT-huge-plus的840633600参数、519参数张量/33buffer共552个完整状态严格导入。原输入1x3x35x50；完整1x11x1280 tokens、1x1280 CLS及第0/15/31层完整tokens共五张量57600坐标均通过原rtol5e-4/atol5e-5，原12GiB导入暂存和12GiB峰值RSS断言不变。",
+            "reference_identity": "原Meta DINOv3提交6876159a11b4df116f30f667f8c9888617df0751，Python3.11.18/Torch2.14.1+cpu/safetensors0.6.2、seed20261110独立参考不变；state SHA7c2157c7e6c423019888392f542871005ddb35a62beccf2a30ae5d744a189c5e，input SHAe0243a8d31271b78a1b1ee534510ba33dd97b9c5da1821ca46df92e14ff19f13，output SHA36dcf1741a85b205e0cb8548362b0facf82c65a125123c0a053ab9226431923b。生成器历史CRLF字节SHA与主机文件精确相同，WSL LF文件规范化后逐字节相同，两份字节均留存且未执行生成器。",
+            "resource_contract": "保留原私有14GiB可用物理主存准入和600秒补充监督，额外约束cgroup有效余量与4GiB磁盘；实际准入满足。原生12GiB RSS门槛通过；仅CPU进程显式隐藏HIP/ROCR/CUDA设备，不将此参考推广为GPU或16GiB准入的CPU训练合同。",
+            "scope": "仅此精确WSL/Ubuntu/GCC/ROCm组合的Huge+随机架构CPU FP32独立数值及原资源合同，不授GPU数值、预训练权重、后向、任务质量、恢复、性能、其他AMD设备/系统、多卡或发布资格。首次私有来源校验仅因CRLF/LF字节差异在零资产复制/零测试前停止，原失败保留；原数值测试未重复挑选结果。",
+            "validation_receipt_sha256": "7f7cb40e03af3b507dbb4c7aa137e2746e89c6abd79ce2d911bcdc8197eb249b",
+            "qualification_summary_sha256": "510504ab0cc2969543c2d409fc78a9d383bfeccf6b4a97caf390100346a9bd39"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest。启动环境ROCPROFILER_REGISTER_ENABLED=0；CPU合同进程显式隐藏HIP/ROCR/CUDA设备，GPU合同保留原可见性，不改系统环境。",
