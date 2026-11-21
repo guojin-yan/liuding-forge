@@ -17,6 +17,26 @@
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU process-recovery path",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-191f13d-native-process-recovery",
+          "commit": "191f13d871c27e6a7a89d54c187f522578af7b21",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；本机file源离线增量构建七个原生child，至多两个编译任务、串行CTest；ROCPROFILER_REGISTER_ENABLED=0，CPU子进程显式隐藏HIP/ROCR/CUDA设备。原生ext4工作目录，原CTest和子操作超时保留。",
+          "tests": "干净191f13d原生进程恢复十原CTest套件与五仓库门禁共15项全部通过；31个内部测试方法及其子场景执行，零跳过、零未执行。",
+          "quality_evidence": {
+            "source_identity": "本机固定提交复用原Release树，七个原生子程序前后完整SHA、全部相关原源码blob、cache/provenance及15份JUnit/native日志独立核对；测试断言、原故障注入和强杀边界未改，无下载或额外依赖。",
+            "native_contract": "图像输出三套暂存强杀回收/原生write-flush-link-close错误/发布重放；训练诊断六方法、实验producer两方法新进程恢复；SQLite五操作各before/after共十提交强杀场景；CAS三个真实发布边界、published-CAS两恢复方法；文件和字节发布各四方法/八强杀边界。保留原内容SHA、inode/文件身份、SQLite完整性、receipt/event重放、队列回收与幂等断言。",
+            "resource_contract": "所有原CTest120/180/300/600秒及各child操作超时不变；仅Linux原生ext4本地存储/CPU进程路径。原测试要求的SIGKILL/无析构清理和新进程读取均实际执行；持久证据快照和完整native日志留存。",
+            "scope": "仅此精确WSL/Ubuntu/GCC/ROCm分发的CPU持久化、原生故障边界与进程恢复，不授GPU计算/训练恢复、其他文件系统或系统、断电/驱动重置、性能或发布资格。",
+            "validation_receipt_sha256": "e512953746b964e537a32babef848db73b076a6e6c19cec11a60f9528a362854",
+            "qualification_summary_sha256": "70c8c5b1f59d71232d4aeb78f02b9cccd79cfdcecfa949965e00a96ab00782e3"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU reference path",
           "build_type": "Release",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-c2778cd-dinov2-real-first-batch-cpu",
