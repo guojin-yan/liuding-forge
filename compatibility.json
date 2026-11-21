@@ -17,6 +17,28 @@
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务、CPU/GPU逐项串行。仅启动环境ROCPROFILER_REGISTER_ENABLED=0；CPU合同进程显式设置HIP_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES/CUDA_VISIBLE_DEVICES=-1，GPU合同使用原可见性，不改系统环境。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-eef7af4-native-model-contracts",
+          "commit": "eef7af468af7a96f1326b3160146ec28d6f9f46f",
+          "tests": "干净eef7af4原生模型补验：43个CPU合同、19个GPU合同及五仓库门禁共67项通过，零失败、零跳过；Huge CPU/Giant CPU两项因原16/18GiB主存准入未执行，另两个外部参考入口不在本批。",
+          "quality_evidence": {
+            "source_identity": "WSL从主力Windows本机file源同步干净提交，复用既有Ninja Release树、仅重建models目标，最多两编译任务。原生binary前后SHA、源码SHA、cache/built-provenance、原始JUnit/native日志及time单进程最大RSS逐项核对。独立审计与原容量准入表完整SHA保留，不下载、不生成外部参考、不修改SDK。",
+            "cpu_contracts": "43项原CPU合同覆盖注册/元数据、分类头替换、token/patch/stage/stride/参数与mask边界、原ResNet/ResNeXt/DenseNet/MobileNet/EfficientNet/ConvNeXt/ViT/Swin及DINOv2/v3前后向和SGD实际更新、合成safetensors严格导入/摘要缓存及bicubic数值/梯度。除DINOv2-small单独CPU BF16 autocast合同外，训练合同保留原FP32；原随机输入与断言均未改。",
+            "gpu_contracts": "19项原AMD GPU合同包括DINOv2-small前向/FP16 autocast反向，DINOv3低容量ViT/ConvNeXt及Large/Large+/ConvNeXt-base/large的FP16 autocast前向或实际SGD更新；DINOv2 Giant FP16参数存储前向/训练和DINOv3 Huge+ FP16参数存储224x224训练分别保留原独立合同。另覆盖bicubic CPU/GPU值与伴随梯度、autocast下位置FP32、offset/channels-last及重复梯度数值断言。逐项通过不推广到其他精度或完整预训练模型数值。",
+            "resource_contracts": "保留既有容量准入：一般12GiB可用物理主存、ConvNeXt10GiB，GPU另需16GiB空闲显存；额外约束cgroup有效余量与4GiB磁盘，普通入口附加4GiB主存。原RSS、allocator、清工作区/emptyCache后常驻断言不变；原无逐例超时条目附加600秒监督，已有CTest超时优先，全部已执行条目满足原断言。",
+            "not_admitted": "DINOv3 Huge+ CPU前后向保留16GiB物理主存准入，DINOv2 Giant CPU反向保留18GiB；本WSL总物理约15.56GiB，两项未启动、未计为跳过或通过。不降低门槛、不更改全局WSL内存。DINOv3 Huge+独立外部参考与DINOv2 Giant独立参考另待资产/资源核验，本批不授资格。",
+            "scope": "仅此精确WSL/Ubuntu/GCC/ROCm/W7900组合与原测试列出的随机架构/输入/精度/资源合同；不授官方预训练权重、任务准确率、训练恢复、性能、其他AMD设备/OS、多卡或发布资格，既有ResNet18质量失败等边界保留。",
+            "validation_receipt_sha256": "a8e1f3f62b0ae47588de570d8ff316cf0b7b1d6f4398f2e76b2e1ba86cc38cf8",
+            "qualification_audit_sha256": "d39edca548df719ca622f0f6c8a2c84678463c1e9d9a665aa410d9002f8c8f17"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0; CPU contract path only",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务、CTest逐项串行。启动环境ROCPROFILER_REGISTER_ENABLED=0；本批CPU测试进程显式设置HIP_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES/CUDA_VISIBLE_DEVICES=-1，不修改系统环境。",
