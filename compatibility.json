@@ -18,6 +18,27 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU/HIP loss and metric unit paths",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-a275f8f-loss-metric-adapter-calibration-units",
+          "commit": "a275f8fb084692bad7008305e0e2405e27526ec5",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。ROCPROFILER_REGISTER_ENABLED=0，正常GPU可见性；原CPU/HIP单元分支保持。",
+          "tests": "干净a275f8f十二损失/指标/适配器/校准目标全部原CTest与五仓库门禁共120项全部通过，含14项原GPU分支，零失败、跳过或未执行。",
+          "quality_evidence": {
+            "source_identity": "实际构建展开十二原NOT_BUILT目标并完整选择其原CTest；binary前后SHA、相关原源码blob、provenance、CLI rocm:available:1及全部JUnit/native独立审核；固定COCO检测与独立有理分割reference JSON原git blob快照留存，无下载或重新生成。",
+            "contracts": "原label-smoothing/contrastive/dice/focal及loss参考矩阵前后向和GPU FP16对照；model/scheduler适配器、分类/分割/检测/排序指标的分批合并、tie/ignore/empty语义、官方COCO与独立有理分割参考、状态恢复与资源/错误原子性；原BatchNorm固定统计、保护参数/RNG、取消/失败回滚和ready/completed状态合同。原输入、容差、状态与限制断言不变。",
+            "gpu_contracts": "十四GPU分支实际执行，覆盖损失FP16前后向/标签验证、语义分割logits及完整独立参考、排序GPU输入，以及六个BatchNorm统计/恢复/取消/保护变更/设备/预算合同。CPU合同不作为其他GPU资格。",
+            "resource_contract": "原CTest超时保持，未设超时条目额外600秒监督；CPU/GPU串行，原状态/内存工作区/操作限额及取消边界不变。",
+            "scope": "仅此WSL/GCC/ROCm/W7900原单元合同；BatchNorm校准为独立原测试，未应用于既有失败的ResNet18质量配方，不改变该失败。不授真实数据质量、性能、其他设备/系统、多卡或发布资格。",
+            "validation_receipt_sha256": "c0e747ddb5ddadfdfce8a9dc5104d914a9898a52a2f5c4914db69bb6a925ff1b",
+            "qualification_summary_sha256": "a010a84585959fee5c218d14a1ac7dac3052e82a75d51f9685ac9a28b77d2379"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU/HIP optimizer unit paths",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-a9acbab-optimizer-adapter-scheduler-units",
           "commit": "a9acbab93fc56770b8a7b0daa5dfc706977f6c37",
