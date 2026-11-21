@@ -86,6 +86,8 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 随机初始化 DINOv2 ViT-small、DINOv3 ViT-small 与 ConvNeXt-tiny 另通过 CPU FP32、GPU FP16 autocast 的文件检查点恢复。验证在第 4 次更新保存文件，销毁并重建训练对象后完成至第 6 次更新，核对安全边界和完成态的全部参与者状态、loss、数据顺序及下一 CPU/GPU 随机数；各例保留原 4 GiB RSS 与 GPU 2 GiB allocator 峰值上限。此范围为同进程对象重建，不包含进程强杀或其他模型容量。
 
+固定 Penn-Fudan 空间任务的两份既有权重另通过 CPU/GPU 留出集质量、拆批统计与文件评估恢复。原随机初始化 TinyUNet 的 FP32 配方也通过连续 1200 次更新、第 601 次更新暂停、新进程恢复完成及完成态重放，完整参与者状态、最终模型、loss 和下一 CPU/GPU 随机数与同次 WSL 基线相同。质量范围限于原固定 25 图及各自权重，数据与协议见[空间任务 fixture](../../tests/fixtures/metrics/penn_fudan/README.md)；本次训练恢复不授予其新产物的留出集质量或历史权重 SHA 复现资格。
+
 视觉训练另已验证 14 个代表任务的 FP32、FP16、BF16 共 42 个 GPU 组合及 14 个 CPU 对照，覆盖分类、检测、分割、姿态、旋转框、深度、SimMIM 与 ReID 入口；视觉契约和独立安装消费者也已通过。范围限于原随机初始化模型、合成小输入的单步前向、loss、反向与实际更新，不推导完整架构目录、预训练权重、收敛、恢复或真实数据质量。
 
 可选原生 TensorBoard/OTLP 离线映射、Ed25519 签名和 CPU headless 渲染已通过组件契约与三个独立安装消费者；Linux 私钥权限、链接和非普通文件拒绝用例也已执行。签名使用精确 OpenSSL 3.5.9 静态 SDK，保持私有 Crypto 符号隔离。
