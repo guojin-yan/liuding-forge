@@ -758,7 +758,11 @@
             "second_batch_adjoint_diagnostic": "原第1步CPU/GPU状态在两后端的四种组合各做第2批零更新前向/反向；原对角组合完整logits与62份梯度逐字节复现，逐层保留中间梯度的诊断路径在四组合也与生产路径逐字节相同。同一GPU状态的两后端完整梯度相对L2差0.2545246；layer4.1最后ReLU前两个输入跨零，输出侧梯度相对L2差3.546916e-6，输入侧为0.03358331。四组17个ReLU边界的前向及预期导数全部精确一致；该观测定位第2步的分支敏感性，不证明错误算子或单独解释最终质量，不改任何训练计算/门槛或授原失败套件资格。",
             "trajectory_diagnostic_audit_sha256": "771f3a1207069c13f750578f1277d16dac37db447c4923957e7bd2094093a09f",
             "trajectory_capture_receipt_sha256": "0d573aa46978dce11fc4ba739d51224ec1347c749f4aee188635626cb290cbcc",
-            "second_batch_trace_receipt_sha256": "8727b3b7479b89fb2f5987a45daaeab59be53d20037e70b88c550c3dc2fc9b43"
+            "second_batch_trace_receipt_sha256": "8727b3b7479b89fb2f5987a45daaeab59be53d20037e70b88c550c3dc2fc9b43",
+            "official_resnet18_zero_update_diagnostic": "官方torchvision0.29.1的训练态ResNet18脚本架构载体由锁定CPU Torch2.14.1生成，实际在原生Linux ROCm LibTorch2.14.0加载并关闭JIT graph optimizer；不调用Forge的ResNet架构。原第1步CPU/GPU完整122状态逐字段导入并逐字节核对，保留原第2批4x3x32x32输入，两状态x两后端四组各一次forward/backward、零optimizer更新。四组logits与全部62梯度均逐字节等于原生产路径观测，两组对角后端的60个BatchNorm buffer也逐字节相同，交叉后端不套用对角buffer参考。运行时干净检出为7b2ad53，复用的core/interop安装SDK单独核对为3dab113；实际Torch/C10解析到指定原生SDK，前后完整库SHA相同。此为独立架构零更新诊断，不是Python eager GPU、完整重训、错误算子证明或质量通过；原两失败、数据、seed、配方、容差与门槛全部保留。",
+            "official_resnet18_diagnostic_receipt_sha256": "5874506ec582694409c95cbce0691f36cba9d4d8618f77948ea0d5d610a5aa1c",
+            "official_resnet18_diagnostic_analysis_sha256": "c5b6e71af896db516234a66da10e5dd1763e35a2c4d5c94a670eb2a7ce34dfb5",
+            "official_resnet18_graph_preparation_receipt_sha256": "fb5828d61a0b0b66ba8a1645a9b6e9d5a1a14fb584d48546a3d402d477b08f54"
           }
         },
         {
