@@ -84,7 +84,7 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 两模型另通过 CPU/GPU FP32 严格权重导入、独立前向参考与冻结头更新，DINOv2-small 通过两步梯度及分组 SGD 对照。固定 Fashion-MNIST 子集（训练/测试各 1000 张）的冻结特征分类也通过原数值与质量门槛，ResNet50、DINOv2-small 准确率分别为 0.81、0.855，CPU/GPU 相同。固定权重和参考身份见兼容矩阵；此范围不包含完整数据、全量微调或额外真实首批次梯度门禁。
 
-随机初始化 DINOv2 ViT-small、DINOv3 ViT-small 与 ConvNeXt-tiny 另通过 CPU FP32、GPU FP16 autocast 的文件检查点恢复。验证在第 4 次更新保存文件，销毁并重建训练对象后完成至第 6 次更新，核对安全边界和完成态的全部参与者状态、loss、数据顺序及下一 CPU/GPU 随机数；各例保留原 4 GiB RSS 与 GPU 2 GiB allocator 峰值上限。此范围为同进程对象重建，不包含进程强杀或其他模型容量。
+随机初始化 DINOv2 ViT-small/base、DINOv3 ViT-small/small-plus/base 与 ConvNeXt-tiny/small/base 另通过 CPU FP32、GPU FP16 autocast 的文件检查点恢复。验证在第 4 次更新保存文件，销毁并重建训练对象后完成至第 6 次更新，核对安全边界和完成态的全部参与者状态、loss、数据顺序及下一 CPU/GPU 随机数；各例保留原 4/6 GiB RSS 与 GPU 2/4 GiB allocator 峰值上限，精确输入和资源对应关系见兼容矩阵。此范围为同进程对象重建，不包含进程强杀或其他模型容量。
 
 固定 Penn-Fudan 空间任务的两份既有权重另通过 CPU/GPU 留出集质量、拆批统计与文件评估恢复。原随机初始化 TinyUNet 的 FP32 配方也通过连续 1200 次更新、第 601 次更新暂停、新进程恢复完成及完成态重放，完整参与者状态、最终模型、loss 和下一 CPU/GPU 随机数与同次 WSL 基线相同。质量范围限于原固定 25 图及各自权重，数据与协议见[空间任务 fixture](../../tests/fixtures/metrics/penn_fudan/README.md)；本次训练恢复不授予其新产物的留出集质量或历史权重 SHA 复现资格。
 
