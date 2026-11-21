@@ -18,6 +18,28 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 installed consumers contracts",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-f70a189-installed-consumers-contracts",
+          "commit": "f70a18993082c32d66a847b1fcbff2ddeac45554",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，父子构建最多两个编译任务、串行CTest；ROCPROFILER_REGISTER_ENABLED=0，保持正常设备可见性以供LibTorch架构检测。",
+          "tests": "干净f70a189原安装consumers合同与五仓库门禁共10项CTest全部通过，零失败、跳过或未执行；实际内部消费者结果另行逐项核对。",
+          "quality_evidence": {
+            "source_identity": "全部安装输入前后完整SHA、原CMake/消费者源码blob、cache/provenance、CLI运行身份及JUnit/native独立审核；保留嵌套cache和测试日志可观察修订，并区分运行前遗留文件。原命令、组件选择、断言未改。",
+            "contracts": "原Package未知组件准确拒绝、十一组件安装后消费者共23内部CTest及独立SDK消费者，共25内部CTest；SDK严格八Core依赖、品牌库文件、许可原文、旧接口/私有文件排除；CPU数据/优化器/完整训练恢复与data_image实际HIP图像/掩码复制。安装CLI在源码外执行version/help/doctor CPU，并在含空格迁移目录核对随包ORT的相同身份。另执行组件矩阵设置十方法，含SDK顶层实际发现/执行子测试及零测试拒绝回归。",
+            "nested_results": "{\"ComponentInstallMatrixConsumer\": {\"cases\": 23, \"counts\": [1, 1, 1, 13, 1, 1, 1, 1, 1, 1, 1], \"invocations\": 11}, \"PackageComponentConsumer\": {\"cases\": 1, \"counts\": [1], \"invocations\": 1}, \"SdkInstallConsumer\": {\"cases\": 1, \"counts\": [1], \"invocations\": 1}}",
+            "offline_dependencies": "继承父构建编译器、本地不可变FetchContent源码与FULLY_DISCONNECTED/UPDATES_DISCONNECTED；不共享可变依赖构建目录，不下载依赖或触发Actions。仅原脚本刷新自己out/范围安装暂存。",
+            "resource_contract": "保留原SDK900秒、CLI180秒及完整矩阵10800秒；未声明超时的组件消费者外层补10800秒、Package补1200秒监督；父子构建最多两个编译任务，所有测试串行。",
+            "scope": "仅此WSL/GCC/ROCm分发上述开发profile安装合同；ORT仅CPU EP。既有数值失败保留；不授HTTP/TLS、真实数据质量、性能、其他系统/设备、正式二进制再分发或发布资格。",
+            "validation_receipt_sha256": "bc4a00ba9ab2fa28c3bb20cf5f7446b15458e6d3c6a748b11de18c2ca10b4a5e",
+            "qualification_summary_sha256": "76055cb76645dd0587109cd3949a15e9b8e434940fdab3e7f9e19123a3f62d3d"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 offline MNIST CPU/HIP and CPU local training examples",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-c39a92c-offline-example-workflows",
           "commit": "c39a92cb8ed2c8c14163bc556f1d3ced4e5ffc4d",
