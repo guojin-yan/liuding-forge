@@ -18,6 +18,28 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 offline MNIST CPU/HIP and CPU local training examples",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-c39a92c-offline-example-workflows",
+          "commit": "c39a92cb8ed2c8c14163bc556f1d3ced4e5ffc4d",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。ROCPROFILER_REGISTER_ENABLED=0；配置/构建与MNIST HIP测试正常GPU可见，其余测试隐藏HIP/ROCR/CUDA设备。",
+          "tests": "干净c39a92c七项原离线示例与五仓库门禁共12项CTest全部通过，零外层/内部跳过；五unittest套件54方法执行，另含两空间示例参数合同。",
+          "quality_evidence": {
+            "source_identity": "实际构建CLI、recipe-gate与五示例共七目标，binary前后完整SHA、原源码blob、cache/provenance、运行身份及十二份JUnit/native独立审核；原CTest命令和断言未改，无下载或权重生成。",
+            "mnist_scope": "原生成IDX 137训练/19测试样本；CPU/HIP各六方法，实际1/2epoch训练、步数、有限loss/accuracy及取值范围、离线路径/缓存/无效IDX/参数拒绝。保持原合成数据，不授官方MNIST数据集准确率或质量资格。",
+            "local_training_contracts": "原生线性训练与grid/random/typed搜索、objective与best备份、输出资源合同；显式及自动20+40更新恢复与连续训练完整状态相等，原checkpoint/CAS/身份/原子发布/进程清理/损坏拒绝/资源预约和恢复断言保持。",
+            "spatial_scope": "仅检测和分割原--arguments-only合同；RealDetectorExample/RealDetectorCrashRecovery/RealSegmentationRecoveryExample未执行，现有Linux环境缺原pycocotools checker依赖，未下载或绕过。",
+            "resource_contract": "原MNIST180秒、三local-training套件240秒、两参数套件120秒及各内部deadline/预算保持；仓库无超时条目补600秒监督。测试串行且GPU负载独占。",
+            "scope": "仅此WSL/GCC/ROCm分发上述原离线示例范围；既有GPU ResNet18质量失败保留，不授完整空间任务、真实数据质量、HTTP/Collector、性能、其他系统/设备或发布资格。",
+            "validation_receipt_sha256": "9b3e14878473476bf6adedd159662884fc0b1076bc18286c1cb025fea2ed237d",
+            "qualification_summary_sha256": "cd73d84fbef8080f7973581aec997a02f906679684d195fab1f5fbb1eb14beae"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU CLI path",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-09fb5d9-cpu-transfer-original-contracts",
           "commit": "09fb5d9ecf89ca6cad32f805e59208966a284074",
