@@ -82,7 +82,12 @@ TaskLoss dense_detection_loss(std::span<const Tensor> x,const Tensor& targets,co
         box_loss=box_loss+Smooth(r-expected,ssd?1.:1./9).sum()/denominator;}
     }
   }
-  if(fcos||ssd){double n=static_cast<double>((std::max)(1LL,positives));cls_loss=cls_loss/n;box_loss=box_loss/n;ctr_loss=ctr_loss/n;}
+  if (fcos || ssd) {
+    double n = static_cast<double>((std::max)(I{1}, positives));
+    cls_loss = cls_loss / n;
+    box_loss = box_loss / n;
+    ctr_loss = ctr_loss / n;
+  }
   return{cls_loss+box_loss+ctr_loss,{{"class",cls_loss},{"box",box_loss},{"centerness",ctr_loss}}};
 }
 training::StepFunction make_dense_detection_step(DenseDetectionLossOptions o){return[o](const training::StepInput& in){
