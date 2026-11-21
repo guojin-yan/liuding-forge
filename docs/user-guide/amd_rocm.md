@@ -84,6 +84,8 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 两模型另通过 CPU/GPU FP32 严格权重导入、独立前向参考与冻结头更新，DINOv2-small 通过两步梯度及分组 SGD 对照。固定 Fashion-MNIST 子集（训练/测试各 1000 张）的冻结特征分类也通过原数值与质量门槛，ResNet50、DINOv2-small 准确率分别为 0.81、0.855，CPU/GPU 相同。固定权重和参考身份见兼容矩阵；此范围不包含完整数据、全量微调或额外真实首批次梯度门禁。
 
+随机初始化 DINOv2 ViT-small、DINOv3 ViT-small 与 ConvNeXt-tiny 另通过 CPU FP32、GPU FP16 autocast 的文件检查点恢复。验证在第 4 次更新保存文件，销毁并重建训练对象后完成至第 6 次更新，核对安全边界和完成态的全部参与者状态、loss、数据顺序及下一 CPU/GPU 随机数；各例保留原 4 GiB RSS 与 GPU 2 GiB allocator 峰值上限。此范围为同进程对象重建，不包含进程强杀或其他模型容量。
+
 视觉训练另已验证 14 个代表任务的 FP32、FP16、BF16 共 42 个 GPU 组合及 14 个 CPU 对照，覆盖分类、检测、分割、姿态、旋转框、深度、SimMIM 与 ReID 入口；视觉契约和独立安装消费者也已通过。范围限于原随机初始化模型、合成小输入的单步前向、loss、反向与实际更新，不推导完整架构目录、预训练权重、收敛、恢复或真实数据质量。
 
 可选原生 TensorBoard/OTLP 离线映射、Ed25519 签名和 CPU headless 渲染已通过组件契约与三个独立安装消费者；Linux 私钥权限、链接和非普通文件拒绝用例也已执行。签名使用精确 OpenSSL 3.5.9 静态 SDK，保持私有 Crypto 符号隔离。

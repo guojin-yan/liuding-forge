@@ -20,6 +20,27 @@
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-97ab99a-dino-small-recovery",
+          "commit": "97ab99ade2ae1f8339671c3e8f0e56d8d09dd2b1",
+          "tests": "干净97ab99a三种DINO小模型CPU FP32/GPU FP16 autocast六个原文件检查点完整恢复合同及五仓库门禁共11项全部通过、零跳过。",
+          "quality_evidence": {
+            "source_identity": "主力Windows开发与提交，WSL从本机file源同步干净提交；复用离线Release树、仅重建原models_recovery目标、至多两个编译任务、GPU串行。完整原生输出、前后二进制SHA、cache、built-provenance和源码SHA留存并独立复核；原180秒每用例、4GiB峰值RSS和GPU2GiB峰值allocated不变。",
+            "models_and_inputs": "随机初始化DINOv2 ViT-small、DINOv3 ViT-small与DINOv3 ConvNeXt-tiny各CPU FP32和GPU FP16 autocast，FP32主参数、真实GradScaler；CPU输入边长28/32/32，GPU为518/32/32，DINOv2 GPU使用原生37x37位置网格避免非确定插值反向。原固定seed、线程1、deterministic_algorithms=1不变。",
+            "recovery_contract": "原每例连续基线、第4更新真实文件检查点、销毁全部domain对象后重新创建并严格恢复、完成到第6更新。安全边界及完成态两次逐参与者元数据/张量原始payload比较；全部模型参数/buffer、优化器、scheduler、scaler、pipeline游标、callback/Trainer状态及下一CPU/GPU随机数核对，loss和样本顺序精确一致。单进程内重建domain，不推导新进程/强杀或跨后端逐位恢复。",
+            "resource_contract": "六例均通过原4GiB进程峰值RSS；三个GPU例均通过原2GiB allocator峰值，销毁后清理cuBLAS兼容工作区、活跃分配<=32MiB与emptyCache后reserved<=64MiB。按真实HIP后端执行既有CUDA兼容API，不构成系统显存硬配额或其他工作负载资源承诺。",
+            "scope": "仅该精确WSL/ROCm/W7900组合、三种小模型和原输入的CPU FP32/GPU FP16 autocast文件恢复合同。不授预训练权重、真实数据质量、其他容量/精度/参数存储、长测、性能、多卡、其他AMD设备或发布资格。",
+            "validation_receipt_sha256": "dcebb18988d70ffd0b7a721d947c1f1daed38ccdb631b12cc209ec7e89db71fb",
+            "qualification_summary_sha256": "1cf5782134c0b5df76868bd83badd047b060c2c43dc381bfc1ca4078554e7acb"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-d6d5d93-pretrained-numerics-classification",
           "commit": "d6d5d93c690d76e1e59aece87e198ded3bd5b1ad",
           "tests": "干净d6d5d93原四项严格导入/独立前向/冻结头更新、两项DINOv2两步梯度/分组SGD、四项固定Fashion-MNIST冻结特征分类与五仓库门禁共15项全部通过、零跳过。",
