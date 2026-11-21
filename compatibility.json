@@ -18,6 +18,27 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU native interop and experiment-store unit paths",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-5beb99c-interop-experiment-storage-units",
+          "commit": "5beb99cbbf51d71d7310fbaf81b75f615b96a140",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。ROCPROFILER_REGISTER_ENABLED=0，正常GPU可见性；原CPU/HIP单元分支保持。",
+          "tests": "干净5beb99c十个原interop/experiment/store/文件发布目标全部CTest与五仓库门禁共228项全部通过，零失败、跳过或未执行。",
+          "quality_evidence": {
+            "source_identity": "实际构建展开十个原NOT_BUILT目标并完整选择其全部CTest；十binary前后SHA、原源码blob、cache/provenance、原生CLI分发身份及全部JUnit/native独立审核。无下载、额外依赖或测试源码修改。",
+            "contracts": "原checkpoint manifest/文件状态归档、SafeTensors/权重报告/export接口/model bundle、配置、CAS artifact store、SQLite运行与事件、JSONL遥测、评估报告与文件发布。原序列化/完整性/篡改拒绝、事务/幂等、原子发布、并发锁与重试、取消/截止时间、字段/资源限制及失败无变更断言全部保持。",
+            "reference_boundary": "原生格式测试仅授其原命令和断言；未执行的独立官方Python interchange外层门禁不继承资格。JSONL本地遥测与HTTP发送/外部Collector分别验证。",
+            "resource_contract": "原CTest超时保持，未设超时条目额外600秒监督；所有测试串行，原状态/文件/操作与工作区限额保持，临时文件和数据库位于WSL本机原生文件系统。",
+            "scope": "仅此WSL/GCC/ROCm组合所列原生本地格式/存储单元合同，不授额外GPU计算、真实任务质量、HTTP发送、其他文件系统、断电/驱动重置、性能、其他设备/系统或发布资格。",
+            "validation_receipt_sha256": "230e7ff28cf7ca947a3df3056e2538085c59005a493abb0f34ce674ea9c94879",
+            "qualification_summary_sha256": "d4acd4fb313e10f30fcb3d663711d3ea8ae84a1c18d76b0778eb4c37cb230577"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU/HIP evaluation and training-event unit paths",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-3d835cb-evaluation-session-event-units",
           "commit": "3d835cbe173c15e77d54b3e03db6420671047263",
