@@ -12,7 +12,7 @@ SEGMENT=out/build/YOUR_PROFILE/examples/liuding-forge-example-pedestrian-segment
 "$SEGMENT" train /data/PennFudanPed /runs/segmentation cpu
 ```
 
-Windows 使用 `.exe` 后缀及本机绝对路径；CUDA 使用匹配的 LibTorch 和 `cuda` 设备参数，并在启动前设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`。所有输出目录必须全新。示例支持的参数不表示所有平台和设备都已取得完整任务资格。
+Windows 使用 `.exe` 后缀及本机绝对路径；GPU 使用匹配的 CUDA 或 ROCm LibTorch 和 `cuda` 设备参数，并在启动前设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`。已验证的 ROCm 组合中，`cuda` 选择 AMD GPU。所有输出目录必须全新。示例支持的参数不表示所有平台和设备都已取得完整任务资格。
 
 GPU 训练使用 LibTorch allocator 的 allocated 峰值执行小于 3 GiB 的预算。摘要在 NVIDIA 构建中记录 `cuda_peak_allocated_bytes` / `cuda_peak_reserved_bytes`，ROCm 构建使用 HIP allocator 并记录独立的 `rocm_peak_*` 字段；CPU 不记录 GPU 显存。
 
@@ -35,4 +35,4 @@ GPU 训练使用 LibTorch allocator 的 allocated 峰值执行小于 3 GiB 的�
 
 可选维护检查器 `tests/scripts/test_segmentation_example.py` 使用独立进程核对连续、暂停恢复、真实强杀恢复的完整模型和检查点字节，并调用独立Pillow/NumPy/COCO参考检查前处理和计分。它需要全新输出目录及显式外部数据；未选数据时CTest跳过，不下载。`--recovery-only --model-sha256 SHA` 只执行两条恢复路线并固定既有最终模型SHA，不重新训练已合格连续基线；此时完整检查点只比较两条恢复路线，不声称与缺失的历史检查点相同。
 
-上述固定任务已在[兼容矩阵](../../../compatibility.json)列出的 Ubuntu CPU/NVIDIA CUDA、Windows CPU/NVIDIA CUDA 及 Windows ROCm 分发的 CPU 路径完成连续训练、暂停恢复与真实强杀后的恢复等价验证；同环境三条路线的最终模型和完整检查点一致。AMD GPU 任务资格须独立验证，跨平台模型SHA不作为同环境等价承诺。
+上述固定任务已在[兼容矩阵](../../../compatibility.json)列出的 Ubuntu CPU/NVIDIA CUDA、Windows CPU/NVIDIA CUDA 及 Windows ROCm 分发的 CPU/AMD GPU 路径完成连续训练、暂停恢复与真实强杀后的恢复等价验证；同环境三条路线的最终模型和完整检查点一致。跨平台模型SHA不作为同环境等价承诺。

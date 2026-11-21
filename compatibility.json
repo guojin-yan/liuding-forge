@@ -19,6 +19,28 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-2eea48d-spatial-gpu",
+          "commit": "2eea48df0638b939c93f51c98e4519a17b730554",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm10.1.0 LibTorch2.14.0 native FP32 detector/segmentation examples",
+          "tests": "干净2eea48d五项原生检测/分割示例与五仓库门禁共10项通过、零跳过，包含完整固定任务和真实强杀恢复；HIP显存预算实际执行。",
+          "quality_evidence": {
+            "source_identity": "本批在原三精度两小时独占长测自然完成并重新应用原validator后执行；复用匹配Release树离线最小重建、至多两个编译任务，源码在该批运行期间保持干净不变。每批精确提交、原生binary SHA、实际命令和原始失败分别保留，不与前后提交或NVIDIA结果拼成全量资格。",
+            "validation_receipt_sha256": "01ddd9007d41eef82579d7ec7f12e8d8708c162cdfac3d8254f1904e61d06f0f",
+            "original_protocol": "原Penn-Fudan170图、120/25/25划分、batch8、80轮/1200更新、Adam0.001、FP32和固定seed不变；最终轮权重不挑选，独立Pillow/NumPy/COCO核对。原五CTest和五门禁全过。",
+            "recovery": "检测连续/暂停137/恢复1063与第137步提交后实际强杀恢复；分割连续/暂停恢复/实际强杀恢复，均在同一设备与构建逐字节核对完整模型及checkpoint。原七参与者、绝对周期保存和强杀未提交更新预算界限不变。",
+            "allocator": "实际HIP allocator分别产生rocm_peak_allocated_bytes/rocm_peak_reserved_bytes；检测reserved和分割allocated保留原3GiB预算，原900秒及RSS6GiB门槛不变。",
+            "scores": "{\"detector_ap50\": 0.2982392980769765, \"detector_map\": 0.06442586723201385, \"segmentation_miou\": 0.6804162715843438, \"segmentation_foreground_iou\": 0.501232148689172, \"segmentation_ap50\": 0.39202455026780125, \"detector_model_sha256\": \"10742e620b03b369e626d3795e5732273b58c4492d9360d3e28b7a1138e78a81\", \"segmentation_model_sha256\": \"d5c8a67d38a846f0e042795e85c7a4e581bced1bd3944c40cfa79e29b376c603\"}",
+            "scope": "仅该固定小型检测/分割示例的W7900 FP32完整训练、同环境恢复和原留出集门槛；不授生产质量、跨平台逐位一致、其他模型/精度/数据、吞吐性能、其他AMD硬件/OS、多卡或发布资格。历史权重训练SHA与独立数值失败保持原状态。",
+            "measured_summary": "{\"detector_ap50\": 0.2982392980769765, \"detector_map\": 0.06442586723201385, \"segmentation_miou\": 0.6804162715843438, \"segmentation_foreground_iou\": 0.501232148689172, \"segmentation_ap50\": 0.39202455026780125, \"detector_model_sha256\": \"10742e620b03b369e626d3795e5732273b58c4492d9360d3e28b7a1138e78a81\", \"segmentation_model_sha256\": \"d5c8a67d38a846f0e042795e85c7a4e581bced1bd3944c40cfa79e29b376c603\"}"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-64103bd-transfer-gpu",
           "commit": "64103bd12fde1b30957dfea1f1d51f96477de603",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm10.1.0/HIP7.16.26385; LibTorch2.14.0 native FP32 transfer CLI",

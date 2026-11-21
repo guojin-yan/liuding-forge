@@ -4,7 +4,7 @@
 
 [pedestrian_detector.cpp](detection/pedestrian_detector.cpp) 从随机初始化训练直接预测行人框的小型卷积模型，使用 `Trainer`、完整检查点和实际 detection evaluator 生成质量报告。模型声明和实现在同模块的 [model/](detection/model/) 子目录，训练与评估入口在 `detection/` 内。预测只读取 RGB；实例掩码用于训练目标和评估真值，不参与预测或解码。这是小规模接线示例，不能据此推导生产检测精度或完整平台支持。
 
-本例已在[兼容矩阵](../../compatibility.json)列出的 Ubuntu CPU/NVIDIA CUDA、Windows CPU/NVIDIA CUDA 及 Windows ROCm 分发的 CPU 路径完成完整训练与新进程恢复。AMD GPU 任务资格须独立验证；不保证跨设备权重或数值相同。
+本例已在[兼容矩阵](../../compatibility.json)列出的 Ubuntu CPU/NVIDIA CUDA、Windows CPU/NVIDIA CUDA 及 Windows ROCm 分发的 CPU/AMD GPU 路径完成固定任务的完整训练、暂停恢复与真实强杀恢复。同设备、构建、数据和配置下的最终模型与完整检查点一致；不保证跨设备权重或数值相同。
 
 ## 准备数据与构建
 
@@ -30,7 +30,7 @@ DETECTOR=out/build/YOUR_PROFILE/examples/liuding-forge-example-pedestrian-detect
 "$DETECTOR" train /data/PennFudanPed /runs/detector-resumed cuda /runs/detector-pause/checkpoint.jyck
 ```
 
-将 `cuda` 改为 `cpu` 可选择 CPU。默认固定 batch8、seed20261108、Adam学习率0.001、80轮／1200次更新、FP32和严格确定性，不在测试集调参。暂停发生在更新137的安全边界，恢复加载模型、优化器、采样器、流水线、Trainer 和 RNG 的完整状态；同设备、构建、数据和配置下，连续路线与新进程恢复路线应生成相同的最终模型和完整检查点。
+将 `cuda` 改为 `cpu` 可选择 CPU；已验证的 ROCm 组合使用 `cuda` 选择 AMD GPU。默认固定 batch8、seed20261108、Adam学习率0.001、80轮／1200次更新、FP32和严格确定性，不在测试集调参。暂停发生在更新137的安全边界，恢复加载模型、优化器、采样器、流水线、Trainer 和 RNG 的完整状态；同设备、构建、数据和配置下，连续路线与新进程恢复路线应生成相同的最终模型和完整检查点。
 
 每条训练路线生成 `model.safetensors`、`checkpoint.jyck` 和 `training.json`。JSON 保存初始／最终更新数、实际应用更新数、权重与检查点摘要、资源计数和构建身份；暂停输出中的模型只完成了137次更新，不作为最终质量候选。
 
