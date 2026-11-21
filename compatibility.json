@@ -1145,7 +1145,25 @@
           }
         }
       ],
-      "pending_lanes": []
+      "pending_lanes": [
+        {
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100",
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3 / Ninja1.11.1; native Linux shared libraries; offline dependency sources, at most two compile jobs and serial native CTest. Each optional component requires separate qualification.",
+          "status": "candidate",
+          "verification_status": "unverified",
+          "required_evidence": [
+            "核对原生LibTorch/HIP版本与Linux ABI，完成干净源码最小核心、数据、优化器和训练闭包构建及基础仓库门禁。",
+            "真实W7900后端身份、设备放置、FP32/FP16/BF16和优化器/调度器/Trainer检查点恢复原用例；条件跳过和失败各自保留。",
+            "核对实际链接的共享库、独立安装后消费者及各自精确组件范围；不继承Windows、NVIDIA或单步测试之外的任务质量与性能资格。"
+          ]
+        }
+      ]
     },
     "primary": {
       "version": "2.14.1",
