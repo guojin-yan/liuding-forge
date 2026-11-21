@@ -94,6 +94,8 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 通用资源入口另完成三种 CPU 存储负载、五种 GPU 模型与 GPU Serving 的独立采样，RSS/HIP allocator 指标完整。原生 ext4 上的 storage、checkpoint、telemetry 通过原 10% CV 门槛；六种 GPU profile 的部分耗时指标未通过，最大 CV 为 36.695%，不授予完整统计稳定性。
 
+图像训练资源入口在固定 1000 张 Fashion-MNIST 子集上通过八个配置的独立采样，覆盖 Linear64 的三种读取模式、FP16 autocast、FP16 参数存储，ResNet18 的 FP32/FP16 autocast 及 CPU 对照。各配置一预热和五测量，GPU 最大 CV 为 7.519%，CPU 为 5.434%，均通过原 10% 门槛；范围限于该数据与配置的资源测量。
+
 该 Linux 分发的 profiler 会在进入 `main` 前枚举设备并解析 GPU 可见性变量，可能让只计算环境摘要的命令因占位值直接终止。无需 profiling 的启动器可在启动进程前设置 `ROCPROFILER_REGISTER_ENABLED=0`，关闭 profiler 注册；GPU 计算仍使用原 HIP 后端。框架不会修改调用者的环境；需要 profiling 时保留 SDK 默认设置，并确保可见性变量合法。`initialize_runtime()` 无法修复动态库加载前发生的终止。
 
 在 WSL 原生文件系统中维护独立检出、构建和训练工作目录；模型包发布要求文件系统支持 Linux 原子不覆盖目录重命名，Windows 挂载目录可能拒绝该操作。激活原生 Linux SDK，让 `LIBTORCH_ROOT`、`ROCM_PATH` 分别指向 LibTorch 与 HIP 前缀。按[贡献指南](../../CONTRIBUTING.md#构建与验证)预置锁定依赖；核心 CLI 与安装清单中的原生转换工具可这样构建：
