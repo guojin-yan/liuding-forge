@@ -18,6 +18,27 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU/HIP evaluation and training-event unit paths",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-3d835cb-evaluation-session-event-units",
+          "commit": "3d835cbe173c15e77d54b3e03db6420671047263",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。ROCPROFILER_REGISTER_ENABLED=0，正常GPU可见性；原CPU/HIP单元分支保持。",
+          "tests": "干净3d835cb八个原评估/会话/回调/事件/诊断/准确率目标全部CTest与五仓库门禁共185项全部通过；原GPU和DeathTest分支执行，零失败、跳过或未执行。",
+          "quality_evidence": {
+            "source_identity": "实际构建展开八个原NOT_BUILT目标并完整选择其全部CTest；八binary前后SHA、原源码blob、cache/provenance、CLI rocm:available:1及全部JUnit/native独立审核。无下载、额外依赖或测试源码修改。",
+            "contracts": "原分类/检测/分割评估和分类/空间评估会话的实际前向、分批与多源统计、模式/grad还原、取消/超时、幂等报告与完整文件检查点重开；原回调拓扑/分派、事件outbox与telemetry适配器、数值诊断/JSON与CAS报告，以及准确率工具。原数据、容差、身份、预算和原子性断言保持。",
+            "gpu_and_process_contracts": "原CPU/HIP推理与分类/空间统计恢复、文件检查点重开、非连续Half/Double诊断实际执行；DeathTest按原生产边界中止并验证新对象或进程重试。精确原测试与数量见独立摘要；不由CPU通过推导其他GPU资格。",
+            "resource_contract": "原CTest超时保持，未设超时条目额外600秒监督；CPU/GPU串行，原取消/绝对deadline、状态限额、数据源读取上限及部分报告拒绝断言不变。",
+            "scope": "仅此WSL/GCC/ROCm/W7900所列原单元合同，不授真实数据集质量、新训练产物、HTTP发送/Collector、性能、其他设备/系统、多卡或发布资格。既有ResNet18质量失败保留。",
+            "validation_receipt_sha256": "6bc0a23d67ecb79080a137c5ac66d70ed255942597f1ee69dfbca64cfc153b4e",
+            "qualification_summary_sha256": "c24372cdac77d97549d8119a89b19e5e9cc96f7797a4d05a9910caacb3d908f1"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU/HIP loss and metric unit paths",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-a275f8f-loss-metric-adapter-calibration-units",
           "commit": "a275f8fb084692bad7008305e0e2405e27526ec5",
