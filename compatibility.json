@@ -19,6 +19,27 @@
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
           "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-7924354-models-serving",
+          "commit": "79243542f4794de8caa3b9a28f3befae90f65871",
+          "tests": "干净7924354原九个模型/Serving/interop测试目标、五仓库门禁及三个安装消费者共208项全部通过、零跳过；实际CPU与AMD GPU路径分别执行，不继承Windows完整视觉、权重或质量资格。",
+          "quality_evidence": {
+            "source_and_profile": "WSL原生测试副本绑定精确干净提交，复用原Ninja Release树；只开启所需models/serving/data_image闭包。两个锁定图像parser归档按清单SHA从本机复制，现有源离线复用；至多两个编译任务、CTest串行、原断言和超时不改。实际构建/版本指纹、前后相同原生binary SHA及JUnit/native日志保留。",
+            "model_contracts": "原模型feature/head/preprocessing/intermediate契约通过，覆盖CPU/GPU参数化路径的特征顺序、storage/alias、梯度、替换/移除分类头、冻结/更新、明确预处理与元数据拒绝。五个ResNet系列CPU与实际GPU各执行两步classifier/feature路径前向、梯度、SGD更新和buffer对照；仅随机架构与固定小输入范围。",
+            "serving": "原native bundle与显式可信TorchScript各实际GPU加载、warmup、固定数值前向和关闭通过；CPU侧并发租约、排队/截止/取消、重载、持有旧版本、批处理、有限确认OOM拆批与传输边界按原断言通过。用户提供的随机模型/合成输入不授真实模型服务质量或性能。",
+            "installed_and_linkage": "Models/Serving/DataImage三个原生安装消费者通过公开头、库及targets独立编译链接和运行；图像消费者执行实际GPU图像/mask拷贝。模型与Serving原生binary实际解析精确SDK的torch_hip/amdhip库，无未解析库，不需要Python Torch运行包。未对完整SDK共享库逐字节认证。",
+            "scope": "仅该WSL2/Ubuntu/GCC/W7900组合的上述原生模型接口、CPU/GPU契约和native/TorchScript Serving。不开启ORT或ONNX Serving，不授预训练权重数值、真实数据质量、全部模型/任务/精度、吞吐、多卡、其他AMD硬件/系统、长测或发布资格；旧条件跳过和历史失败各自保留。",
+            "validation_receipt_sha256": "47aaf3a573c051b971265653724e7ce91b47e3a186cdd4843f65d4d118a30ae7",
+            "installed_execution_evidence_sha256": "6692b74d2ce4c672a2b2be745e21d9332261c070987451795f17523845b6b346"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-7924354-local-process",
           "commit": "79243542f4794de8caa3b9a28f3befae90f65871",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",

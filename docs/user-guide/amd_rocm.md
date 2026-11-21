@@ -74,6 +74,8 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 该组合的本地进程运行器另通过真实 AMD 子进程放置、显存准入与重试前复检、冻结搜索及完成态重放；GPU 显存预约仍是逻辑协调。CPU/RSS 计量与进程树清理已验证，操作系统内存硬限制须提供可写的 cgroup v2 委托目录，详见[本地进程运行器](../development/local_process_runner.md)；缺少该目录时不能启用此边界。
 
+模型接口另已验证 CPU/GPU 特征提取、分类头替换与冻结训练，以及 ResNet 前向、梯度、更新和 buffer 对照；原生模型 bundle 与显式可信 TorchScript 均通过实际 GPU 加载、预热、推理和关闭。模型、Serving 与图像组件的独立安装消费者也已通过，图像消费者执行真实 GPU 图像和 mask 拷贝。这些结果限于兼容清单列出的原始用例，不授予预训练权重、任务质量或完整视觉目录资格。
+
 该 Linux 分发的 profiler 会在进入 `main` 前枚举设备并解析 GPU 可见性变量，可能让只计算环境摘要的命令因占位值直接终止。无需 profiling 的启动器可在启动进程前设置 `ROCPROFILER_REGISTER_ENABLED=0`，关闭 profiler 注册；GPU 计算仍使用原 HIP 后端。框架不会修改调用者的环境；需要 profiling 时保留 SDK 默认设置，并确保可见性变量合法。`initialize_runtime()` 无法修复动态库加载前发生的终止。
 
 在 WSL 原生文件系统中维护独立检出与构建目录，激活原生 Linux SDK，并让 `LIBTORCH_ROOT`、`ROCM_PATH` 分别指向 LibTorch 与 HIP 前缀。按[贡献指南](../../CONTRIBUTING.md#构建与验证)预置锁定依赖；核心 CLI 与安装清单中的原生转换工具可这样构建：
@@ -90,4 +92,4 @@ cmake --build out/build/wsl-rocm --parallel 2 \
 ./out/build/wsl-rocm/tools/cli/liuding-forge --version --format json
 ```
 
-该范围限于上述原生核心、训练、本地进程及安装接口；模型、视觉配方、ONNX/Serving、真实数据质量、性能和长时间稳定性须在 WSL 中独立验证。Windows 的结果不扩大这些边界。
+该范围限于上述原生核心、训练、本地进程、模型接口、原生/TorchScript Serving 及安装接口；完整视觉配方、ONNX/ONNX Serving、真实数据质量、性能和长时间稳定性须在 WSL 中独立验证。Windows 的结果不扩大这些边界。
