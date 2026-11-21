@@ -18,6 +18,27 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 DINOv2 Giant FP16-storage HIP dynamic scaling",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-6c91f4e-giant-half-dynamic-scaler",
+          "commit": "6c91f4efaf8ab8036350503b3649f52b0f127ddb",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。ROCPROFILER_REGISTER_ENABLED=0，正常GPU可见性；原CPU/HIP单元分支保持。",
+          "tests": "干净6c91f4e原Giant FP16-storage动态缩放/溢出恢复资源门禁与五仓库门禁共6项全部通过，零失败、跳过或未执行。",
+          "quality_evidence": {
+            "source_identity": "实际构建展开原models_amp目标，显式仅启用Giant原动态缩放门禁；binary前后SHA、原源码blob、cache/provenance、CLI运行身份和完整JUnit/native独立审核；四周期/资源输出逐字段检查。无下载或测试源码修改。",
+            "contracts": "保留seed20261027、原Giant模型、1×3×14×14 Half输入、全部参数Half存储与梯度、原SGD分组；四周期中一次注入Inf拒绝更新、三次真实更新，unscale逐元素相等，scale依次128/64/64/128与growth tracker/checkpoint-ready断言保持。",
+            "resource_contract": "原12GiB可用物理内存/16GiB可用显存准入保持，额外受cgroup与4GiB磁盘约束；原600秒监督、8GiB峰值RSS、3GiB销毁后RSS、5GiB峰值allocator、工作区释放后32MiB活跃及emptyCache后64MiB reserved上限不变。模型销毁后原始残留单独留存；同步静止后显式清理后端BLAS工作区。",
+            "measured_resources": "{\"cuda_allocated_after_destroy_bytes\": 167772160, \"cuda_allocated_after_workspace_clear_bytes\": 0, \"cuda_reserved_after_destroy_bytes\": 5226102784, \"cuda_reserved_after_empty_cache_bytes\": 0, \"elapsed_ms\": 24340, \"model\": \"vit_giant_patch14_dinov2\", \"operation\": \"cuda-half-storage-dynamic-scaler\", \"peak_cuda_allocated_bytes\": 4813403648, \"process_current_rss_after_destroy_bytes\": 1918091264, \"process_peak_rss_bytes\": 5318483968}",
+            "scope": "仅此WSL/GCC/ROCm/W7900原随机架构Half存储动态缩放/溢出恢复与资源合同；不授独立数值参考、预训练或真实数据集质量、完整任务训练/恢复、长时稳定性、性能、其他设备/系统、多卡或发布资格；既有失败保留。",
+            "validation_receipt_sha256": "f86b37247cda6a520274b7bb176318caacb1ad9cae6e886bf1d0d803efaf063e",
+            "qualification_summary_sha256": "d197234045c6f03ef18da668f6a7eb81bbf0037894bebedd1b6cf1c392f03b4d"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU/HIP image-output, pipeline and local-process unit paths",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-8192362-pipeline-image-output-local-process-units",
           "commit": "81923624dfa96b7ce6e199f2edf0e389e9ed6cfa",
