@@ -62,7 +62,7 @@ ROCm 构建支持 `local rocm-devices` 与 `rocm_device` 放置计划，以 HIP 
 
 ## 开发资源测量
 
-ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 设备身份、同步计时和 allocator 显存峰值，并由开发脚本运行独立预热及重复采样；命令、计时范围和环境绑定见 [benchmark 指南](../benchmarks/README.md#rocm-训练与优化器)。另有独立的[稳定性与受控压力入口](../benchmarks/README.md#rocm-稳定性与受控显存压力)，验证固定 Linear/AdamW/StepLR 的持续训练、文件恢复、显存 payload 释放和进程 allocator 配额 OOM 恢复；记录实际时长与精度，不扩大为其他负载或数小时稳定性资格。
+ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 设备身份、同步计时和 allocator 显存峰值，并由开发脚本运行独立预热及重复采样；命令、计时范围和环境绑定见 [benchmark 指南](../benchmarks/README.md#rocm-训练与优化器)。另有独立的[稳定性与受控压力入口](../benchmarks/README.md#rocm-稳定性与受控显存压力)，验证固定 Linear/AdamW/StepLR 的持续训练、文件恢复、显存 payload 释放和进程 allocator 配额 OOM 恢复；实际时长与精度范围见兼容矩阵，每个负载和精度分别验证。
 
 模型与 Serving 的[通用资源入口](../../scripts/benchmarks/RESOURCE_BASELINE.md)使用 HIP 身份、同步与独立 `peak_rocm_*` 字段；缺少功耗/频率控制观测时保留独立样本并阻止写入可比较 reference。图像入口与真实任务性能须分别验证。
 
@@ -104,7 +104,7 @@ ROCm 分发的 CPU 路径另通过 28 项独立随机架构参考、DINOv2-small
 
 原生 ONNX 导出另已验证 FP32、FP16、BF16 GPU 训练状态经独立 CPU FP32 副本导出，以及 CPU ONNX Runtime 1.23.2、ONNX Serving 和独立安装消费者。固定参考图通过官方 checker、严格 shape inference 及原数值对照；这些结果仅覆盖兼容清单中的图与契约，不提供 AMD ORT GPU Execution Provider，也不继承 Windows DirectML 的验证范围。构建和使用见 [ONNX API](../api/onnx.md)。
 
-原生合成稳定性负载已通过 FP32、FP16、BF16 各独立 180 秒、2 GiB GPU payload 的持续训练；每精度完成 11 次文件恢复和 33 步精确续训对照，初末活跃分配相同。进程 allocator 配额 OOM、非法 shape 和 FP16 注入溢出后的恢复也已通过；此范围不包含两小时 WSL 长测、物理显存耗尽或驱动重置。
+原生固定合成 Linear/AdamW/StepLR 负载的 FP32 已在独立进程完成两小时、4 GiB GPU payload 的持续训练，参数保留 FP32；每 15 秒保存并重新打开完整文件检查点，核对全部参与者、CPU/GPU RNG 和后续三步精确续训，初末活跃分配相同。FP16、BF16 仍仅验证各 180 秒、2 GiB payload。进程 allocator 配额 OOM、非法 shape 和已验证 FP16 的注入溢出恢复保留原断言；实际更新数、恢复次数与精度范围见兼容矩阵。该结果不包含其他负载、物理显存耗尽或驱动重置。
 
 资源入口的两种训练与八种优化器模式各完成一独立预热和五独立采样。训练模式通过原 10% CV 门槛，最大 CV 为 3.236%；优化器部分耗时指标超标，最大 CV 为 44.174%，保留原失败。缺少功耗和频率控制观测，不提供可比较性能 reference。
 
