@@ -19,6 +19,26 @@
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU reference path",
           "build_type": "Release",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-c2778cd-dinov2-real-first-batch-cpu",
+          "commit": "c2778cda8c8b8b341105e1940a026fe12ae10b68",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、至多两个编译任务和串行CTest。启动环境ROCPROFILER_REGISTER_ENABLED=0；原CPU参考进程显式设置HIP_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES/CUDA_VISIBLE_DEVICES=-1。",
+          "tests": "干净c2778cdDINOv2-small原真实首批次CPU梯度/分组SGD合同与五仓库门禁共6项全部通过，零跳过、零未执行。",
+          "quality_evidence": {
+            "source_identity": "从主力Windows本机file源同步干净提交，复用原Ninja Release树，仅重建dinov2_pretrained_backward目标。原固定权重及18份capture/reference文件前后完整SHA与大小核对；binary/source/provenance、原JUnit/native和五门禁独立审核，无下载或生成参考。",
+            "native_contract": "严格导入DINOv2-small原174张量预训练权重，176个主干/头参数；原8x3x224x224输入、标签与头初态。独立HF eager logits/loss按原rtol3e-4/atol3e-4对照，六份完整梯度按原rtol3e-3/atol3e-5对照，分组SGD实际更新六份完整参数按原rtol3e-4/atol3e-5对照；测试源码与全部数值断言不变。",
+            "reference_identity": "权重88240512字节，SHAf3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5；复用原真实首批次18固定文件，不生成、替换或筛选。原Windows a5ac395失败收据SHA649f9b0e73ed9429e8f8ca6b49bb52ce3838abfa5db0a7ead29871463e82e3e0保留，不被本WSL结果覆盖。",
+            "scope": "仅此精确WSL/Ubuntu/GCC/ROCm分发的CPU FP32真实首批次数值合同，不授Windows原失败、GPU真实首批次梯度、完整微调或质量、恢复、性能、其他设备/系统、多卡或发布资格。",
+            "validation_receipt_sha256": "ef9c65cba36181f75d9e12bf85b5973bfd668137d06b39cbdc0f6cfedb622a14",
+            "qualification_summary_sha256": "9a267c815408a6706a4efd7c24e5e27f7d223d2224cc0690dfaec75f4217b854"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU reference path",
+          "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest。仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0；本批一个原生参考进程显式设置HIP_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES/CUDA_VISIBLE_DEVICES=-1，只执行CPU参考，不改系统环境。",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-15f01fa-dinov3-huge-cpu-reference",
           "commit": "15f01fa97e1384ea3cdb4e28ea0969d53790644c",

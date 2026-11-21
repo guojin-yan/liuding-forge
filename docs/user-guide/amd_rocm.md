@@ -82,7 +82,7 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 固定外部 ResNet50 a1 与 DINOv2-small 权重的 FP32 迁移配方另通过原四图、四更新微任务，覆盖冻结主干、微调、分组学习率、AdamW、按 update 调度，以及暂停或进程强杀后的完整状态与新进程恢复。普通微任务保留原 accuracy ≥ 0.5 门槛；额外 BatchNorm train 用例只验证状态策略与如实质量报告。这些结果不授予真实数据质量、完整微调或独立预训练数值资格。
 
-两模型另通过 CPU/GPU FP32 严格权重导入、独立前向参考与冻结头更新，DINOv2-small 通过两步梯度及分组 SGD 对照。固定 Fashion-MNIST 子集（训练/测试各 1000 张）的冻结特征分类也通过原数值与质量门槛，ResNet50、DINOv2-small 准确率分别为 0.81、0.855，CPU/GPU 相同。固定权重和参考身份见兼容矩阵；此范围不包含完整数据、全量微调或额外真实首批次梯度门禁。
+两模型另通过 CPU/GPU FP32 严格权重导入、独立前向参考与冻结头更新，DINOv2-small 通过两步梯度及分组 SGD 对照。固定 Fashion-MNIST 子集（训练/测试各 1000 张）的冻结特征分类也通过原数值与质量门槛，ResNet50、DINOv2-small 准确率分别为 0.81、0.855，CPU/GPU 相同。DINOv2-small 另通过固定 8 张真实图像首批次的 CPU FP32 独立参考，覆盖 logits、loss、六份完整梯度与六份分组 SGD 更新参数，保留原容差。固定权重和参考身份见兼容矩阵；此范围不包含 GPU 真实首批次梯度、完整数据或全量微调，Windows 分发上的既有首批次失败仍单独保留。
 
 随机初始化 DINOv2 ViT-small/base、DINOv3 ViT-small/small-plus/base 与 ConvNeXt-tiny/small/base/large 另通过 CPU FP32、GPU FP16 autocast 的文件检查点恢复。验证在第 4 次更新保存文件，销毁并重建训练对象后完成至第 6 次更新，核对安全边界和完成态的全部参与者状态、loss、数据顺序及下一 CPU/GPU 随机数；各例保留原 RSS、allocator 与超时门槛，其中 ConvNeXt-large 为 8 GiB RSS、GPU 5 GiB allocator 和 360 秒，精确对应关系见兼容矩阵。此范围为同进程对象重建，不包含进程强杀或其他模型容量。
 
