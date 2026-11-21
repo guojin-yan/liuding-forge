@@ -18,6 +18,26 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 offline maintenance/build-contract path",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-4050d80-offline-maintainer-build-gates",
+          "commit": "4050d805054afdea6d96467b8bae8cf7ccdc7b56",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。配置/构建保留正常设备枚举；测试进程ROCPROFILER_REGISTER_ENABLED=0并隐藏HIP/ROCR/CUDA设备，CMAKE_BUILD_PARALLEL_LEVEL=2。",
+          "tests": "干净4050d80原25维护工具、4构建/源码合同与5仓库门禁共34项CTest全部通过、零外层跳过；内部236方法执行通过，原clang-cl专属一方法在GNU前端条件跳过，未计入执行通过。",
+          "quality_evidence": {
+            "source_identity": "仅增量更新foundation构建来源身份；全部原测试源码blob、cache/provenance、34份JUnit/native及原负向WILL_FAIL/输出匹配属性独立核对。无产品源码改动、依赖下载或网络访问；第一次私有runner在隐藏GPU的配置环境无法推导架构，零构建/零测试前停止，原失败保留，后续只修正启动环境。",
+            "contracts": "仓库/兼容/依赖/组件图、SDK转换、固定CIFAR/Fashion-MNIST/paired数据准备、checkpoint fixture、覆盖率摘要/所有权/离线输入/命中/协议与拒绝门禁、TSan协议、baseline统计与拒绝门禁、CUDA baseline runner和release工具的原离线合成测试；另含构建来源生命周期、GNU编译flags、组件矩阵设置与旧表面扫描。",
+            "conditional_skip": "CompilerConfigurationFlagsTest.test_custom_clang_cl_debug_profile_keeps_requested_flags保留原MSVC_FRONTEND条件；实际GNU前端故跳过一方法。其余原方法执行，负向测试按原CTest WILL_FAIL语义判定；原逐项超时不变，原无超时条目额外600秒监督。",
+            "scope": "仅此WSL/GCC配置的离线维护工具及构建合同，不授实际instrumented coverage/TSan、GPU计算或性能、发布安全或正式发布、其他前端/设备/系统资格；合成发布fixture不构成发布证据。",
+            "validation_receipt_sha256": "1f791567fd869e09d461455ee554d9416b0e80c6aecd2ab17405b1caf23a7e2b",
+            "qualification_summary_sha256": "efac0b20b4f1255b45bbaf142fc5eccaef29acb3a768a8ebeb3d8a63943aa6b0"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU process-recovery path",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-191f13d-native-process-recovery",
           "commit": "191f13d871c27e6a7a89d54c187f522578af7b21",
