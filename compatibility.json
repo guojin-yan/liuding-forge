@@ -19,6 +19,26 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-57bd5fe-supplementary-gpu-contracts",
+          "commit": "57bd5fe93ecd5c216e0293b198f57d2192caad2e",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm10.1.0/HIP7.16.26385; LibTorch2.14.0 native image GPU ownership and CLI recipe contracts",
+          "tests": "干净57bd5fe三项原图像GPU契约、十一套原CLI GPU集成测试及五仓库门禁共19个CTest入口全部通过、零跳过；各Python suite内部计数独立保留，不与已有批次拼成全量资格。",
+          "quality_evidence": {
+            "source_identity": "原有限GPU串行队列自然结束且结果已收集后，复用匹配Release树离线最小构建、至多两个编译任务；保持同一干净源码、原生binary前后SHA及built-provenance。原始JUnit、native日志、命令与原CTest属性完整保留。",
+            "native_image_contracts": "原ImageEncoder拒绝隐式GPU传输，TensorImageDataset保留GPU源storage且不搬移，以及paired pixels同设备要求；全部使用实际GPU张量。",
+            "cli_contracts": "原local paired memory、model checkpoint、offline workflow、local recipe/lifecycle/failure lifecycle、initial state、image/update/AdamW/paired配方CUDA接口套件。保持自制夹具、原更新/质量/完整恢复断言、seed、OS job-memory边界与逐suite原CTest超时，不删用例或降低预算；cuda为AMD兼容接口。",
+            "internal_unittest_counts": "{\"Cli_local_paired_memory_cuda\": 10, \"Cli_model_checkpoint_CUDA\": 11, \"Cli_offline_workflow_CUDA\": 8, \"Cli_local_recipe_CUDA\": 7, \"Cli_local_recipe_lifecycle_CUDA\": 1, \"Cli_local_recipe_failure_lifecycle_CUDA\": 2, \"Cli_initial_state_recipe_CUDA\": 5, \"Cli_image_recipe_CUDA\": 6, \"Cli_update_recipe_CUDA\": 6, \"Cli_adamw_recipe_CUDA\": 5, \"Cli_paired_recipe_CUDA\": 11}",
+            "scope": "仅这些既有图像所有权与CLI GPU集成合同；不授所有数据管线/完整模型配方、真实数据准确率、独立预训练数值、性能、任意OOM/故障恢复、其他AMD设备/OS、多卡或发布资格。此前失败、其他批次和准入不足项各自保留。",
+            "validation_receipt_sha256": "e648e2c403dfdf753ef35dcb197e7ee54a4ca39fd56d93cc7b7c6e94b38add8a"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-86362e8-completed-cifar-native-export",
           "commit": "86362e8a0a2c27a28e69bafa63715b24ecb99da0",
           "accelerator": "AMD Radeon PRO W7900 host; ROCm10.1.0 LibTorch2.14.0 model reconstruction on CPU; ONNX Runtime1.23.2 CPUExecutionProvider",
