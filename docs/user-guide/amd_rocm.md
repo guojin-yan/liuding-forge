@@ -88,6 +88,10 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 原生 ONNX 导出另已验证 FP32、FP16、BF16 GPU 训练状态经独立 CPU FP32 副本导出，以及 CPU ONNX Runtime 1.23.2、ONNX Serving 和独立安装消费者。固定参考图通过官方 checker、严格 shape inference 及原数值对照；这些结果仅覆盖兼容清单中的图与契约，不提供 AMD ORT GPU Execution Provider，也不继承 Windows DirectML 的验证范围。构建和使用见 [ONNX API](../api/onnx.md)。
 
+原生合成稳定性负载已通过 FP32、FP16、BF16 各独立 180 秒、2 GiB GPU payload 的持续训练；每精度完成 11 次文件恢复和 33 步精确续训对照，初末活跃分配相同。进程 allocator 配额 OOM、非法 shape 和 FP16 注入溢出后的恢复也已通过；此范围不包含两小时 WSL 长测、物理显存耗尽或驱动重置。
+
+资源入口的两种训练与八种优化器模式各完成一独立预热和五独立采样。训练模式通过原 10% CV 门槛，最大 CV 为 3.236%；优化器部分耗时指标超标，最大 CV 为 44.174%，保留原失败。缺少功耗和频率控制观测，不提供可比较性能 reference。
+
 该 Linux 分发的 profiler 会在进入 `main` 前枚举设备并解析 GPU 可见性变量，可能让只计算环境摘要的命令因占位值直接终止。无需 profiling 的启动器可在启动进程前设置 `ROCPROFILER_REGISTER_ENABLED=0`，关闭 profiler 注册；GPU 计算仍使用原 HIP 后端。框架不会修改调用者的环境；需要 profiling 时保留 SDK 默认设置，并确保可见性变量合法。`initialize_runtime()` 无法修复动态库加载前发生的终止。
 
 在 WSL 原生文件系统中维护独立检出、构建和训练工作目录；模型包发布要求文件系统支持 Linux 原子不覆盖目录重命名，Windows 挂载目录可能拒绝该操作。激活原生 Linux SDK，让 `LIBTORCH_ROOT`、`ROCM_PATH` 分别指向 LibTorch 与 HIP 前缀。按[贡献指南](../../CONTRIBUTING.md#构建与验证)预置锁定依赖；核心 CLI 与安装清单中的原生转换工具可这样构建：
@@ -106,4 +110,4 @@ cmake --build out/build/wsl-rocm --parallel 2 \
 
 框架构建的 Linux ROCm 可执行文件使用 ELF RPATH 查找配置时选择的 LibTorch/HIP SDK 及其数学库，安装后也保留这些 SDK 路径，使默认空环境的原生遥测 worker 能正常启动。外部 SDK 必须保持在配置时的位置；迁移 SDK 后重新配置、构建和安装。该设置不复制 SDK、不修改系统搜索路径或 worker 的环境继承策略；应用自行构建可执行文件时仍须配置自己的运行库搜索路径。
 
-该范围限于上述原生核心、训练、本地进程、模型接口、代表视觉任务、原生/TorchScript Serving、所列 ONNX/CPU ORT 契约及安装接口；完整视觉配方、真实数据质量、性能和长时间稳定性须在 WSL 中独立验证。Windows 的结果不扩大这些边界。
+该范围限于上述原生契约、任务、安装接口和合成资源负载；完整视觉配方、真实数据质量、其他资源负载与更长稳定性须在 WSL 中独立验证。Windows 的结果不扩大这些边界。
