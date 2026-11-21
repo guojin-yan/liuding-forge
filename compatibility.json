@@ -17,6 +17,27 @@
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU reference path",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-c03e16a-model-references",
+          "commit": "c03e16a35bfe1e5076e04b775e2f00d757eb2cc8",
+          "tests": "干净c03e16a原28项独立随机架构CPU参考、DINOv2-small参考及五仓库门禁共34项全部通过、零跳过、零未执行。",
+          "quality_evidence": {
+            "source_identity": "主力Windows开发提交，WSL从本机file源同步干净提交；本地87份固定reference完整SHA核验后复制到WSL原生目录。离线复用Release树，仅重建models测试目标，最多两个编译任务，CTest串行；实际binary SHA、cache、provenance和全部native/JUnit证据保存。",
+            "reference_contract": "原28项独立CPU FP32随机架构参考及DINOv2-small原参考均使用当前C++实现、原固定输入/状态文件、原数值容差、原超时和资源断言；覆盖Torchvision/Timm/Meta模型与高容量DINOv3资源门禁，完整状态、tokens/CLS及适用中间层由原测试核对。没有生成新参考、改阈值或挑选结果。",
+            "resource_admission": "原4/8/12GiB主机物理内存准入逐项执行，全部满足；高容量参考保留原12GiB峰值RSS约束。未准入项在本批为零，未把准入判断当测试通过。",
+            "dino_small_identity": "复用固定DINOv2-small输入/输出/state文件，SHA分别为0ba7d144d17e1d8a0d97494357b80d8d16d7448339e7755b2b21d45d767a4632、c8347532d3e7ae4b5328a889d4ce18f9a20f86c13197d96beb52e456bf46730a、cd1aa20613acd6d68210f84d170e1c3b5c16d67968c10c8918881a682f2971a9；仅为独立随机架构CPU数值参考。",
+            "scope": "仅该精确WSL/ROCm/W7900组合的CPU FP32随机架构数值和资源合同，不授GPU独立数值、预训练权重、真实数据任务质量、训练恢复、性能、其他AMD设备/系统、多卡或发布资格。参考文件不进入产品分发。",
+            "validation_receipt_sha256": "cff45768459035835d12d4d26d68043a0bd5f041809aba734682af3763013962",
+            "qualification_summary_sha256": "8e4cb8afdf4796245c5bb409d18c6156a869dd1032556507c158dbbf6265ba94"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
