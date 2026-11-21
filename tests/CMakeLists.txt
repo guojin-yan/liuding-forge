@@ -54,6 +54,15 @@ if(Python3_Interpreter_FOUND)
             "${CMAKE_SOURCE_DIR}/tests/scripts/test_torch_runtime_staging.py")
     set_tests_properties(TorchRuntimeStagingContract PROPERTIES
         LABELS "hygiene;dependency;runtime" TIMEOUT 180)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_test(NAME LinuxTorchRuntimeSearchContract
+            COMMAND ${CMAKE_COMMAND} -E env "CMAKE_COMMAND=${CMAKE_COMMAND}"
+                "JYPPX_RUNTIME_TEST_CXX=${CMAKE_CXX_COMPILER}"
+                ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tests/scripts/cmake/test_linux_torch_runtime.py")
+        set_tests_properties(LinuxTorchRuntimeSearchContract PROPERTIES
+            LABELS "hygiene;dependency;runtime;packaging" TIMEOUT 180 RUN_SERIAL TRUE)
+    endif()
     add_test(NAME RepositoryHygieneToolUnitTests
         COMMAND ${Python3_EXECUTABLE} -I -B
             "${CMAKE_SOURCE_DIR}/tests/scripts/test_repository_hygiene.py")

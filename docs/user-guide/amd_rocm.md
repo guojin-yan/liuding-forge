@@ -98,4 +98,6 @@ cmake --build out/build/wsl-rocm --parallel 2 \
 ./out/build/wsl-rocm/tools/cli/liuding-forge --version --format json
 ```
 
+框架构建的 Linux ROCm 可执行文件使用 ELF RPATH 查找配置时选择的 LibTorch/HIP SDK 及其数学库，安装后也保留这些 SDK 路径，使默认空环境的原生遥测 worker 能正常启动。外部 SDK 必须保持在配置时的位置；迁移 SDK 后重新配置、构建和安装。该设置不复制 SDK、不修改系统搜索路径或 worker 的环境继承策略；应用自行构建可执行文件时仍须配置自己的运行库搜索路径。
+
 该范围限于上述原生核心、训练、本地进程、模型接口、代表视觉任务、原生/TorchScript Serving、所列 ONNX/CPU ORT 契约及安装接口；完整视觉配方、真实数据质量、性能和长时间稳定性须在 WSL 中独立验证。Windows 的结果不扩大这些边界。
