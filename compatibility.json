@@ -19,6 +19,24 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-6f0f81b-classic-vgg-cpu",
+          "commit": "6f0f81ba938b5ea58635d8120cdee18a733fbb05",
+          "accelerator": "CPU only; AMD ROCm10.1.0 LibTorch2.14.0 distribution torch_cpu; HIP device visibility disabled",
+          "tests": "干净6f0f81b经典4096宽Fast R-CNN VGG16原CPU loss/backward/实际SGD更新用例及五仓库门禁共6项通过、零跳过；单独登记，不改写此前未准入批次。",
+          "quality_evidence": {
+            "resource_admission": "先审查原VGG16卷积和25088x4096/4096x4096区域头、三类输出，共134342484 FP32参数；私有监督器在构建前和执行前均要求12GiB可用物理内存、8GiB可用系统提交额度及4GiB磁盘。仅满足准入后开启原显式资源开关，没有修改模型、原断言、seed7或600秒监督。",
+            "native_contract": "原始测试验证标量有限loss、sample count、模型和梯度的CPU/FP32身份、非零有限梯度、真实SGD step、completed_steps及参数变化；保持经典4096头及完整反向。原始JUnit/native日志、原测试源SHA、精确build-provenance及前后相同binary SHA保留。",
+            "scope": "仅该随机模型、自制微型输入的原CPU单步训练契约；不授AMD GPU VGG训练、预训练独立数值、真实数据质量、性能、恢复或全部视觉模型资格。DINO大容量的原18GiB物理与Giant参考20GiB提交准入不变，旧资源不足和历史失败分别保留。",
+            "validation_receipt_sha256": "41e5164bd9af11742bd5c7a5307bd36e28daa6d2e8663ac9f1a4b186538058a0"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-4c4ca1c-completed-cifar-directml-export",
           "commit": "4c4ca1c3d2e11f439b802a73aa38ec55c6216227",
           "accelerator": "AMD Radeon PRO W7900 DXGI device_id=0; ROCm10.1.0 LibTorch2.14.0 CPU source reconstruction; ORT1.24.4 API24 + DirectML1.15.4",
