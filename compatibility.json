@@ -18,6 +18,27 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU CLI path",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-2431544-cpu-cli-lifecycle-recipe-data-contracts",
+          "commit": "2431544061a84922778279c1ebf6ff0497eee8bf",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。配置/构建保留正常设备环境；CPU测试进程ROCPROFILER_REGISTER_ENABLED=0并隐藏HIP/ROCR/CUDA设备。",
+          "tests": "干净2431544原CPU CLI生命周期/配方/数据十三套件与五仓库门禁共18项CTest全部通过，零外层/内部跳过；十二unittest套件64方法执行，另含原MNIST下载关闭合同。",
+          "quality_evidence": {
+            "source_identity": "复用原生CLI、recipe-gate及paired-affine数据示例三目标，前后binary完整SHA、相关源码blob、cache/provenance及18份JUnit/native独立审核；原命令、fixture、数值和错误断言未改，无下载或网络访问。",
+            "contracts": "原离线工作流、SQLite遥测读取、真实训练子进程取消/超时/强杀/父进程退出与lease回收、初始状态导入导出、更新调度/AdamW完整状态与跨进程恢复、图像数值诊断、paired-affine精确有理数据准备及失败/训练配方。各测试原质量阈值、完整状态/随机序列、digest/身份和拒绝无变更断言保持；精确范围以各原套件为准。",
+            "download_scope": "NativeMnistDownloadContract原CTest无--network-enabled/--harness，仅核对原生HTTPS关闭合同；未运行模拟transport或真实下载，不授HTTP/TLS或官方数据集下载资格。遥测亦仅使用原本地SQLite/进程合同。",
+            "resource_contract": "原CTest180/300/360/420/600/1200秒及子操作绝对deadline保持；原无超时的仓库门禁补充600秒监督。原暂停/强杀/进程树退出、输出/存储/资源限额与清理断言保持，CPU测试显式隐藏HIP/ROCR/CUDA设备。",
+            "scope": "仅此WSL/GCC/ROCm分发的上述CPU CLI原合同；CPU任务通过不覆盖既有GPU ResNet18质量失败，不授新GPU数值、transfer真实权重训练、HTTP/Collector、完整数据集、性能、其他设备/系统或发布资格。",
+            "validation_receipt_sha256": "2b7bc020187984e5ab9564ff2819b8f93fae3d1224523e6406f3bff930804bf9",
+            "qualification_summary_sha256": "60265d04870e99a7d4c4e1a3675044b6ff244520241b225fc23b0eb463c874d6"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 DINOv2 Giant FP16-storage HIP dynamic scaling",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-6c91f4e-giant-half-dynamic-scaler",
           "commit": "6c91f4efaf8ab8036350503b3649f52b0f127ddb",
