@@ -18,6 +18,27 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU CLI path",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-09fb5d9-cpu-transfer-original-contracts",
+          "commit": "09fb5d9ecf89ca6cad32f805e59208966a284074",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。配置/构建保留正常设备环境；CPU测试进程ROCPROFILER_REGISTER_ENABLED=0并隐藏HIP/ROCR/CUDA设备。",
+          "tests": "干净09fb5d9四套原CPU transfer/分组学习率/AdamW/update配方与五仓库门禁共9项CTest全部通过，零外层/内部跳过；原18/18/4/6方法共46项全部执行。",
+          "quality_evidence": {
+            "source_identity": "原生CLI与recipe-gate两个binary前后完整SHA、原测试源码blob、cache/provenance、运行身份及九份JUnit/native独立审核；原CTest命令与断言未改，仅原可选环境变量保留AdamW/update JSON证据。无下载、权重再生成或测试源码修改。",
+            "fixed_weights": "现有ResNet50 a1_in1k SHA773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb及DINOv2-S Liuding布局SHAf3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5前后核对；原元数据取自同提交recipes固定声明。",
+            "contracts": "原自制四图两类、两架构frozen/finetune与BN策略、head/backbone分组学习率、SGD/AdamW/update调度；保留原连续/暂停/强杀恢复、完整模型与检查点、下一随机状态、实际优化器控制与moment状态、bundle/provenance/lineage和配置拒绝无变更断言；各用例原微型任务质量判断保持，不用重训挑选。",
+            "resource_contract": "每套件原1200秒及原子操作deadline保持；仓库无超时条目补充600秒监督。原图像/数据/样本/内存限制保持；测试显式隐藏HIP/ROCR/CUDA设备，CPU串行执行，文件位于WSL原生文件系统。",
+            "scope": "仅此WSL/GCC/ROCm分发的上述CPU原四图迁移学习合同，不授真实数据集质量、新GPU计算、HTTP/Collector、完整数据集、性能、其他设备/系统或发布资格；既有GPU ResNet18失败保留。",
+            "validation_receipt_sha256": "76e881441d6546212b5537abd65098d40fb4b287cfb538621c39217b72db13d9",
+            "qualification_summary_sha256": "dbc1db864ee44beec342cadedffc1848cc751262df2cfcb82e3aa39b855fb918"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100 host; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU native examples and ONNX Runtime CPU EP",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-034c0e4-native-cpu-example-contracts",
           "commit": "034c0e4687f597efd19cdf1be6aadb496810e4de",
