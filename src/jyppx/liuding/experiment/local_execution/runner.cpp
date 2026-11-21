@@ -536,10 +536,12 @@ Spec read_spec(const Json& value) {
     for (const auto& [name, declaration] : files.items()) {
       identifier(name);
       fields(declaration, {"path", "sha256", "size_bytes"});
-      RuntimeFile file{
-          .path = fs::u8path(text(declaration.at("path"))),
-          .digest = {.hex = text(declaration.at("sha256"))},
-          .size = unsigned_number(declaration.at("size_bytes"), 2ULL << 30U)};
+      // Complete the object before a later field conversion can throw.
+      // Nested aggregate cleanup can double-free the digest on GCC 13.3.
+      RuntimeFile file;
+      file.path = fs::u8path(text(declaration.at("path")));
+      file.digest.hex = text(declaration.at("sha256"));
+      file.size = unsigned_number(declaration.at("size_bytes"), 2ULL << 30U);
       validate_artifact_digest(file.digest);
       require(file.path.is_absolute(), "Runtime file paths must be absolute");
       for (const auto& part : file.path)
