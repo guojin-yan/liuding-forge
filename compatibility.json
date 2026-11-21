@@ -18,6 +18,27 @@
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "build_type": "Release",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU/HIP optimizer unit paths",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-a9acbab-optimizer-adapter-scheduler-units",
+          "commit": "a9acbab93fc56770b8a7b0daa5dfc706977f6c37",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1；本机file源离线复用Release树，至多两个编译任务、串行CTest。仅启动环境ROCPROFILER_REGISTER_ENABLED=0；保留正常GPU可见性，原CPU和CUDA兼容HIP分支按原测试执行。",
+          "tests": "干净a9acbab十四原生优化器/调度器单元目标全部原CTest与五仓库门禁，共191项；183通过，8项原LibTorch2.5.1专属canonical迁移fixture条件跳过、未计入通过，零失败/未执行。",
+          "quality_evidence": {
+            "source_identity": "十四目标由实际构建展开原NOT_BUILT占位项，按原binary发现全部CTest；八算法适配器、五调度器家族及极端参数目标完整选择。十四binary前后SHA、原源码blob、构建provenance、CLI rocm:available:1与全部JUnit/native独立审核；既有accelerator精度矩阵未重复。",
+            "contracts": "原适配器更新/分组参数/独立或LibTorch数值对照、CPU BF16与GPU能力分支、稀疏/闭包失败原子性、schema与字段验证、缺梯度/空状态/连续恢复及资源限额；原step/composite/epoch/event/linear调度、学习率边界、原子组合、事件处理与检查点续训，以及极端学习率/8192批组批合同。精确输入、精度、容差和断言均未改。",
+            "conditional_skips": "Adadelta/Adagrad/LAMB/SGD/Adam/AdamW/NAdam/RMSprop各一项原canonical fixture明确要求精确LibTorch2.5.1，本2.14.0分发保留原八跳过；原schema-v1迁移及GPU继续训练的其他合同按原断言执行，不将其当作上述历史fixture资格。",
+            "resource_contract": "原CTest超时保留；原无超时条目额外600秒监督。所有CPU/GPU测试串行，未改变张量、步数、分组、稀疏格式、资源边界或参考容差。",
+            "scope": "仅此WSL/GCC/ROCm/W7900的原单元合同，不授被跳过的精确2.5.1历史fixture、真实任务质量、性能、其他设备/系统、多卡或发布资格。",
+            "validation_receipt_sha256": "7d3faaa98ad16b876165f93ba5cbc2b8756ea5d621b76bf5d6b6d603ad7b9b23",
+            "qualification_summary_sha256": "0097d377da1787ce1dfad679d61f794d42925060fa3fcdccae75cdd6530f88bf"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU CLI path",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-84df105-cpu-cli-delivery-contracts",
           "commit": "84df10596cc8f1fd4ce6f372246c07ecc2c27026",

@@ -70,7 +70,7 @@ ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 
 
 ## WSL2 原生核心与训练
 
-W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的原生 Linux C++11 ABI=1 组合。范围包括设备与数据管线、八类优化器与十五类调度器的 FP32/FP16/BF16 组合、AMP、Trainer、检查点，以及独立安装应用的 GPU 前向、反向和 HIP 物理设备身份检查。精确 LibTorch 2.5.1 历史检查点迁移用例仍条件跳过；原生版本查询应报告 `rocm:available:1`。
+W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的原生 Linux C++11 ABI=1 组合。范围包括设备与数据管线、八类优化器与十五类调度器的 FP32/FP16/BF16 组合、AMP、Trainer、检查点，以及独立安装应用的 GPU 前向、反向和 HIP 物理设备身份检查。八算法适配器、对应调度器及极端参数的原单元合同也已验证；精确 LibTorch 2.5.1 历史检查点和八份原适配器 canonical 迁移 fixture 仍条件跳过；原生版本查询应报告 `rocm:available:1`。
 
 该组合的本地进程运行器另通过真实 AMD 子进程放置、显存准入与重试前复检、冻结搜索及完成态重放；GPU 显存预约仍是逻辑协调。CPU/RSS 计量与进程树清理已验证，操作系统内存硬限制须提供可写的 cgroup v2 委托目录，详见[本地进程运行器](../development/local_process_runner.md)；缺少该目录时不能启用此边界。
 
