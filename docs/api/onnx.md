@@ -11,7 +11,7 @@
 
 ## 构建与接入
 
-准备 LibTorch 2.14.1，或 [AMD 开发组合](../user-guide/amd_rocm.md)的 Windows ROCm 10.1.0 LibTorch 2.14.0；其他 2.14.0 包不在该导出组合中。需要推理时再准备官方 ONNX Runtime 1.23.2 SDK。在现有 CMake 配置中启用需要的组件，两者互不强制依赖，也不要求启用项目的 `models` 组件。
+准备 LibTorch 2.14.1，或 [AMD 开发组合](../user-guide/amd_rocm.md)的 Windows/Linux ROCm 10.1.0 LibTorch 2.14.0；实际验证范围以兼容清单为准，其他 2.14.0 包不在该导出组合中。需要推理时再准备官方 ONNX Runtime 1.23.2 SDK。在现有 CMake 配置中启用需要的组件，两者互不强制依赖，也不要求启用项目的 `models` 组件。
 
 ```sh
 cmake -S . -B out/build/your-profile \

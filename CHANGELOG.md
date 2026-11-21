@@ -7,7 +7,7 @@
 ### 训练与数据
 
 - 接入 AMD ROCm LibTorch/HIP 构建、GPU 设备发现与构建指纹，视觉 batch 预检使用 HIP 内存查询；AMD 继续使用 LibTorch 的 `cuda:<index>` 与既有训练/AMP/恢复接口。
-- Windows ROCm 10.1.0 LibTorch 2.14.0 可启用原生 ONNX 导出；GPU 训练模型通过独立 CPU 副本导出，视觉 CLI 使用 CPU FP32，推理后端由 ONNX Runtime 单独选择。
+- Windows/Linux ROCm 10.1.0 LibTorch 2.14.0 可启用原生 ONNX 导出；GPU 训练模型通过独立 CPU 副本导出，视觉 CLI 使用 CPU FP32，推理后端由 ONNX Runtime 单独选择。
 - 补齐 AMD 开发组合的八类优化器、十五类调度器与 FP32/FP16/BF16 autocast 数值及精确续训回归；主权重使用 FP32。
 - 开发 benchmark 增加独立 ROCm 训练和八类优化器目标，使用真实 HIP 设备身份、同步计时和 allocator 峰值；开发 runner 保留独立进程原始样本并检查环境一致性与统计稳定性。
 - 增加独立 ROCm 持续验证入口，覆盖固定负载的三精度训练、反复文件检查点精确续训、受控显存 payload 及进程 allocator 配额 OOM 后恢复，按实际时长记录资源与限制。

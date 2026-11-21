@@ -243,10 +243,11 @@ endif()
 if(JYPPX_LIUDING_BUILD_ONNX_EXPORT AND NOT Torch_VERSION STREQUAL "2.14.1")
     # The AMD distribution exposes the same native JIT/ONNX serializer API.
     # Keep this exception exact; other 2.14.0 packages are not qualified.
-    if(NOT (WIN32 AND TARGET torch_hip AND Torch_VERSION STREQUAL "2.14.0"
+    if(NOT ((WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            AND TARGET torch_hip AND Torch_VERSION STREQUAL "2.14.0"
             AND ROCM_VERSION_DEV STREQUAL "10.1.0"))
         message(FATAL_ERROR
-            "The native ONNX serializer requires LibTorch 2.14.1 or Windows ROCm 10.1.0 LibTorch 2.14.0")
+            "The native ONNX serializer requires LibTorch 2.14.1 or Windows/Linux ROCm 10.1.0 LibTorch 2.14.0")
     endif()
 endif()
 if(JYPPX_LIUDING_ONNX_RUNTIME_DIRECTML AND

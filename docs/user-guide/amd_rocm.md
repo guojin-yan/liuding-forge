@@ -44,7 +44,7 @@ Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像
 
 ## ONNX 导出与推理
 
-本组合可启用 `JYPPX_LIUDING_BUILD_ONNX_EXPORT=ON`；需要原生推理时再启用 `JYPPX_LIUDING_BUILD_ONNX_RUNTIME=ON` 并通过 `JYPPX_LIUDING_ONNX_RUNTIME_ROOT` 指定官方 ORT 1.23.2 SDK，详见 [ONNX 导出与推理](../api/onnx.md)。此适配仅增加 Windows ROCm 10.1.0 LibTorch 2.14.0 精确组合，不扩展到其他 2.14.0 包。
+本组合可启用 `JYPPX_LIUDING_BUILD_ONNX_EXPORT=ON`；需要原生推理时再启用 `JYPPX_LIUDING_BUILD_ONNX_RUNTIME=ON` 并通过 `JYPPX_LIUDING_ONNX_RUNTIME_ROOT` 指定官方 ORT 1.23.2 SDK，详见 [ONNX 导出与推理](../api/onnx.md)。导出配置还接受 Linux 的 ROCm 10.1.0 LibTorch 2.14.0，实际验证范围分别登记；其他 2.14.0 包仍会拒绝。
 
 GPU 训练后的模型通过独立 CPU 副本导出，原训练模型继续保留设备、精度和梯度。视觉 CLI 使用 CPU FP32 eval 副本导出 opset 17；FP16/BF16 训练不代表 ONNX 采用同一精度。ONNX Runtime 的 Provider 独立于 LibTorch，默认 ORT 组合使用 CPU。
 
