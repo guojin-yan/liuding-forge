@@ -268,6 +268,40 @@ class ComponentMatrixSettingsTest(unittest.TestCase):
                                     if "Matrix" not in name else
                                     (build / name / "b" / "sdk" / "CMakeCache.txt").is_file())
 
+    def test_installed_consumers_reject_empty_test_discovery(self):
+        build, consumer = self.installed_fixture()
+        consumer.joinpath("CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.20)\n'
+            'project(empty_consumer_fixture LANGUAGES NONE)\n'
+            'enable_testing()\n', encoding="utf-8")
+        for name in ("TestInstalledTargets.cmake", "TestInstalledComponentMatrix.cmake"):
+            with self.subTest(script=name):
+                result = self.run_installed_script(name, build, consumer)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("No tests were found", result.stdout)
+                self.assertIn("consumer failed", result.stdout)
+
+    def test_sdk_wrapper_runs_its_child_test_from_the_consumer_root(self):
+        build, _ = self.installed_fixture()
+        source = self.root / "sdk-wrapper"
+        sdk = source / "sdk_consumer"
+        sdk.mkdir(parents=True)
+        shutil.copyfile(REPO / "tests/install/sdk_consumer/CMakeLists.txt",
+                        sdk / "CMakeLists.txt")
+        component = source / "component_consumer"
+        component.mkdir()
+        component.joinpath("CMakeLists.txt").write_text(
+            'if(NOT JYPPX_CONSUMER_COMPONENT STREQUAL "sdk")\n'
+            '  message(FATAL_ERROR "SDK selection was lost")\n'
+            'endif()\n'
+            'enable_testing()\n'
+            'add_test(NAME sdk_child COMMAND "${CMAKE_COMMAND}" -E '
+            'touch "${CMAKE_BINARY_DIR}/sdk-child-ran")\n', encoding="utf-8")
+        result = self.run_installed_script("TestInstalledTargets.cmake", build, sdk)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue((build / "TestInstalledTargets.cmake/b/sdk-child-ran").is_file(),
+                        result.stdout)
+
     def test_installed_invalid_budget_keeps_existing_prefix(self):
         build = self.root / "unconfigured"
         build.mkdir()

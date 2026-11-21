@@ -188,7 +188,7 @@ foreach(component IN LISTS components)
 
     execute_process(
         COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${consumer_build_dir}"
-                ${test_args} --output-on-failure
+                ${test_args} --output-on-failure --no-tests=error
         RESULT_VARIABLE test_result
     )
     if(NOT test_result EQUAL 0)

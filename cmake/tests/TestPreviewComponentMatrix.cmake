@@ -262,7 +262,7 @@ foreach(profile IN ITEMS core_before models serving vision_render all_previews c
         endif()
         execute_process(
             COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${consumer_build_dir}"
-                ${test_args} --output-on-failure
+                ${test_args} --output-on-failure --no-tests=error
             RESULT_VARIABLE consumer_test_result)
         if(NOT consumer_test_result EQUAL 0)
             message(FATAL_ERROR "Running ${profile}/${component} consumer failed")
