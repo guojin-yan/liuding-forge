@@ -520,8 +520,22 @@ void expect_resource_usage(const cli::LocalProcessResult& result) {
     EXPECT_GE(
         *usage.peak_resident_memory_bytes,
         payload.at("self_peak_resident_memory_bytes").get<std::uint64_t>());
+#if defined(__linux__)
+  // VmHWM restarts at exec, but wait4/getrusage retain the fork-time RSS.
+  // Keep the workload ceiling and detect unit errors against the child's
+  // independent kernel accounting even when LibTorch makes its parent large.
+  const auto accounted_peak =
+      payload.at("self_accounted_peak_resident_memory_bytes")
+          .get<std::uint64_t>();
+  EXPECT_LT(payload.at("self_peak_resident_memory_bytes").get<std::uint64_t>(),
+            256U * 1024U * 1024U);
+  EXPECT_GE(*usage.peak_resident_memory_bytes, accounted_peak);
+  EXPECT_LT(*usage.peak_resident_memory_bytes,
+            accounted_peak + 256U * 1024U * 1024U);
+#else
   // Detect a wrong unit conversion without relying on interpreter baseline.
   EXPECT_LT(*usage.peak_resident_memory_bytes, 256U * 1024U * 1024U);
+#endif
 }
 
 TEST(LocalProcessTest, FinalResourceUsageMatchesIndependentChildMeasurements) {
@@ -559,6 +573,26 @@ TEST(LocalProcessTest, CancellationRetainsFinalResourceUsageAfterReaping) {
   GTEST_SKIP() << "Final OS accounting is implemented for Windows and Linux";
 #endif
 }
+
+#if defined(__linux__)
+TEST(LocalProcessTest, ResourceUsageRetainsResidentPagesInheritedBeforeExec) {
+  std::vector<unsigned char> resident(320U * 1024U * 1024U);
+  volatile unsigned char* pages = resident.data();
+  for (std::size_t offset = 0U; offset < resident.size(); offset += 4096U)
+    pages[offset] = 23U;
+  ProcessDirectory directory;
+  const auto result =
+      cli::LocalProcessRunner{}.run(directory.options("resources"));
+  ASSERT_EQ(result.exit_code, 0U);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+  expect_resource_usage(result);
+  ASSERT_TRUE(result.resource_usage);
+  ASSERT_TRUE(result.resource_usage->peak_resident_memory_bytes);
+  EXPECT_GE(*result.resource_usage->peak_resident_memory_bytes,
+            resident.size());
+  EXPECT_EQ(resident.front(), 23U);
+}
+#endif
 
 TEST(LocalProcessTest, CancellationKillsLeaderDescendantAndGrandchild) {
   ProcessDirectory directory;

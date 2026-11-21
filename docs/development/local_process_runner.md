@@ -23,7 +23,7 @@ Windows 采用挂起启动并加入禁止 breakaway 的 kill-on-close Job Object
 | `source` | CPU 时间范围 | 峰值驻留内存范围 |
 | --- | --- | --- |
 | `windows_process` | `GetProcessTimes` 返回的直接子进程用户态与内核态时间 | `GetProcessMemoryInfo` 的直接子进程 `PeakWorkingSetSize`；不包含 Job 中其他进程，不使用 Job 提交量替代工作集 |
-| `linux_wait4` | 回收已拥有的直接子进程时，内核 `wait4` 返回的统计，可能包含该进程已等待回收的后代 | `ru_maxrss` 从 KiB 转换为字节，遵循内核对被回收进程及其已等待后代的峰值统计；不是并发进程树 RSS 的总和 |
+| `linux_wait4` | 回收已拥有的直接子进程时，内核 `wait4` 返回的统计，可能包含该进程已等待回收的后代 | `ru_maxrss` 从 KiB 转换为字节，可能保留 `fork` 后、`exec` 前从父进程继承的驻留页峰值及已等待后代的峰值；不同于执行后 `/proc` 的 `VmHWM`，也不是并发进程树 RSS 的总和 |
 
 计数在原有清理宽限内读取，不延长截止，不改变退出码、清理确认或逻辑资源释放。未回收后代、逃离进程组的进程、运行器自身和 GPU 显存不在完整观测范围；不同 `source` 不能直接当成相同口径比较。该观测不执行 RSS/CPU/显存硬限制，也不证明训练质量或端到端性能资格。
 

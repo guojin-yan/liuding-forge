@@ -147,6 +147,11 @@ def main():
             for line in Path("/proc/self/status").read_text().splitlines():
                 if line.startswith("VmHWM:"):
                     payload["self_peak_resident_memory_bytes"] = int(line.split()[1]) * 1024
+            # Unlike VmHWM after exec, kernel accounting retains the peak
+            # inherited from the fork parent before the executable changed.
+            import resource
+            payload["self_accounted_peak_resident_memory_bytes"] = (
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024)
         write_all(1, json.dumps(payload).encode("ascii"))
         (root / "ready").write_text("ready", encoding="ascii")
         if mode == "resources-hold":
