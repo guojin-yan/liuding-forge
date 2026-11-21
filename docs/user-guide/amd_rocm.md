@@ -1,6 +1,6 @@
 # AMD GPU 与 ROCm
 
-AMD 后端使用 ROCm 构建的 LibTorch 和匹配 HIP SDK。精确版本、编译器和验证范围见 [compatibility.json](../../compatibility.json) 的 `amd_rocm`；它与 NVIDIA CUDA、CPU 包独立配置。已验证的开发基线为 Windows x64、Clang 24 clang-cl、LibTorch `2.14.0+rocm10.1.0`、ROCm SDK `10.1.0` 与 W7900 gfx1100，覆盖 FP32/FP16/BF16 训练、精确恢复、视觉流程及安装后 GPU 消费。WSL/Linux 和其他 GPU 需独立验证。
+AMD 后端使用 ROCm 构建的 LibTorch 和匹配 HIP SDK。精确版本、编译器和验证范围见 [compatibility.json](../../compatibility.json) 的 `amd_rocm`；它与 NVIDIA CUDA、CPU 包独立配置。下文主要说明 Windows x64、Clang 24 clang-cl、LibTorch `2.14.0+rocm10.1.0`、ROCm SDK `10.1.0` 与 W7900 gfx1100 的开发基线，覆盖 FP32/FP16/BF16 训练、精确恢复、视觉流程及安装后 GPU 消费。[WSL2 核心与训练](#wsl2-原生核心与训练)有单独的验证范围，其他 Linux 和 GPU 仍需分别验证。
 
 ## 构建
 
@@ -67,3 +67,23 @@ ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 
 模型与 Serving 的[通用资源入口](../../scripts/benchmarks/RESOURCE_BASELINE.md)使用 HIP 身份、同步与独立 `peak_rocm_*` 字段；缺少功耗/频率控制观测时保留独立样本并阻止写入可比较 reference。图像入口与真实任务性能须分别验证。
 
 [图像读取到训练更新](../benchmarks/README.md#图像读取到训练更新)入口同样支持 HIP 身份、同步与独立显存指标，可选择文件读取、解码缓存或预缩放缓存；`cuda-fp16` 与 `cuda-fp16-storage` 分别使用 FP32 主权重和 FP16 参数存储。每种模型、数据、精度与加载配置须独立采样，训练完成不代表统计稳定或任务准确率。
+
+## WSL2 原生核心与训练
+
+W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的原生 Linux C++11 ABI=1 组合。范围包括设备与数据管线、八类优化器与十五类调度器的 FP32/FP16/BF16 组合、AMP、Trainer、检查点，以及独立安装应用的 GPU 前向、反向和 HIP 物理设备身份检查。精确 LibTorch 2.5.1 历史检查点迁移用例仍条件跳过；原生版本查询应报告 `rocm:available:1`。
+
+在 WSL 原生文件系统中维护独立检出与构建目录，激活原生 Linux SDK，并让 `LIBTORCH_ROOT`、`ROCM_PATH` 分别指向 LibTorch 与 HIP 前缀。按[贡献指南](../../CONTRIBUTING.md#构建与验证)预置锁定依赖；核心 CLI 与安装清单中的原生转换工具可这样构建：
+
+```sh
+cmake -S . -B out/build/wsl-rocm -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ \
+  -DTorch_DIR="$LIBTORCH_ROOT/share/cmake/Torch" \
+  -DCMAKE_PREFIX_PATH="$LIBTORCH_ROOT;$ROCM_PATH" \
+  -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF \
+  -DFETCHCONTENT_FULLY_DISCONNECTED=ON -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
+cmake --build out/build/wsl-rocm --parallel 2 \
+  --target jyppx_cli jyppx_convert_dinov2_hf
+./out/build/wsl-rocm/tools/cli/liuding-forge --version --format json
+```
+
+该范围限于上述原生核心、训练及安装接口；模型、视觉配方、本地进程 GPU 放置、ONNX/Serving、真实数据质量、性能和长时间稳定性须在 WSL 中独立验证。Windows 的结果不扩大这些边界。

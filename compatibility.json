@@ -14,6 +14,29 @@
       "verified_lanes": [
         {
           "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3 / Ninja1.11.1; native Linux shared libraries; offline dependency sources, at most two compile jobs and serial native CTest. Each optional component requires separate qualification.",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-5d76f06-core",
+          "commit": "5d76f06b3a7347d09395298e65e66947417215c6",
+          "tests": "干净5d76f06原450项核心/数据/优化器精度/Trainer/检查点及门禁选择中449通过、1条件跳过、零失败；另四项原生独立安装消费全部通过。各计数和范围分别保留。",
+          "quality_evidence": {
+            "source_and_profile": "仅在同一主力设备的WSL原生文件系统创建测试副本，精确复现Windows主检出的干净提交；源码开发与Git提交仍在主检出。离线复用锁定依赖源、Ninja Release、至多两个编译任务、CTest串行；每个原生binary前后SHA、built-provenance、真实版本与原始JUnit/native日志保留。",
+            "backend_and_precision": "CLI实际报告rocm:available:1与rocm-10.1.0-cxx11-abi1；原GPU矩阵乘法/CPU对照、SingleDeviceStrategy和FP16 Trainer多优化器scaler流程通过。八优化器x三精度的24原参数化用例各完整执行15调度器，共360组合，保留原数值、溢出和逐步精确恢复断言；主参数FP32，FP16启用scaler。",
+            "data_and_checkpoint": "原数据管线、采样器、内存、游标和异常回传用例，以及模型、内存/文件检查点与Trainer状态恢复在此组合独立执行；通过的CPU用例不外推GPU路径。具体选择保留在私有原始收据，不合并成全库或全精度矩阵资格。",
+            "installed_and_linkage": "Accelerator/Migrated/Interop/Experiment四个原安装消费者通过；独立GPU消费者实际前向、反向并核对HIP物理设备身份。CLI与优化器测试实际加载该原生SDK的torch_cpu/torch_hip/c10/amdhip共享库，无未解析库或Python包运行依赖；未对完整SDK共享库逐字节认证。",
+            "conditional_skips": "[\"FileCheckpointN1Test.MigratesHistoricalSgdFixtureAfterReopenAndWritesCurrentSchema\"]",
+            "scope": "仅上述WSL2/Ubuntu/GCC/W7900单卡原生核心、训练及安装消费范围，不继承Windows完整模型、视觉、ONNX/Serving、真实数据质量、性能或两小时长测资格；其他Linux、AMD卡、多卡与发布分别验证。旧Windows失败、资源不足和精确2.5.1历史夹具边界保持。",
+            "validation_receipt_sha256": "eb0e18a32712940d40e42063f62ef6e483eafd22c06b59a4dcbaf838f361e761",
+            "installed_receipt_sha256": "1bf4e2f7d4022e03866a14d3fccd86facd067cdb69118cdb3c6eccac184e5b3b",
+            "runtime_evidence_sha256": "28277162ef6494dd640fff35711b6f65087890740ffbefed695dc817313a9b4a"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
           "os": "windows-11",
           "architecture": "x86_64",
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
@@ -1145,25 +1168,7 @@
           }
         }
       ],
-      "pending_lanes": [
-        {
-          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100",
-          "distribution": "amd-rocm10.1.0",
-          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
-          "architecture": "x86_64",
-          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
-          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
-          "build_type": "Release",
-          "instrumentation": "CMake3.28.3 / Ninja1.11.1; native Linux shared libraries; offline dependency sources, at most two compile jobs and serial native CTest. Each optional component requires separate qualification.",
-          "status": "candidate",
-          "verification_status": "unverified",
-          "required_evidence": [
-            "核对原生LibTorch/HIP版本与Linux ABI，完成干净源码最小核心、数据、优化器和训练闭包构建及基础仓库门禁。",
-            "真实W7900后端身份、设备放置、FP32/FP16/BF16和优化器/调度器/Trainer检查点恢复原用例；条件跳过和失败各自保留。",
-            "核对实际链接的共享库、独立安装后消费者及各自精确组件范围；不继承Windows、NVIDIA或单步测试之外的任务质量与性能资格。"
-          ]
-        }
-      ]
+      "pending_lanes": []
     },
     "primary": {
       "version": "2.14.1",
