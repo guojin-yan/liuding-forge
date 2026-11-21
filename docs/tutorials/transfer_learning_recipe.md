@@ -6,6 +6,8 @@
 
 构建时启用 `JYPPX_LIUDING_BUILD_TOOLS`、`JYPPX_LIUDING_BUILD_MODELS` 和 `JYPPX_LIUDING_BUILD_DATA_IMAGE`，然后构建 `jyppx_cli`。安装和 LibTorch 环境见[项目主页](../../README.md)。训练与验证各使用一个 ImageFolder 目录，两端按目录名排序的类别表必须完全一致，至少两个类别。
 
+设备和依赖组合以[兼容矩阵](../../compatibility.json)为准。已验证的 Windows ROCm 组合使用 `"device": "cuda"` 选择 AMD GPU，覆盖这两种骨干的 FP32 冻结与微调、分组 SGD/AdamW、按更新次数调度和新进程恢复。验证使用固定微型图像任务，不代表真实数据集准确率或其他模型、精度和 AMD 设备已通过。
+
 ```text
 dataset/
   train/

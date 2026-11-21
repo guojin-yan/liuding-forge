@@ -19,6 +19,26 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-64103bd-transfer-gpu",
+          "commit": "64103bd12fde1b30957dfea1f1d51f96477de603",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm10.1.0/HIP7.16.26385; LibTorch2.14.0 native FP32 transfer CLI",
+          "tests": "干净64103bd原四GPU迁移学习CLI套件共46个unittest用例和五门禁全过、零跳过；四套件计数分别为18/18/4/6，不合并为全量CTest覆盖。",
+          "quality_evidence": {
+            "source_identity": "本批在原三精度两小时独占长测自然完成并重新应用原validator后执行；复用匹配Release树离线最小重建、至多两个编译任务，源码在该批运行期间保持干净不变。每批精确提交、原生binary SHA、实际命令和原始失败分别保留，不与前后提交或NVIDIA结果拼成全量资格。",
+            "validation_receipt_sha256": "61f3abf6e6234c37805998cb8b9588c618fc6adac819f2f95d49eb015b7019d9",
+            "fixed_weights": "原ResNet50 A1 SHA773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb及DINOv2-small Liuding SHA f3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5，读取前核对完整原文件，不替换参考。",
+            "original_protocol": "原四GPU迁移学习CLI套件18/18/4/6共46个unittest用例，保留原自制4图、seed、4更新、frozen/finetune、分组SGD/AdamW、update调度、质量与新进程恢复断言，以及每套件1200秒上限；五仓库门禁通过。",
+            "scope": "仅所列W7900 FP32迁移学习微任务、冻结策略和完整状态恢复合同；cuda为AMD兼容设备接口。自制数据不授真实任务质量、独立预训练数值、全部容量/精度、性能、其他AMD硬件/OS、多卡或发布资格；原CPU梯度/历史训练SHA失败独立保留。",
+            "measured_summary": "{\"Cli_transfer_recipe_CUDA\": 18, \"Cli_transfer_recipe_group_rates_CUDA\": 18, \"Cli_transfer_adamw_recipe_CUDA\": 4, \"Cli_transfer_update_recipe_CUDA\": 6}"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-9c000be-core-gpu-contracts",
           "commit": "9c000be53763a9820702c0b8851cfb275e4c7959",
           "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK10.1.0/HIP7.16.26385; LibTorch2.14.0; original native GPU contracts",
