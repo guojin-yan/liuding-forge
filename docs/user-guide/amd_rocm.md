@@ -48,7 +48,7 @@ Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像
 
 GPU 训练后的模型通过独立 CPU 副本导出，原训练模型继续保留设备、精度和梯度。视觉 CLI 使用 CPU FP32 eval 副本导出 opset 17；FP16/BF16 训练不代表 ONNX 采用同一精度。ONNX Runtime 的 Provider 独立于 LibTorch，默认 ORT 组合使用 CPU。
 
-Windows 可显式选择独立的 ORT 1.24.4 / DirectML 1.15.4 组合；W7900 已验证 Linear、ResNet18 的 FP32 动态 batch 数值、实际 GPU 节点、并发调用、结果所有权及安装消费。设备参数采用 DXGI 索引，同一会话串行执行；精确配置和取消契约见 [ONNX 后端选择](../api/onnx.md#runtime-与后端选择)。这不授予其他图、精度、适配器或性能资格。
+Windows 可显式选择独立的 ORT 1.24.4 / DirectML 1.15.4 组合；W7900 已验证 Linear、ResNet18 的 FP32 动态 batch 数值、实际 GPU 节点、并发调用、结果所有权及安装消费。本机完整 CIFAR-10 配方产生的 ResNet18 检查点，也已验证原训练记录关联的原生新导出、临时签名、可信加载与全部 10000 张验证图的 DirectML 评估，流程见 [已训练模型交付](../../examples/deployment/README.md#已训练的-cifar-10-模型交付)。设备参数采用 DXGI 索引，同一会话串行执行；精确配置和取消契约见 [ONNX 后端选择](../api/onnx.md#runtime-与后端选择)。这不授予其他图、精度、适配器或性能资格。
 
 ## 本地推理
 
