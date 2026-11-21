@@ -17,6 +17,27 @@
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0; CPU contract path only",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务、CTest逐项串行。启动环境ROCPROFILER_REGISTER_ENABLED=0；本批CPU测试进程显式设置HIP_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES/CUDA_VISIBLE_DEVICES=-1，不修改系统环境。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-6792e4a-vision-catalog-cpu",
+          "commit": "6792e4a1109f6a603d78beca9edf3ae0852c9f36",
+          "tests": "干净6792e4a原生视觉目录其余208个CPU FP32单步合同与五仓库门禁共213项全部通过、零跳过、零未执行；先前14个代表CPU用例不重复计入本批。",
+          "quality_evidence": {
+            "source_identity": "WSL从主力Windows本机file源同步干净提交，复用既有Release树离线增量构建vision_models，至多两个编译任务。测试源码、binary前后SHA、实际LibTorch链接、cache与built-provenance、213份原始JUnit/native日志及资源输出逐项独立核对；没有下载、修改SDK或源码快照。",
+            "selection": "以已有69份WSL收据及原始XML导航核对，222个原目录条目中的14个先前已有代表CPU证据，明确排除；仅补其余208个原入口。前后批次绑定各自提交，不拼接成当前HEAD的222项整批资格。原测试过滤器和参数化名称逐项对应。",
+            "native_contract": "随机初始化、seed7、CPU FP32和原合成输入；原batch2（ReID为4），输入按各架构minimum/fixed尺寸且下限64，未改形状。验证单标量有限loss、样本数、反向、全部已定义梯度有限、非零梯度、真实SGD更新及冻结参数不变。覆盖YOLO各目录变体、分类/多标签、扩展检测/提示分割、VGG、SimMIM等208个入口，不授官方权重或任务质量。",
+            "resources": "原208个CTest条目未声明逐例超时；私有监督额外采用600秒上限，全部满足，并未声称原测试具有此门槛。逐例附加4GiB有效可用物理主存与4GiB磁盘准入；经典Fast R-CNN VGG保留既有12GiB物理和8GiB容量准入，Linux容量为有效主存加空闲swap，并受cgroup余量约束，全部满足。资源记录为time观测的单个进程最大RSS，不是进程树RSS求和或产品硬限额。",
+            "scope": "仅此精确WSL/Ubuntu/GCC/ROCm组合的原CPU目录单步合同，GPU设备在进程中隐藏；不授完整目录GPU、独立数值、预训练权重、收敛/任务质量、恢复、性能、其他AMD设备/OS、多卡或发布资格。原ResNet18质量失败等独立边界保留。",
+            "validation_receipt_sha256": "b0ea677ed2e05697226535c873ed0746c584e2c9baebe2c86269728bb3ba7f89",
+            "qualification_summary_sha256": "e9467a89a5f8aba52dbaf434414383d669811e55cba672b79681d0bb7ead47d9"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
