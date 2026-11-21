@@ -19,6 +19,27 @@
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-c228a03-trained-directml-gpu",
+          "commit": "c228a030135a76d40aeb54b7e826635a854ee214",
+          "accelerator": "AMD Radeon PRO W7900 DXGI device_id=0; ONNX Runtime1.24.4 API24 + DirectML1.15.4; LibTorch ROCm distribution CPU host I/O",
+          "tests": "干净c228a03真实W7900 DirectML对原训练图执行pack/sign/smoke及完整10000图评估；原六batch数值门槛通过、profile节点全部DML且禁CPU回退。五仓库门禁在登记后单独复验。",
+          "quality_evidence": {
+            "source_identity": "本批在原三精度两小时独占长测自然完成并重新应用原validator后执行；复用匹配Release树离线最小重建、至多两个编译任务，源码在该批运行期间保持干净不变。每批精确提交、原生binary SHA、实际命令和原始失败分别保留，不与前后提交或NVIDIA结果拼成全量资格。",
+            "validation_receipt_sha256": "daacb2736380d6b9f8ab29148b4f9ad7bcd104f6bea83581425bbb29899cb331",
+            "fixed_graph": "复用原已训练ResNet18 ONNX图SHA3730faab9754ede64d1d8babab460162aab6001fd0c24e55ee6644843b3c382e、原六batch1/2/4/8/16/128参考和atol1e-5/rtol1e-4，不重新导出或替换图。",
+            "provider": "精确ORT1.24.4/API24与DirectML1.15.4可选profile，显式DXGI index0；顺序执行、memory pattern关闭、禁止CPU fallback，pack profiling全部含Provider节点均DmlExecutionProvider，实际EP和device_id=0锁定并经新进程验签。",
+            "full_evaluation": "完整官方10000图、batch128及最后16，CPU FP32 host I/O、原0.65准确率门槛，实际accuracy=0.7662；沿用原六batch预热数值和临时内存Ed25519签名。",
+            "scope": "仅固定历史训练图的DML打包/签名/smoke和完整评估；原run-store缺失，source_run_lineage_verified=false，不授本机新导出、原checkpoint关联、原代码/配置认证、HIP推理、零拷贝、全量logits逐元素相等、性能、生产签名、其他GPU/OS、多卡或发布资格。CPU额外全量数值超差独立保留。",
+            "measured_summary": "{\"accuracy\": 0.7662, \"profile_nodes\": 186}"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-b16d8d1-standalone-gpu",
           "commit": "b16d8d12b34237d56a1c925d59db9848024d6571",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm10.1.0 LibTorch2.14.0 standalone native CPU/GPU lessons",
