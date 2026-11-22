@@ -14,6 +14,56 @@
       "verified_lanes": [
         {
           "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "默认关闭TEST_MIGRAPHX，仅测试目标链接外部2.18.0 C API与foundation SHA；完整图/输入/输出SHA在C++内固定，图在核验后从内存解析。显式gpu/offload_copy=true/fast_math=false/exhaustive_tune=false；600秒CTest、630秒监督，JIT1且GPU串行。新目录保留完整actual.f32、编译程序、dispatch及实际模块路径。",
+          "id": "windows-clangcl24-rocm101-gfx1100-df31368-migraphx-interchange",
+          "commit": "df31368470bdeb0410ec2bcc7cb59b13b14e668f",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK 10.1.0 / HIP 7.16.26385; native MIGraphX 2.18.0 C API test target; explicit gpu target; Windows local source build, MLIR disabled, no Torch/C10 modules loaded",
+          "tests": "干净提交的四项MIGraphXInterchange原生GPU互操作CTest及CompatibilitySource、DependencyManifest、ComponentDependencyGraph、PublicHeaderGuards、RepositoryHygiene五门禁，共9项通过、0失败、0跳过、0未执行。范围仅固定外部引擎测试入口。",
+          "quality_evidence": {
+            "identity": "源码与规范Git blob逐项绑定df31368；两系统规范源码SHA相同。复用原干净5b23c5e的自包含opset17 Linear/ResNet18、原batch2/5输入和CPU FP32输出，十份固定图与payload SHA在C++内逐项校验；未重新导出、替换权重/参考或改变输入及容差。",
+            "observed": "四份完整输出独立重新解码均0违规，保留原abs(actual-reference)<=0.00001+0.0001*abs(reference)。原生签名核对FP32、standard布局、完整shape/元素数/字节数；实际trace必须含GPU算术及hip::copy_from_gpu、hip::sync_stream，并拒绝cpu::/ref::指令。Windows为hip_gemm/卷积/代码对象路线，WSL为所验SDK的MLIR代码对象路线，分别登记。",
+            "results": "[{\"model\":\"linear\",\"case\":0,\"elements\":6,\"violations\":0,\"max_abs\":0.0,\"max_tolerance_ratio\":0.0,\"output_sha256\":\"3b106db38a6dca7aafe95d1af546237ca38ac4d74a084a8f1b0cea5a361c709a\",\"trace_instructions\":8},{\"model\":\"linear\",\"case\":1,\"elements\":15,\"violations\":0,\"max_abs\":0.0,\"max_tolerance_ratio\":0.0,\"output_sha256\":\"509b6a760633711b6655feca75f3d873d5184fc1076cc55213773a8b91be5529\",\"trace_instructions\":8},{\"model\":\"resnet18\",\"case\":0,\"elements\":14,\"violations\":0,\"max_abs\":1.9073486328125e-06,\"max_tolerance_ratio\":0.010723387725787362,\"output_sha256\":\"26c499d5051d2f7ee5778831dce5a0331747786dd677c39f74d0fa38c00a710c\",\"trace_instructions\":69},{\"model\":\"resnet18\",\"case\":1,\"elements\":35,\"violations\":0,\"max_abs\":2.6226043701171875e-06,\"max_tolerance_ratio\":0.10422867026165528,\"output_sha256\":\"a50997a94a2a7c82f82d84760bd9185fe0b083126d7d259914cc48810efa71c2\",\"trace_instructions\":69}]",
+            "runtime": "精确SDK边界继承独立可行性lane；实际加载模块路径/SHA及额外传递模块均在本收据登记。Windows执行未加载Torch/C10；WSL因foundation所在构建的传递链接加载Torch/C10 ELF，测试代码仅调用foundation SHA和MIGraphX C API，GPU路线取自MIGraphX实际dispatch。额外传递模块首次摘要为运行后观测，不声称所有模块均有执行前身份。",
+            "resources": "四次原4GiB可用物理主存/cgroup有效余量及4GiB磁盘准入均满足，最多2个本机构建任务、单JIT且GPU逐个执行；不授硬RSS/显存配额、性能或资源收益资格。",
+            "boundaries": "另有提交前五次原生拒绝：损坏图/输入/参考的固定SHA、非法模型和case，均在GPU编译及证据目录创建前失败；四项配置拒绝覆盖TESTS关闭、缺SDK、错误版本及缺fixture。四个元数据工具CTest通过。两份私有配置监督脚本的编译器参数/Ninja路径设置失败保留；仅补充未完成检查，未选择GPU通过重试。",
+            "retained_failure": "WSL首次干净资格driver仅完成本地file://同步后，在构建/GPU调用前因缺ROCPROFILER_REGISTER_ENABLED进程变量失败，原收据封存；补充启动只设置该进程变量为0，复用已同步源码，所有四GPU资格进程为首次。Windows原生探针max宏和WSL路线识别的更早私有失败继续单独保留，不改写为通过。",
+            "scope": "仅TEST_MIGRAPHX可选开发测试的两个固定图、四个分别特化形状、FP32及各自Windows/WSL2 W7900精确SDK；不提供产品MIGraphX Session/Serving或ORT EP，不授当前导出器的其他图、动态shape、训练、任务质量、跨系统逐位等价、其他设备或发布资格。",
+            "qualification_receipt_sha256": "e90854307f3f1abaa6c645066f0ce4587e2218979cb88dfb8806478f6b16551f",
+            "source_cpp_git_blob_sha256": "9e230e7ad85ff885b31da4ea466b6ef5fae9c339f65bb7ec2208f72e7f8b234e",
+            "boundary_receipt_sha256": "6596328aaf9ca08f8614533d6373e020fa01be61c76da2bd2b61c3c1f253d946"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK 10.1.0 / HIP 7.16.26385; native MIGraphX 2.18.0 C API test target; explicit gpu target; WSL2 Linux SDK, MLIR enabled, transitive Torch/C10 ELF loaded through foundation build dependencies",
+          "build_type": "Release",
+          "instrumentation": "默认关闭TEST_MIGRAPHX，仅测试目标链接外部2.18.0 C API与foundation SHA；完整图/输入/输出SHA在C++内固定，图在核验后从内存解析。显式gpu/offload_copy=true/fast_math=false/exhaustive_tune=false；600秒CTest、630秒监督，JIT1且GPU串行。新目录保留完整actual.f32、编译程序、dispatch及实际模块路径。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-df31368-migraphx-interchange",
+          "commit": "df31368470bdeb0410ec2bcc7cb59b13b14e668f",
+          "tests": "干净提交的四项MIGraphXInterchange原生GPU互操作CTest及CompatibilitySource、DependencyManifest、ComponentDependencyGraph、PublicHeaderGuards、RepositoryHygiene五门禁，共9项通过、0失败、0跳过、0未执行。范围仅固定外部引擎测试入口。",
+          "quality_evidence": {
+            "identity": "源码与规范Git blob逐项绑定df31368；两系统规范源码SHA相同。复用原干净5b23c5e的自包含opset17 Linear/ResNet18、原batch2/5输入和CPU FP32输出，十份固定图与payload SHA在C++内逐项校验；未重新导出、替换权重/参考或改变输入及容差。",
+            "observed": "四份完整输出独立重新解码均0违规，保留原abs(actual-reference)<=0.00001+0.0001*abs(reference)。原生签名核对FP32、standard布局、完整shape/元素数/字节数；实际trace必须含GPU算术及hip::copy_from_gpu、hip::sync_stream，并拒绝cpu::/ref::指令。Windows为hip_gemm/卷积/代码对象路线，WSL为所验SDK的MLIR代码对象路线，分别登记。",
+            "results": "[{\"model\":\"linear\",\"case\":0,\"elements\":6,\"violations\":0,\"max_abs\":0.0,\"max_tolerance_ratio\":0.0,\"output_sha256\":\"3b106db38a6dca7aafe95d1af546237ca38ac4d74a084a8f1b0cea5a361c709a\",\"trace_instructions\":8},{\"model\":\"linear\",\"case\":1,\"elements\":15,\"violations\":0,\"max_abs\":0.0,\"max_tolerance_ratio\":0.0,\"output_sha256\":\"509b6a760633711b6655feca75f3d873d5184fc1076cc55213773a8b91be5529\",\"trace_instructions\":8},{\"model\":\"resnet18\",\"case\":0,\"elements\":14,\"violations\":0,\"max_abs\":1.6689300537109375e-06,\"max_tolerance_ratio\":0.01715742036125978,\"output_sha256\":\"b4e40814874fff14b1b4dfcd6a06053974f5b68ac1550fc077b501dc60cd221b\",\"trace_instructions\":54},{\"model\":\"resnet18\",\"case\":1,\"elements\":35,\"violations\":0,\"max_abs\":2.384185791015625e-06,\"max_tolerance_ratio\":0.07104375730839284,\"output_sha256\":\"1960169e83b3ff827020113a410a9391063d9c2be51587fad3d06a721c54b1fb\",\"trace_instructions\":54}]",
+            "runtime": "精确SDK边界继承独立可行性lane；实际加载模块路径/SHA及额外传递模块均在本收据登记。Windows执行未加载Torch/C10；WSL因foundation所在构建的传递链接加载Torch/C10 ELF，测试代码仅调用foundation SHA和MIGraphX C API，GPU路线取自MIGraphX实际dispatch。额外传递模块首次摘要为运行后观测，不声称所有模块均有执行前身份。",
+            "resources": "四次原4GiB可用物理主存/cgroup有效余量及4GiB磁盘准入均满足，最多2个本机构建任务、单JIT且GPU逐个执行；不授硬RSS/显存配额、性能或资源收益资格。",
+            "boundaries": "另有提交前五次原生拒绝：损坏图/输入/参考的固定SHA、非法模型和case，均在GPU编译及证据目录创建前失败；四项配置拒绝覆盖TESTS关闭、缺SDK、错误版本及缺fixture。四个元数据工具CTest通过。两份私有配置监督脚本的编译器参数/Ninja路径设置失败保留；仅补充未完成检查，未选择GPU通过重试。",
+            "retained_failure": "WSL首次干净资格driver仅完成本地file://同步后，在构建/GPU调用前因缺ROCPROFILER_REGISTER_ENABLED进程变量失败，原收据封存；补充启动只设置该进程变量为0，复用已同步源码，所有四GPU资格进程为首次。Windows原生探针max宏和WSL路线识别的更早私有失败继续单独保留，不改写为通过。",
+            "scope": "仅TEST_MIGRAPHX可选开发测试的两个固定图、四个分别特化形状、FP32及各自Windows/WSL2 W7900精确SDK；不提供产品MIGraphX Session/Serving或ORT EP，不授当前导出器的其他图、动态shape、训练、任务质量、跨系统逐位等价、其他设备或发布资格。",
+            "qualification_receipt_sha256": "38ca3b9977cb9f344b7cf3dc3e83c2c227f995564ad8d865d6d7e73e1f7e0f02",
+            "source_cpp_git_blob_sha256": "9e230e7ad85ff885b31da4ea466b6ef5fae9c339f65bb7ec2208f72e7f8b234e",
+            "boundary_receipt_sha256": "6596328aaf9ca08f8614533d6373e020fa01be61c76da2bd2b61c3c1f253d946"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
