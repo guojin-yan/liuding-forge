@@ -14,6 +14,48 @@
       "verified_lanes": [
         {
           "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-23ec787-p6-fp16-dynamic-backoff",
+          "commit": "23ec78734440a7f0ce2f6bb72436e42c0b2f27cd",
+          "tests": "干净23ec787离线增量构建；十项原生P6 FP16动态回退合同与五项仓库门禁共15项通过，0失败、0跳过、0未准入。",
+          "quality_evidence": {
+            "source_identity": "同一干净完整提交的原生C++测试；冻结源码和binary前后SHA、版本和build provenance。暂存Torch/C10 DLL与指定原生Windows LibTorch逐文件SHA一致。",
+            "contract": "YOLOv8 m/l/x Ghost P6、YOLO26 n/s/m/l/x P6、YOLOv5 l/x P6检测，seed7、batch2、原架构最小/固定输入、FP32主参数、FP16 autocast、初始scale8、最多32轮。每轮清梯度；溢出时所有参数保持且SGD步数0，scale减半；最终所有梯度有限、存在非零梯度并实际SGD更新一次，更新后全部参数有限且冻结参数保持。BN buffers保留正常训练forward更新。",
+            "cycle_observations": "[{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov8m_ghost_p6\",\"attempts\":5,\"overflow_skips\":4,\"final_scale\":0.5,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov8l_ghost_p6\",\"attempts\":11,\"overflow_skips\":10,\"final_scale\":0.0078125,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov8x_ghost_p6\",\"attempts\":11,\"overflow_skips\":10,\"final_scale\":0.0078125,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26n_p6\",\"attempts\":16,\"overflow_skips\":15,\"final_scale\":0.000244140625,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26s_p6\",\"attempts\":14,\"overflow_skips\":13,\"final_scale\":0.0009765625,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26m_p6\",\"attempts\":14,\"overflow_skips\":13,\"final_scale\":0.0009765625,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26l_p6\",\"attempts\":20,\"overflow_skips\":19,\"final_scale\":1.52587890625e-05,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26x_p6\",\"attempts\":23,\"overflow_skips\":22,\"final_scale\":1.9073486328125e-06,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov5l_p6\",\"attempts\":3,\"overflow_skips\":2,\"final_scale\":2.0,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov5x_p6\",\"attempts\":7,\"overflow_skips\":6,\"final_scale\":0.125,\"optimizer_steps\":1}]",
+            "admission_and_audit": "每例独立进程，4GiB可用物理内存与4GiB磁盘准入，CTest600秒/父监督630秒、GPU串行；独立审核原JUnit、逐轮精确scale从8减半、attempts=skips+1和最终一次更新。",
+            "scope": "仅该系统/编译器/W7900组合上列明随机权重合成输入的动态回退后更新合同；与原首步必须更新合同独立，WSL原十项FP16首步失败记录继续保留。极小scale为该合成用例的观察，不是推荐配置，不授预训练权重、真实数据质量、收敛、精度等价、长期稳定、性能、其他设备/系统或发布资格。",
+            "validation_receipt_sha256": "61078bff39ef6e20580511236f2bc260335aded517535cb60ee4fda24d88e6c3",
+            "qualification_summary_sha256": "3c88027a616b6c262a6bc3d094165af05b2503b3e511109c7fe2197d42dc0009"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-23ec787-p6-fp16-dynamic-backoff",
+          "commit": "23ec78734440a7f0ce2f6bb72436e42c0b2f27cd",
+          "tests": "干净23ec787离线增量构建；十项原生P6 FP16动态回退合同与五项仓库门禁共15项通过，0失败、0跳过、0未准入。",
+          "quality_evidence": {
+            "source_identity": "同一干净完整提交的原生C++测试；冻结源码和binary前后SHA、版本和build provenance。实际ldd解析到指定原生Linux Torch/C10共享库并核对SHA。",
+            "contract": "YOLOv8 m/l/x Ghost P6、YOLO26 n/s/m/l/x P6、YOLOv5 l/x P6检测，seed7、batch2、原架构最小/固定输入、FP32主参数、FP16 autocast、初始scale8、最多32轮。每轮清梯度；溢出时所有参数保持且SGD步数0，scale减半；最终所有梯度有限、存在非零梯度并实际SGD更新一次，更新后全部参数有限且冻结参数保持。BN buffers保留正常训练forward更新。",
+            "cycle_observations": "[{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov8m_ghost_p6  # GetParam() = yolov8m_ghost_p6\",\"attempts\":7,\"overflow_skips\":6,\"final_scale\":0.125,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov8l_ghost_p6  # GetParam() = yolov8l_ghost_p6\",\"attempts\":16,\"overflow_skips\":15,\"final_scale\":0.000244140625,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov8x_ghost_p6  # GetParam() = yolov8x_ghost_p6\",\"attempts\":17,\"overflow_skips\":16,\"final_scale\":0.0001220703125,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26n_p6  # GetParam() = yolo26n_p6\",\"attempts\":14,\"overflow_skips\":13,\"final_scale\":0.0009765625,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26s_p6  # GetParam() = yolo26s_p6\",\"attempts\":13,\"overflow_skips\":12,\"final_scale\":0.001953125,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26m_p6  # GetParam() = yolo26m_p6\",\"attempts\":13,\"overflow_skips\":12,\"final_scale\":0.001953125,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26l_p6  # GetParam() = yolo26l_p6\",\"attempts\":21,\"overflow_skips\":20,\"final_scale\":7.62939453125e-06,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolo26x_p6  # GetParam() = yolo26x_p6\",\"attempts\":23,\"overflow_skips\":22,\"final_scale\":1.9073486328125e-06,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov5l_p6  # GetParam() = yolov5l_p6\",\"attempts\":2,\"overflow_skips\":1,\"final_scale\":4.0,\"optimizer_steps\":1},{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov5x_p6  # GetParam() = yolov5x_p6\",\"attempts\":6,\"overflow_skips\":5,\"final_scale\":0.25,\"optimizer_steps\":1}]",
+            "admission_and_audit": "每例独立进程，4GiB可用物理内存及cgroup有效余量与4GiB磁盘准入，CTest600秒/父监督630秒、GPU串行；独立审核原JUnit、逐轮精确scale从8减半、attempts=skips+1和最终一次更新。",
+            "scope": "仅该系统/编译器/W7900组合上列明随机权重合成输入的动态回退后更新合同；与原首步必须更新合同独立，WSL原十项FP16首步失败记录继续保留。极小scale为该合成用例的观察，不是推荐配置，不授预训练权重、真实数据质量、收敛、精度等价、长期稳定、性能、其他设备/系统或发布资格。",
+            "validation_receipt_sha256": "a9c9e569f59951998fc5ae3c1a4a7d686a3383cff5cd73ac03ebe1a5ab7c01ba",
+            "qualification_summary_sha256": "aa9aee099bb9a4ad354cd8199bd1ef969673090cb0041605e34f74c4fdcea4ce"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
