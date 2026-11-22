@@ -128,7 +128,9 @@ FP16 的 YOLOv8 m/l/x Ghost P6、YOLO26 n/s/m/l/x P6 和 YOLOv5 l/x P6 检测在
 
 可选原生 TensorBoard/OTLP 离线映射、Ed25519 签名和 CPU headless 渲染已通过组件契约与三个独立安装消费者；Linux 私钥权限、链接和非普通文件拒绝用例也已执行。签名使用精确 OpenSSL 3.5.9 静态 SDK，保持私有 Crypto 符号隔离。
 
-原生 TensorBoard 示例、CLI 和 worker 另通过独立官方 reader/writer 检查，OTLP 示例通过官方 protobuf 解码与固定映射对照；默认空环境 worker 与安装版 worker 的原契约也已验证。该范围尚不含真实 Collector、HTTP/TLS 发送或 GPU 渲染。
+原生 TensorBoard 示例、CLI 和 worker 另通过独立官方 reader/writer 检查，OTLP 示例通过官方 protobuf 解码与固定映射对照；默认空环境 worker 与安装版 worker 的原契约也已验证。
+
+原生 OTLP HTTP 另在显式共享 curl `8.23.0` SDK 下通过本机回环发送、HTTP 分帧、取消与截止后恢复、原生 CLI worker 和安装消费合同；Linux 消费者须用 `JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT` 明确选择自己的 SDK。HTTPS 仅验证未知 CA/自签名证书拒绝，可信 TLS 与真实 Collector 交付仍需独立验收；配置见[原生 OTLP HTTP](../tutorials/native-otlp-http.md)。
 
 原生 ONNX 导出另已验证 FP32、FP16、BF16 GPU 训练状态经独立 CPU FP32 副本导出，以及 CPU ONNX Runtime 1.23.2、ONNX Serving 和独立安装消费者。固定参考图通过官方 checker、严格 shape inference 及原数值对照；这些结果仅覆盖兼容清单中的图与契约，不提供 AMD ORT GPU Execution Provider，也不继承 Windows DirectML 的验证范围。构建和使用见 [ONNX API](../api/onnx.md)。
 

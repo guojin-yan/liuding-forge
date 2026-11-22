@@ -14,6 +14,33 @@
       "verified_lanes": [
         {
           "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-f11ec88-http-loopback",
+          "commit": "f11ec887a17b1e852cb5756601d9c3a65c8b37ef",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100;ROCm SDK10.1.0/HIP7.16.26385 native Linux LibTorch2.14.0;CPU telemetry HTTP contracts with GPUs hidden;external shared libcurl8.23.0 hd8fa685_0 native SDK",
+          "instrumentation": "复用Ninja Release/GCC13.3/CMake3.28.3原生Linux C++11 ABI1树，显式本地共享curl8.23.0 SDK；离线最多两个编译任务、CTest串行，测试隐藏四个GPU可见性变量并明确PYTORCH_ROCM_ARCH=gfx1100。独立CPython3.11.18/protobuf6.33.5/opentelemetry-proto1.37.0仅作checker。",
+          "tests": "干净f11ec88原六项HTTP单元、framing/cancellation/wire三个回环合同、原生CLI worker、安装消费者及五仓库门禁，共16项CTest全部通过、零失败跳过；内部场景和方法另列，不相加为CTest总数。",
+          "quality_evidence": {
+            "source_identity": "原主机干净提交经file://同步至WSL，只在WSL构建和测试；原产品、checker、固定输入及全部原断言/内部deadline/CTest超时未改。无超时条目仅补600秒监督。二进制、原源码blob、SDK头/共享库/动态闭包前后SHA保持，独立审计全部JUnit/native及完整loader日志。",
+            "native_transport": "原分帧12场景、wire 29场景及取消6模式全过；包括内容/状态/大小/部分回复拒绝、无自动重试/代理使用、停滞header/body/TLS握手的stop与deadline后恢复。保留原明确回环地址与原超时，不访问外部endpoint。",
+            "actual_curl": "独立loader审计28个实际原生wire harness进程，全部初始化所选精确共享curl，实际文件SHA绑定；原SDK、license及传递DSO闭包完整摘要前后保持。本地Conda仅为原生SDK包来源，产品不启动或依赖Python；不修改SDK、系统搜索路径或全局环境。",
+            "worker": "原Cli_native_otlp_worker完整7个内部方法通过，原生C++ CLI/worker发送、身份和失败/取消等原合同保持；此处不授真实Collector或持久ACK。",
+            "installed": "独立NativeTelemetryHttpInstallConsumer从实际安装前缀find_package并链接公开telemetry_http，确认不进入八Core SDK aggregate；原构造/空批/关闭与安装ABI通过。安装消费者本身不连接，真实发送由原wire和worker合同证明。",
+            "retained_failure": "首个监督尝试因WSL误读Windows行尾状态在任何构建/测试前拒绝；第二尝试原16项中15通过、安装消费因GPU隐藏后缺显式ROCm架构而配置失败。第三尝试仅补原gfx1100环境，重做全部同16项；二进制、产品源码、SDK完全相同，原失败未覆盖或改判。",
+            "tls_scope": "wire仅验证未知CA/自签名证书拒绝；NativeOtlpHttpTrustedTls及真实Collector各门禁未运行，不授可信HTTPS、到期/主机名/吊销、Collector持久ACK或外部部署资格。",
+            "scope": "仅此WSL2/Ubuntu/GCC/ROCm开发组合、精确共享curl8.23.0的CPU组件与回环合同；不授GPU训练/渲染、性能、其他设备/系统或发布资格。原生产依赖/许可证/安全审查状态不因本开发验证扩展。",
+            "validation_receipt_sha256": "609628c81758f735ebd84b798a09ba4dbd0eaa231395267c7055f5a283ce1db3",
+            "independent_file_audit_sha256": "16d8d5a2a299c9b732307a7402d14a928bf84c74268404d712037460f56720de",
+            "retained_failed_receipt_sha256": "658db1cf5ae1468607a188b45816cb7dbb82c98ce7cbb1b365da646113e2dc5f",
+            "curl_runtime_file_sha256": "05d18864e8aa9f9f5987869f8928b66e0cb8d78b6f0f400a25dc6438fc2ece06",
+            "curl_header_sha256": "fed299993c517a6a1785f44b19893d4ae65061a7d7b5ca43036b35bf998065b4"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
           "os": "windows-11",
           "architecture": "x86_64",
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
