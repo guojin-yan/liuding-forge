@@ -20,6 +20,7 @@ import importlib.util
 import json
 from pathlib import Path
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -110,10 +111,57 @@ def verify_event(raw, path, signal):
     return {"sequence": sequence, "definition": definition, "source": source, "decoded": value}
 
 
+def receiver_config(raw, tls_directory):
+    if tls_directory is None:
+        return raw
+    text = raw.decode("utf-8")
+    anchor = "        max_request_body_size: 16777216\n"
+    require(text.count(anchor) == 1, "Collector receiver fixture changed")
+    return text.replace(anchor, anchor + "        tls:\n" +
+        "          cert_file: " + json.dumps(str(tls_directory / "valid.pem")) + "\n" +
+        "          key_file: " + json.dumps(str(tls_directory / "server.key")) + "\n" +
+        '          min_version: "1.2"\n          max_version: "1.2"\n').encode("utf-8")
+
+
+def collector_connection(port, tls_directory):
+    if tls_directory is None:
+        return http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+    context = ssl.create_default_context(cafile=str(tls_directory / "ca.pem"))
+    context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_2
+    return http.client.HTTPSConnection("localhost", port, timeout=3, context=context)
+
+
+def forward_tls(connection, tls_directory):
+    if tls_directory is None:
+        return None
+    expected = ssl.PEM_cert_to_DER_cert((tls_directory / "valid.pem").read_text("ascii"))
+    require(connection.sock.version() == "TLSv1.2" and connection.sock.getpeercert(binary_form=True) == expected,
+            "Forward hop Collector TLS identity changed")
+    return {"version": connection.sock.version(), "hostname_verified": "localhost",
+            "peer_der_sha256": hashlib.sha256(expected).hexdigest()}
+
+
+def ingress_tls(handler, tls_directory):
+    if tls_directory is None:
+        return None
+    require(handler.connection.version() == "TLSv1.2" and handler.server.tls_sni[-1] == "localhost" and
+            handler.headers.get("Host") == f"localhost:{handler.server.server_port}",
+            "Native ingress TLS version, SNI or HTTP host changed")
+    return {"version": handler.connection.version(), "sni": handler.server.tls_sni[-1],
+            "host": handler.headers["Host"]}
+
+
 @contextmanager
-def http_fixture(handler, role):
+def http_fixture(handler, role, tls_directory=None):
     server = HTTPServer(("127.0.0.1", 0), handler)
     server.role = role
+    server.tls_sni = []
+    if tls_directory is not None:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(tls_directory / "valid.pem", tls_directory / "server.key")
+        context.set_servername_callback(lambda connection, name, selected: server.tls_sni.append(name))
+        server.socket = context.wrap_socket(server.socket, server_side=True)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     try:
@@ -128,7 +176,7 @@ def http_fixture(handler, role):
 def run_case(args, root, signal):
     root.mkdir()
     (root / "queue").mkdir()
-    config = args.config.read_bytes()
+    config = receiver_config(args.config.read_bytes(), args.tls_directory)
     config_path = root / "collector.yaml"
     config_path.write_bytes(config)
     require(b"      queue_size: 4\n" in config and b"      num_consumers: 1\n" in config and
@@ -169,13 +217,16 @@ def run_case(args, root, signal):
                 else:
                     require(self.headers.get("Content-Type") == "application/x-protobuf",
                             "Native protobuf media type changed")
-                    connection = http.client.HTTPConnection("127.0.0.1", collector_port, timeout=3)
+                    native_tls = ingress_tls(self, args.tls_directory)
+                    connection = collector_connection(collector_port, args.tls_directory)
                     connection.request("POST", self.path, raw, {"Content-Type": "application/x-protobuf"})
+                    actual_forward_tls = forward_tls(connection, args.tls_directory)
                     response = connection.getresponse()
                     status, reply = response.status, response.read(65537)
                     require(len(reply) <= 65536, "Collector response bound")
                     content_type = response.getheader("Content-Type", "application/x-protobuf")
-                    row, category = {"phase": state["phase"]}, "ingress"
+                    row, category = {"phase": state["phase"], "native_tls": native_tls,
+                                     "forward_tls": actual_forward_tls}, "ingress"
                 with lock:
                     index = len(state[category]) + 1
                     require(index <= 512, "Request observation bound")
@@ -209,11 +260,14 @@ def run_case(args, root, signal):
             return Counter((row["path"], row["sequence"]) for row in state["downstream"] if row["status"] == 200)
 
     try:
-        with http_fixture(Handler, "downstream") as downstream_port, http_fixture(Handler, "ingress") as ingress_port:
-            collector = fixture.Collector(args.collector, config_path, root, collector_port, downstream_port)
+        with http_fixture(Handler, "downstream") as downstream_port, http_fixture(Handler, "ingress", args.tls_directory) as ingress_port:
+            collector = fixture.Collector(args.collector, config_path, root, collector_port, downstream_port, args.tls_directory)
             collector.start()
             with (root / "native.stdout").open("xb") as stdout, (root / "native.stderr").open("xb") as stderr:
-                native = subprocess.Popen([str(args.harness), str(ingress_port), "queue-full-" + signal],
+                command = [str(args.harness), str(ingress_port), "queue-full-" + signal]
+                if args.tls_directory:
+                    command.append("localhost")
+                native = subprocess.Popen(command,
                                           cwd=root, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 lifecycle["pid"] = native.pid
@@ -304,9 +358,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ("harness", "collector", "artifacts", "config", "work-dir"):
         parser.add_argument("--" + key, type=Path, required=True)
+    parser.add_argument("--tls-directory", type=Path,
+                        help="Prepared localhost TLS fixture; native default trust must already be isolated")
     args = parser.parse_args()
     for key in ("harness", "collector", "artifacts", "config"):
         setattr(args, key, getattr(args, key).resolve(strict=True))
+    if args.tls_directory:
+        args.tls_directory = args.tls_directory.resolve(strict=True)
     args.work_dir.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix="queue-full-", dir=args.work_dir)).resolve()
     sources = {key: identity(getattr(args, key)) for key in ("harness", "collector", "artifacts", "config")}
@@ -323,6 +381,7 @@ def main():
     try:
         cases = [run_case(args, root / signal, signal) for signal in ("logs", "metrics", "traces")]
         report.update({"passed": True, "cases": cases, "native_invocations": 3, "collector_invocations": 3,
+                       "tls_receiver_qualified": bool(args.tls_directory),
                        "qualification": "selected Collector overflow preserves native accepted prefixes and permits byte-identical retry after drain; partial metric delivery can repeat"})
     except BaseException:
         report["failure"] = traceback.format_exc()

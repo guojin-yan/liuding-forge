@@ -798,6 +798,28 @@ if(JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR OR JYPPX_LIUDING_TEST_OFFICIAL_TELEM
     set_tests_properties(NativeOtlpCollectorLostReply PROPERTIES
         LABELS "experiment;telemetry;otlp;native;official;integration;recovery"
         TIMEOUT 120 RUN_SERIAL TRUE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        foreach(scenario IN ITEMS queue-full lost-reply)
+            if(scenario STREQUAL "queue-full")
+                set(tls_test_name NativeOtlpCollectorTrustedTlsQueueFull)
+            else()
+                set(tls_test_name NativeOtlpCollectorTrustedTlsLostReply)
+            endif()
+            add_test(NAME ${tls_test_name}
+                COMMAND "${JYPPX_TELEMETRY_PYTHON}" -I -B
+                    "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_collector_tls.py"
+                    --scenario ${scenario}
+                    --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>
+                    --collector "${JYPPX_OTELCOL_EXECUTABLE}"
+                    --artifacts "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-artifacts.json"
+                    --config "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-durable-queue.yaml"
+                    --system-ca-bundle "${JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE}"
+                    --work-dir "${CMAKE_CURRENT_BINARY_DIR}/collector-trusted-tls-${scenario}")
+            set_tests_properties(${tls_test_name} PROPERTIES
+                LABELS "experiment;telemetry;otlp;native;official;integration;recovery;tls;loopback"
+                TIMEOUT 120 RUN_SERIAL TRUE)
+        endforeach()
+    endif()
 endif()
 if(TARGET jyppx::liuding::sdk)
     add_subdirectory(integration)

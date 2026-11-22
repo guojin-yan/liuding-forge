@@ -37,6 +37,7 @@
 - 登记 WSL ROCm 组合与锁定官方 Linux Collector 的原生 HTTP 互通、明确文件队列崩溃恢复、队列满和回复丢失边界。
 - 新增 Linux 官方 Collector HTTPS 互通门禁，使用私有 CA 视图验证原 C++ API、SQLite/CLI 与 worker 三条交付路径和官方信号读回。
 - 新增官方 Collector HTTPS 接收器与文件队列的独立强杀恢复门禁，保留三信号的持久/易失对照及原时间边界。
+- 新增官方 Collector HTTPS 队列满与成功回复丢失门禁，验证原确认前缀、原字节重试和至少一次交付边界。
 - 登记 WSL2/W7900 本地进程实际 GPU 放置、重试/重放、原生资源计量及独立 cgroup v2 内存隔离验证范围。
 - 提供显式任务 step、模型适配、多优化器、梯度累积、裁剪、AMP、回调及可恢复调度器。
 - 提供 map/iterable 数据管线、确定性采样、线程 worker、结构化批次和游标恢复。

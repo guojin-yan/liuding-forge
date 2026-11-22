@@ -48,14 +48,14 @@ int main(int argc, char** argv) {
     if (argc != 3 && argc != 4) return 2;
     const std::string_view port_text(argv[1]), mode(argv[2]);
     const bool dns_tls = argc == 4;
-    if (dns_tls && (std::string_view(argv[3]) != "localhost" ||
-                    (mode != "tls-logs" && mode != "tls-certificate-reject" &&
-                     mode != "logs" && mode != "metrics" && mode != "traces")))
-      return 2;
     const bool queue_full = mode.starts_with("queue-full-");
     const bool lost_reply = mode.starts_with("lost-reply-");
     const bool interactive = queue_full || lost_reply;
     const auto signal = interactive ? mode.substr(11U) : mode;
+    if (dns_tls && (std::string_view(argv[3]) != "localhost" ||
+                    (mode != "tls-logs" && mode != "tls-certificate-reject" &&
+                     signal != "logs" && signal != "metrics" && signal != "traces")))
+      return 2;
     unsigned int port = 0U;
     const auto parsed = std::from_chars(
         port_text.data(), port_text.data() + port_text.size(), port);

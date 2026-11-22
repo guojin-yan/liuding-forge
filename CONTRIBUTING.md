@@ -37,6 +37,8 @@ Linux 原生 HTTP 的 `NativeOtlpHttpTrustedTls` 与 `NativeOtlpHttpTrustedDns` 
 
 同一配置的 `NativeOtlpCollectorTrustedTlsDurableQueue` 独立验证 HTTPS 接收器与原 `fsync` 队列的组合，保留三信号各一次持久队列强杀恢复和易失队列丢失对照、原 90 秒 CTest 及进程/内容断言。每次 Collector 启动核对 TLS 版本与证书；下游仍使用 HTTP 回环，不能推导下游 HTTPS、通用持久 ACK 或断电恢复。
 
+`NativeOtlpCollectorTrustedTlsQueueFull` 和 `NativeOtlpCollectorTrustedTlsLostReply` 分别保留原 16 事件队列满与 3 事件未知确认重试合同，原生客户端至记录端点、记录端点至官方 Collector 均使用 TLS 1.2 `localhost`。记录端点只转发原 protobuf 字节与真实响应，并在丢回复场景丢弃一次实际成功响应；两项各保留原 120 秒 CTest、原确认前缀与逐字节重试断言，不提供 exactly-once。
+
 外部 MIGraphX 的原生 GPU 互操作测试默认关闭。已激活匹配的 ROCm SDK 并备妥 MIGraphX 2.18.0 时，可在兼容构建中增加 `-DJYPPX_LIUDING_TEST_MIGRAPHX=ON -DJYPPX_LIUDING_MIGRAPHX_TEST_ROOT=<原生SDK绝对路径> -DJYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR=<固定参考绝对路径>`，构建 `jyppx_test_migraphx_interchange` 后串行运行 `ctest --test-dir <构建目录> -C Release --output-on-failure -j 1 -R "^MIGraphXInterchange[.]"`。参考目录的 `linear/`、`resnet18/` 各含原 `model.onnx` 及 batch 2/5 的 `case-{0,1}-{input,output}.f32`；测试内固定完整 SHA，不下载、重新生成或更新参考。四项测试核对原 FP32 容差、实际 GPU 指令及同步主存输出，每次向构建目录的 `evidence/migraphx-interchange/` 新目录保留完整输出、编译程序、路线与加载模块。每项最多 600 秒，JIT 并行度为 1；缺硬件或错误 SDK 直接失败。外部图执行测试不提供框架 MIGraphX Session、Serving 或 ORT EP，也不授予动态形状、其他图、精度或性能资格。
 
 同一配置下运行 `ctest --test-dir <构建目录> -C Release --output-on-failure -j 1 -R "^MIGraphXReload[.]"`，另四项测试先在原生进程中编译并执行，再将程序和完整输出的 SHA 传给独立重载进程。重载分支不调用 ONNX 解析或程序编译 API，核验后从证据目录的私有副本加载，保持原 shape、数值和 GPU 路线检查，并要求输出逐字节等于首次执行。编译子进程最多 600 秒，重载子进程最多 60 秒，每项 CTest 最多 700 秒；两次执行的日志、程序、输出、路线及模块留在 `evidence/migraphx-reload/` 新目录。此契约仅适用于同一设备和精确 SDK，不推导编译程序可跨设备、SDK 或操作系统移植。

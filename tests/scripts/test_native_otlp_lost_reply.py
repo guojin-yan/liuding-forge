@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import hashlib
-import http.client
 from http.server import BaseHTTPRequestHandler
 import importlib.util
 import json
@@ -37,7 +36,7 @@ def run_case(args, root, signal, lost_path):
     root.mkdir()
     (root / "queue").mkdir()
     config_path = root / "collector.yaml"
-    config_path.write_bytes(args.config.read_bytes())
+    config_path.write_bytes(fixture.receiver_config(args.config.read_bytes(), args.tls_directory))
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         collector_port = probe.getsockname()[1]
@@ -73,8 +72,10 @@ def run_case(args, root, signal, lost_path):
                 else:
                     require(self.headers.get("Content-Type") == "application/x-protobuf",
                             "Native protobuf media type changed")
-                    connection = http.client.HTTPConnection("127.0.0.1", collector_port, timeout=3)
+                    native_tls = fixture.ingress_tls(self, args.tls_directory)
+                    connection = fixture.collector_connection(collector_port, args.tls_directory)
                     connection.request("POST", self.path, raw, {"Content-Type": "application/x-protobuf"})
+                    actual_forward_tls = fixture.forward_tls(connection, args.tls_directory)
                     response = connection.getresponse()
                     status, reply = response.status, response.read(65537)
                     require(status == 200 and len(reply) <= 65536, "Collector did not accept the original request")
@@ -83,6 +84,7 @@ def run_case(args, root, signal, lost_path):
                         lost = state["phase"] == "initial" and len(state["ingress"]) + 1 == lost_index
                     require(not lost or self.path == lost_path, "Wrong response selected for loss")
                     row = {"phase": state["phase"], "response_forwarded": not lost,
+                           "native_tls": native_tls, "forward_tls": actual_forward_tls,
                            "collector_reply_sha256": hashlib.sha256(reply).hexdigest()}
                     category = "ingress"
                 with lock:
@@ -125,11 +127,14 @@ def run_case(args, root, signal, lost_path):
             return Counter((row["path"], row["sequence"]) for row in state["downstream"] if row["status"] == 200)
 
     try:
-        with fixture.http_fixture(Handler, "downstream") as downstream_port, fixture.http_fixture(Handler, "ingress") as ingress_port:
-            collector = fixture.fixture.Collector(args.collector, config_path, root, collector_port, downstream_port)
+        with fixture.http_fixture(Handler, "downstream") as downstream_port, fixture.http_fixture(Handler, "ingress", args.tls_directory) as ingress_port:
+            collector = fixture.fixture.Collector(args.collector, config_path, root, collector_port, downstream_port, args.tls_directory)
             collector.start()
             with (root / "native.stdout").open("xb") as stdout, (root / "native.stderr").open("xb") as stderr:
-                native = subprocess.Popen([str(args.harness), str(ingress_port), "lost-reply-" + signal],
+                command = [str(args.harness), str(ingress_port), "lost-reply-" + signal]
+                if args.tls_directory:
+                    command.append("localhost")
+                native = subprocess.Popen(command,
                                           cwd=root, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 lifecycle["pid"] = native.pid
@@ -222,9 +227,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ("harness", "collector", "artifacts", "config", "work-dir"):
         parser.add_argument("--" + key, type=Path, required=True)
+    parser.add_argument("--tls-directory", type=Path,
+                        help="Prepared localhost TLS fixture; native default trust must already be isolated")
     args = parser.parse_args()
     for key in ("harness", "collector", "artifacts", "config"):
         setattr(args, key, getattr(args, key).resolve(strict=True))
+    if args.tls_directory:
+        args.tls_directory = args.tls_directory.resolve(strict=True)
     args.work_dir.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix="lost-reply-", dir=args.work_dir)).resolve()
     sources = {key: identity(getattr(args, key)) for key in ("harness", "collector", "artifacts", "config")}
@@ -243,6 +252,7 @@ def main():
                      ("metrics-audit", "metrics", "/v1/logs"), ("traces", "traces", "/v1/traces")]
         cases = [run_case(args, root / name, signal, path) for name, signal, path in scenarios]
         report.update({"passed": True, "cases": cases, "native_invocations": 4, "collector_invocations": 4,
+                       "tls_receiver_qualified": bool(args.tls_directory),
                        "qualification": "selected Collector accepted but native response lost; prefix preserved and original bytes retried; externally accepted unknown events repeat"})
     except BaseException:
         report["failure"] = traceback.format_exc()
