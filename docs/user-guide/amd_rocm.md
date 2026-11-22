@@ -104,7 +104,7 @@ ROCm 分发的 CPU 路径另通过 28 项独立随机架构参考、DINOv2-small
 
 原生 ONNX 导出另已验证 FP32、FP16、BF16 GPU 训练状态经独立 CPU FP32 副本导出，以及 CPU ONNX Runtime 1.23.2、ONNX Serving 和独立安装消费者。固定参考图通过官方 checker、严格 shape inference 及原数值对照；这些结果仅覆盖兼容清单中的图与契约，不提供 AMD ORT GPU Execution Provider，也不继承 Windows DirectML 的验证范围。构建和使用见 [ONNX API](../api/onnx.md)。
 
-原生固定合成 Linear/AdamW/StepLR 负载的 FP32 已在独立进程完成两小时、4 GiB GPU payload 的持续训练，参数保留 FP32；每 15 秒保存并重新打开完整文件检查点，核对全部参与者、CPU/GPU RNG 和后续三步精确续训，初末活跃分配相同。FP16、BF16 仍仅验证各 180 秒、2 GiB payload。进程 allocator 配额 OOM、非法 shape 和已验证 FP16 的注入溢出恢复保留原断言；实际更新数、恢复次数与精度范围见兼容矩阵。该结果不包含其他负载、物理显存耗尽或驱动重置。
+原生固定合成 Linear/AdamW/StepLR 负载的 FP32、FP16 已各在独立进程完成两小时、4 GiB GPU payload 的持续训练，参数保留 FP32；每 15 秒保存并重新打开完整文件检查点，核对全部参与者、CPU/GPU RNG 和后续三步精确续训，初末活跃分配相同。BF16 仍仅验证 180 秒、2 GiB payload。进程 allocator 配额 OOM、非法 shape 和已验证 FP16 的注入溢出恢复保留原断言；实际更新数、恢复次数与精度范围见兼容矩阵。该结果不包含其他负载、物理显存耗尽或驱动重置。
 
 资源入口的两种训练与八种优化器模式各完成一独立预热和五独立采样。训练模式通过原 10% CV 门槛，最大 CV 为 3.236%；优化器部分耗时指标超标，最大 CV 为 44.174%，保留原失败。缺少功耗和频率控制观测，不提供可比较性能 reference。
 

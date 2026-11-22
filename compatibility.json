@@ -20,6 +20,28 @@
           "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-00fe5e4-two-hour-fp16",
+          "commit": "00fe5e461074c6b8ab29140916a75b23d96a780c",
+          "tests": "干净00fe5e4原六仓库/runner门禁通过零跳过，原生FP16独立两小时/4GiB稳定性进程及原validator全部通过；完整原始输出、恢复进度和物理检查点已独立核对。",
+          "quality_evidence": {
+            "source_identity": "本机file源离线同步，复用原Release树，至多两个编译任务且GPU负载串行；原native源码、公共runner和validator blob、实际运行指纹、开始/结束设备与host身份及二进制SHA均核对。",
+            "protocol": "仅FP16，FP32主权重的固定合成Linear/AdamW/StepLR；原公共入口显式7200秒、4GiB真实payload、每15秒完整文件保存/重开和三步逐状态精确续训，最多2000万提交步。原生子进程7320秒监督；提前耗尽步数仍失败。",
+            "recovery": "64MiB进程allocator额度拒绝128MiB分配后恢复、同步非法shape后继续训练；FP16恰一次注入Inf跳步/backoff。每次恢复核对完整参与者和CPU/GPU RNG，progress.ndjson与全部最终快照一致。",
+            "actual_results": "{\"allocator_quota_oom_recovered\": true, \"checkpoint_restores\": 478, \"committed_steps\": 4141667, \"elapsed_seconds\": 7200.000548546, \"exact_continuation_steps\": 1434, \"final_loss\": 1.0042436997537152e-06, \"injected_overflow_skips\": 1, \"pressure_bytes\": 4294967296, \"shape_rejection_recovered\": true}",
+            "resource_boundary": "初末活跃分配相同，最终释放至少4GiB payload；原allocator/device/RSS观测及检查点<=64MiB约束不变。RSS仅观测，不授全负载泄漏或硬限制。",
+            "scope": "仅此WSL/GCC/W7900及该精度实际两小时固定合成负载；不授其他精度、其他模型/优化器、真实性能或质量、物理VRAM耗尽、驱动reset、多卡、其他系统/设备或发布资格。原较短稳定性和失败的资源统计分别保留。",
+            "validation_receipt_sha256": "6861a5282fbae8a76aa71ca9165f475a499fd13cbf31fb8f97f9e33f6fd533c0",
+            "qualification_summary_sha256": "29be80bea3e5c863ec11d4c3fbe9299614ccaba64389f1b6246a8617787d13d0"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-7b2ad53-two-hour-fp32",
           "commit": "7b2ad535638e1f84adc31b02e8b85d42701ab42e",
           "tests": "干净7b2ad53原六仓库/runner门禁通过零跳过，原生FP32独立两小时/4GiB稳定性进程及原validator全部通过；完整原始输出、恢复进度和物理检查点已独立核对。",
