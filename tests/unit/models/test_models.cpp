@@ -742,7 +742,7 @@ TEST(Models, DinoV3HugePlusCpuResourceGate) {
 }
 
 
-TEST(Models, DinoV3HugePlusOfficialReferenceResourceGate) {
+void CheckDinoV3HugePlusOfficialReference(bool cuda = false) {
   const auto* enabled =
       std::getenv("JYPPX_LIUDING_DINOV3_HUGE_REFERENCE_GATE");
   if (enabled == nullptr || std::string_view(enabled) != "1") {
@@ -832,11 +832,26 @@ TEST(Models, DinoV3HugePlusOfficialReferenceResourceGate) {
       return torch::from_blob(const_cast<std::byte*>(bytes.data()), shape,
                               torch::kFloat32).clone();
     };
+    const auto device =
+        cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
+    if (cuda) {
+      adapter.state().to(device);
+      for (const auto& parameter : adapter.state().parameters()) {
+        ASSERT_EQ(parameter.device(), device);
+        ASSERT_EQ(parameter.scalar_type(), torch::kFloat32);
+      }
+      for (const auto& buffer : adapter.state().buffers())
+        ASSERT_EQ(buffer.device(), device);
+    }
     model->eval();
     torch::NoGradGuard no_grad;
-    const auto images = tensor(input, "input");
+    const auto images = tensor(input, "input").to(device);
     ASSERT_EQ(images.sizes(), torch::IntArrayRef({1, 3, 35, 50}));
-    const auto compare = [&](const Tensor& actual, std::string_view name) {
+    const auto compare = [&](const Tensor& device_actual,
+                             std::string_view name) {
+      ASSERT_EQ(device_actual.device(), device) << name;
+      ASSERT_EQ(device_actual.scalar_type(), torch::kFloat32) << name;
+      const auto actual = device_actual.to(torch::kCPU);
       const auto reference = tensor(expected, name);
       EXPECT_EQ(actual.sizes(), reference.sizes()) << name;
       EXPECT_TRUE(torch::isfinite(actual).all().item<bool>()) << name;
@@ -855,12 +870,18 @@ TEST(Models, DinoV3HugePlusOfficialReferenceResourceGate) {
     compare(intermediates[0], "block0_tokens");
     compare(intermediates[1], "block15_tokens");
     compare(intermediates[2], "block31_tokens");
+    if (cuda)
+      std::cout << "ARCHITECTURE_REFERENCE device=" << device
+                << " architecture=dinov3_vith16plus parameters="
+                << adapter.state().parameters().size()
+                << " buffers=" << adapter.state().buffers().size() << '\n';
   }
   const auto peak = ProcessPeakRssBytes();
   ASSERT_GT(peak, 0U);
   EXPECT_LE(peak, 12ULL << 30U);
-  std::cout << "RESOURCE_METRICS model=dinov3_vith16plus phase=cpu-official-"
-               "strict-import-token-cls-intermediates elapsed_ms="
+  std::cout << "RESOURCE_METRICS model=dinov3_vith16plus phase="
+            << (cuda ? "gpu-official-" : "cpu-official-")
+            << "strict-import-token-cls-intermediates elapsed_ms="
             << std::chrono::duration_cast<std::chrono::milliseconds>(
                    std::chrono::steady_clock::now() - start).count()
             << " process_peak_rss_bytes=" << peak
@@ -868,6 +889,42 @@ TEST(Models, DinoV3HugePlusOfficialReferenceResourceGate) {
             << " process_after_destroy_rss_bytes=" << ProcessCurrentRssBytes()
             << '\n';
 }
+
+
+TEST(Models, DinoV3HugePlusOfficialReferenceResourceGate) {
+  CheckDinoV3HugePlusOfficialReference();
+}
+
+#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+TEST(Models, DinoV3HugePlusOfficialCudaReferenceResourceGate) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_HUGE_CUDA_REFERENCE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1")
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_HUGE_CUDA_REFERENCE_GATE=1 "
+                    "for the serial H+ GPU FP32 fixed-reference gate";
+  if (!torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
+  {
+    const auto warmup = torch::zeros(
+        {1}, torch::TensorOptions().device(torch::Device(torch::kCUDA, 0)));
+    ASSERT_EQ(warmup.device(), torch::Device(torch::kCUDA, 0));
+    torch::cuda::synchronize(0);
+  }
+  torch::cuda::synchronize(0);
+  c10::cuda::CUDACachingAllocator::resetPeakStats(0);
+  CheckDinoV3HugePlusOfficialReference(true);
+  torch::cuda::synchronize(0);
+  const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  EXPECT_GT(stats.allocated_bytes[0].peak, 0);
+  std::cout << "REFERENCE_ALLOCATOR architecture=dinov3_vith16plus"
+#if defined(USE_ROCM)
+            << " peak_rocm_allocated_bytes="
+#else
+            << " peak_cuda_allocated_bytes="
+#endif
+            << stats.allocated_bytes[0].peak << '\n';
+}
+#endif
 
 
 TEST(Models, DinoV3ConvNeXtLowResourceFactoriesSupportCpuTrainingGate) {
