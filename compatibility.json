@@ -713,7 +713,10 @@
             "qualification_summary_sha256": "9a267c815408a6706a4efd7c24e5e27f7d223d2224cc0690dfaec75f4217b854",
             "real_first_batch_gpu_observation": "干净bf5abb9离线增量构建后，固定8x3x224x224真实图像首批次CPU/GPU原生门禁与五仓库门禁，6通过/1失败，零跳过、零未准入；CPU原完整首批次合同在共享helper重构后仍全部通过，原参考与容差保持。新增GPU FP32/cuda0原生门禁实际完成forward/backward和分组SGD一步，176份主参数/梯度在GPU、FP32且梯度全部有限；logits/loss、六份完整梯度与六份完整更新继续按原18文件和原rtol/atol对照。GPU仅patch_embed.proj.weight梯度失败：83/225792元素超原rtol0.003/atol0.00003，max_abs_error0.000209808349609375，完整实际梯度SHA8f503bcd853db1fb302d46d95366253f191ba78af2dc7818b550a9f25597e308与另一AMD系统本次观察一致；不从该单张量一致推导跨系统完整等价。原19资产、参数组、参考和容差保持，Torch/C10实际锁定本系统原生SDK且前后SHA相同。4GiB物理及适用cgroup/磁盘准入、每项600秒CTest/630秒父监督、GPU串行、至多两编译任务。GPU数值门禁明确未通过，不授真实GPU首批次梯度、完整微调或质量资格；执行SGD不覆盖梯度失败。",
             "real_first_batch_gpu_clean_receipt_sha256": "f4dcb567fb126556398661a8722a85479850415a8dd597a13a112a189971bfe2",
-            "real_first_batch_gpu_clean_analysis_sha256": "db7de227e4b0ca4d199a94e5af5d788b54ec1931ecec8c5e9f15921050db1abe"
+            "real_first_batch_gpu_clean_analysis_sha256": "db7de227e4b0ca4d199a94e5af5d788b54ec1931ecec8c5e9f15921050db1abe",
+            "upstream_gpu_selected_leaf_diagnostic": "同一W7900的Windows离线独立HF4.56.2 eager诊断，原Facebook权重、18固定capture/reference文件与全部原容差保持，PythonTorch2.14.0+rocm10.1.0的五份Torch/C10 DLL与原生SDK逐文件SHA一致。完整严格确定性HF backward先因upsample_bicubic2d_backward_out_cuda无确定性实现而失败，原失败保留。另行受限叶子查询保留原forward/requires_grad/严格确定性，仅不请求未在六份完整参考中的位置嵌入叶子梯度；该位置参数无梯度且不更新，不称完整backward或完整模型SGD通过。显式SGD foreach=False，原分组学习率/momentum/weight_decay不变。14项原参考比较13通过、1失败；patch投影梯度仍83/225792元素超差、max_abs0.000209808349609375，其完整SHA8f503bcd853db1fb302d46d95366253f191ba78af2dc7818b550a9f25597e308与两系统原生失败张量逐字节相同。不将此单张量一致扩展为原生14张量完整等价、确定上游或框架原因、GPU数值资格或真实质量资格；原生门禁未重跑。",
+            "upstream_gpu_selected_leaf_analysis_sha256": "a265cf7f986800902cddbb9fa4a8fe9cdeed8df756716bc987a83adef7dca737",
+            "upstream_gpu_full_backward_failure_receipt_sha256": "282f8e78a7182a433d52e78a4bd3debe15b03819ae6346010b30a6229f47eb8f"
           }
         },
         {
@@ -1784,7 +1787,10 @@
             "real_first_batch_local_upstream_receipt_sha256": "afd71e513da597bdeed3b364332420af77b9be220823d16b884114b38087b040",
             "real_first_batch_gpu_observation": "干净bf5abb9离线增量构建后，固定8x3x224x224真实图像首批次CPU/GPU原生门禁与五仓库门禁，5通过/2失败，零跳过、零未准入；CPU保留原patch_embed.proj.weight两元素超差，完整实际梯度SHAc80bffab6f2263167f0cb1ad7c18cf794a006aae4e6137c364f40fcfc7975b67未变。新增GPU FP32/cuda0原生门禁实际完成forward/backward和分组SGD一步，176份主参数/梯度在GPU、FP32且梯度全部有限；logits/loss、六份完整梯度与六份完整更新继续按原18文件和原rtol/atol对照。GPU仅patch_embed.proj.weight梯度失败：83/225792元素超原rtol0.003/atol0.00003，max_abs_error0.000209808349609375，完整实际梯度SHA8f503bcd853db1fb302d46d95366253f191ba78af2dc7818b550a9f25597e308与另一AMD系统本次观察一致；不从该单张量一致推导跨系统完整等价。原19资产、参数组、参考和容差保持，Torch/C10实际锁定本系统原生SDK且前后SHA相同。4GiB物理及适用cgroup/磁盘准入、每项600秒CTest/630秒父监督、GPU串行、至多两编译任务。GPU数值门禁明确未通过，不授真实GPU首批次梯度、完整微调或质量资格；执行SGD不覆盖梯度失败。",
             "real_first_batch_gpu_clean_receipt_sha256": "1c0da874b43e73615daf8bf40dcc3b2cf1673412082554e9d2a9d48dd3081978",
-            "real_first_batch_gpu_clean_analysis_sha256": "f6246b3b4b4924cfe7ca7ac2b281adab032f80f8bf4f3d72f546876fce4963ea"
+            "real_first_batch_gpu_clean_analysis_sha256": "f6246b3b4b4924cfe7ca7ac2b281adab032f80f8bf4f3d72f546876fce4963ea",
+            "upstream_gpu_selected_leaf_diagnostic": "同一W7900的Windows离线独立HF4.56.2 eager诊断，原Facebook权重、18固定capture/reference文件与全部原容差保持，PythonTorch2.14.0+rocm10.1.0的五份Torch/C10 DLL与原生SDK逐文件SHA一致。完整严格确定性HF backward先因upsample_bicubic2d_backward_out_cuda无确定性实现而失败，原失败保留。另行受限叶子查询保留原forward/requires_grad/严格确定性，仅不请求未在六份完整参考中的位置嵌入叶子梯度；该位置参数无梯度且不更新，不称完整backward或完整模型SGD通过。显式SGD foreach=False，原分组学习率/momentum/weight_decay不变。14项原参考比较13通过、1失败；patch投影梯度仍83/225792元素超差、max_abs0.000209808349609375，其完整SHA8f503bcd853db1fb302d46d95366253f191ba78af2dc7818b550a9f25597e308与两系统原生失败张量逐字节相同。不将此单张量一致扩展为原生14张量完整等价、确定上游或框架原因、GPU数值资格或真实质量资格；原生门禁未重跑。",
+            "upstream_gpu_selected_leaf_analysis_sha256": "a265cf7f986800902cddbb9fa4a8fe9cdeed8df756716bc987a83adef7dca737",
+            "upstream_gpu_full_backward_failure_receipt_sha256": "282f8e78a7182a433d52e78a4bd3debe15b03819ae6346010b30a6229f47eb8f"
           }
         },
         {
