@@ -6,6 +6,7 @@
 
 #include "../../../integration/deployment/native_modules.hpp"
 
+#include <jyppx/liuding/deployment/migraphx_runtime/environment.hpp>
 #include <jyppx/liuding/deployment/migraphx_runtime/session.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 
@@ -144,7 +145,7 @@ void Compare(const runtime::RunResult& result,
   EXPECT_FALSE(any("cpu::"));
   EXPECT_FALSE(any("ref::"));
 }
-void Capture(const runtime::RunResult& result, int index) {
+std::filesystem::path Capture(const runtime::RunResult& result, int index) {
   const auto parent = std::filesystem::path(JYPPX_MIGRAPHX_RUNTIME_EVIDENCE);
   std::filesystem::create_directories(parent);
   const auto tick = std::chrono::system_clock::now().time_since_epoch().count();
@@ -164,6 +165,94 @@ void Capture(const runtime::RunResult& result, int index) {
   jyppx_test::Modules(folder / "modules.txt");
   std::cout << "native_runtime_evidence=" << folder.string()
             << " output_sha256=" << sha256_hex(bytes) << '\n';
+  return folder;
+}
+TEST(MIGraphXEnvironmentGpu, ObservedIdentityAndDrift) {
+  const auto ids = Identities(false, 0);
+  const auto folder =
+      std::filesystem::path(JYPPX_MIGRAPHX_RUNTIME_FIXTURES) / "linear";
+  const auto graph = Read(folder / "model.onnx", 256U << 20U, ids.graph);
+  const auto input = Floats(folder / "case-0-input.f32", ids.input);
+  const auto expected = Floats(folder / "case-0-output.f32", ids.output);
+  runtime::Session session(graph, {.hex = ids.graph}, {.input_shape = {2, 8}});
+  int prior = -1;
+  ASSERT_EQ(hipGetDevice(&prior), hipSuccess);
+  const auto observed = runtime::observe_environment(session);
+  EXPECT_EQ(observed.device_id, 0);
+  EXPECT_EQ(observed.migraphx_header_version, "2.18.0");
+  EXPECT_EQ(observed.input_name, "input");
+  EXPECT_EQ(observed.input_shape, (std::vector<std::size_t>{2, 8}));
+  EXPECT_EQ(observed.output_shape, (std::vector<std::size_t>{2, 3}));
+  EXPECT_FALSE(observed.device_architecture.empty());
+  EXPECT_NE(observed.device_uuid, std::string(32, '0'));
+  const auto encoded = runtime::serialize_environment_lock(observed);
+  const auto digest = [](std::string_view text) -> ArtifactDigest {
+    return {.hex =
+                sha256_hex(std::as_bytes(std::span(text.data(), text.size())))};
+  };
+  EXPECT_EQ(
+      runtime::serialize_environment_lock(
+          runtime::verify_environment_lock(session, encoded, digest(encoded))),
+      encoded);
+  EXPECT_THROW(
+      runtime::verify_environment_lock(session, encoded + " ", digest(encoded)),
+      CompatibilityError);
+  EXPECT_THROW(
+      runtime::verify_environment_lock(session, encoded, {.hex = "bad"}),
+      InvalidArgument);
+  EXPECT_THROW(runtime::verify_environment_lock(session, "{}", digest("{}")),
+               SerializationError);
+  // All drift probes recompute a self-consistent payload digest. The actual
+  // session observation, rather than that producer-supplied payload, must win.
+  std::vector<runtime::EnvironmentLock> drift;
+  const auto change = [&](auto mutate) {
+    auto changed = observed;
+    mutate(changed);
+    drift.push_back(std::move(changed));
+  };
+  change([](auto& e) { e.adapter_version += ".drift"; });
+  change([](auto& e) { e.libtorch_version += ".drift"; });
+  change([](auto& e) { e.os_arch += ".drift"; });
+  change([](auto& e) { e.migraphx_header_version += ".drift"; });
+  change([](auto& e) { e.hip_header_version += ".drift"; });
+  change([](auto& e) {
+    e.migraphx_c.sha256[0] = e.migraphx_c.sha256[0] == '0' ? '1' : '0';
+  });
+  change([](auto& e) {
+    e.hip_runtime.sha256[0] = e.hip_runtime.sha256[0] == '0' ? '1' : '0';
+  });
+  change([](auto& e) { --e.migraphx_c.size_bytes; });
+  change([](auto& e) { --e.hip_runtime.size_bytes; });
+  change([](auto& e) { --e.hip_runtime_version; });
+  change([](auto& e) { --e.hip_driver_version; });
+  change([](auto& e) { e.device_id = 1; });
+  change([](auto& e) { e.device_architecture += ".drift"; });
+  change(
+      [](auto& e) { e.device_uuid[0] = e.device_uuid[0] == '0' ? '1' : '0'; });
+  change([](auto& e) { e.device_pci_bus_id += ".drift"; });
+  change([](auto& e) { e.input_name += ".drift"; });
+  change([](auto& e) { e.input_shape[0] = 1; });
+  change([](auto& e) { e.output_shape[0] = 1; });
+  ASSERT_EQ(drift.size(), 18U);
+  for (const auto& changed : drift) {
+    const auto text = runtime::serialize_environment_lock(changed);
+    EXPECT_THROW(runtime::verify_environment_lock(session, text, digest(text)),
+                 CompatibilityError);
+  }
+  const auto result = session.run(input);
+  Compare(result, expected);
+  const auto captured = Capture(result, 4);
+  std::ofstream lock(captured / "environment-lock.json", std::ios::binary);
+  lock << encoded;
+  lock.close();
+  ASSERT_TRUE(lock);
+  int current = -1;
+  ASSERT_EQ(hipGetDevice(&current), hipSuccess);
+  EXPECT_EQ(current, prior);
+  EXPECT_EQ(runtime::serialize_environment_lock(
+                runtime::observe_environment(session)),
+            encoded);
+  std::cout << "native_environment_lock_sha256=" << digest(encoded).hex << '\n';
 }
 class MIGraphXSessionGpu : public ::testing::TestWithParam<int> {};
 TEST_P(MIGraphXSessionGpu, FixedReferenceOwnershipAndSerializedCalls) {

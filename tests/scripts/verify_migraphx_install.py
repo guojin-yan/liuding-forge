@@ -30,6 +30,8 @@ try:
     install=out/'install'
     run('install',[a.cmake,'--install',parent,'--config','Release','--prefix',install])
     assert (install/'include/jyppx/liuding/deployment/migraphx_runtime/session.hpp').is_file()
+    assert (install/'include/jyppx/liuding/deployment/migraphx_runtime/environment.hpp').is_file()
+    assert (install/'share/doc/jyppx/licenses/nlohmann-json-3.12.0-LICENSE.MIT').is_file()
     assert (install/'lib/cmake/jyppx/MIGraphXRuntimeDependency.cmake').is_file()
     assert not list((install/'bin').glob('migraphx*.dll')) and not list((install/'lib').glob('libmigraphx*.so*'))
     child_source=source/'tests/install/migraphx_consumer'
@@ -55,6 +57,10 @@ try:
         cases=ET.parse(report).getroot().findall('.//testcase')
         assert len(cases)==1 and cases[0].get('name')=='Runs' and all(cases[0].find(t) is None for t in ('skipped','error','failure'))
         if mode=='runtime':
+            environment=json.loads((build/'environment-lock.json').read_bytes())
+            assert environment['format']=='jyppx.liuding.migraphx_runtime_lock' and environment['schema_version']==1
+            assert environment['program']['input_shape']==[2,8] and environment['program']['output_shape']==[2,3]
+            assert set(environment['modules'])=={'migraphx_c','hip_runtime'}
             assert hashlib.sha256((build/'actual.f32').read_bytes()).hexdigest()=='3b106db38a6dca7aafe95d1af546237ca38ac4d74a084a8f1b0cea5a361c709a'
             trace=(build/'dispatch.txt').read_text().splitlines()
             assert any(n.startswith(('gpu::hip_gemm','gpu::code_object')) for n in trace)

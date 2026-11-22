@@ -270,3 +270,7 @@ auto result = session.run(input_values);
 Session 只接受单输入、单输出、dense FP32、rank 1..8，每个 Session 的 batch 和完整形状在编译时固定。不同 batch/形状使用独立 Session；设备编号不从 LibTorch tensor 或 ORT Provider 推断。默认模型/输入/输出上限为 256/64/64 MiB、batch 上限 1024，均可显式设置正值；输入、输出大小和有限值在相应操作前后核对，输出上限在图编译前检查。编译使用显式 GPU target、同步主存拷贝、关闭 fast math 和 exhaustive tuning；运行还要求实际轨迹包含 GPU 算术及同步主存输出，并拒绝 CPU/reference 指令。
 
 同一 Session 的调用串行，不同 Session 各自拥有程序；调用期间输入必须保持有效和不变。调用绑定所选 HIP 设备并恢复线程先前的设备，输出可在 Session 销毁后继续使用。销毁不得与调用并发。运行错误时先作设备级同步再释放借用输入，其他同设备工作可能延迟清理。解析、编译、等待和执行均为同步阻塞接口，尚无取消或硬超时；字节上限不限制图中间分配、后端缓存、RSS 或总显存。不承诺重复执行逐字节确定性，也不提供序列化程序加载、Serving/bundle 桥接或 ORT MIGraphX EP。
+
+`<jyppx/liuding/deployment/migraphx_runtime/environment.hpp>` 提供 `observe_environment(session)`、`serialize_environment_lock`、`parse_environment_lock` 与 `verify_environment_lock(session, encoded, trusted_digest)`。独立部署时先核对锁文件的完整 SHA，再将解析结果与实际 Session 的构建版本、HIP runtime/driver 数值、设备 UUID/PCI/架构、输入名及完整固定输入输出形状逐字段比较。文本字段要求非空可打印 ASCII，设备 UUID 为非零 16 字节的 32 位小写十六进制编码。编译选项固定为上述 GPU/FP32 配置；schema、类型、重复字段、未知字段和资源越界均明确拒绝，锁文件最多 16 KiB，纯解析不查询设备。
+
+锁文件分别保存编译时 MIGraphX/HIP 头文件版本，以及通过实际 API 地址定位的已加载 MIGraphX C API/HIP 模块之本地文件大小与完整 SHA，不保存绝对机器路径。Windows 从已加载 DLL 解析导出函数地址，避开调用者内的导入跳板；不会加载额外库。MIGraphX 2.18.0 公共 C API 不提供运行时版本查询，头文件版本不能代替实际模块身份；每个模块文件最多 512 MiB，按块读取，要求观测期间保持可读且不变。此锁不覆盖其他传递 GPU/数学库、代码对象、驱动二进制、环境变量或已映射内存，也不代替模型签名、已验证 bundle 声明、已知向量或数值资格；观察与核对不执行额外图、不解析包、不联网。

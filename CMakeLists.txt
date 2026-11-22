@@ -215,8 +215,8 @@ include(cmake/CopyTorchRuntime.cmake)
 # ============================================
 if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR
    JYPPX_LIUDING_BUILD_DATA_IMAGE OR JYPPX_LIUDING_BUILD_ONNX_EXPORT OR
-   JYPPX_LIUDING_BUILD_ONNX_RUNTIME OR JYPPX_LIUDING_BUILD_TOOLS OR
-   JYPPX_LIUDING_BUILD_EXAMPLES)
+   JYPPX_LIUDING_BUILD_ONNX_RUNTIME OR JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME OR
+   JYPPX_LIUDING_BUILD_TOOLS OR JYPPX_LIUDING_BUILD_EXAMPLES)
     include(FetchContent)
     if(POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
@@ -870,7 +870,8 @@ endif()
 
 if(JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME)
     add_library(jyppx_liuding_migraphx_runtime STATIC
-        src/jyppx/liuding/deployment/migraphx_runtime/session.cpp)
+        src/jyppx/liuding/deployment/migraphx_runtime/session.cpp
+        src/jyppx/liuding/deployment/migraphx_runtime/environment.cpp)
     add_library(jyppx::liuding::migraphx_runtime ALIAS jyppx_liuding_migraphx_runtime)
     set_target_properties(jyppx_liuding_migraphx_runtime PROPERTIES
         OUTPUT_NAME liuding-forge-migraphx-runtime EXPORT_NAME migraphx_runtime)
@@ -878,7 +879,8 @@ if(JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
     target_link_libraries(jyppx_liuding_migraphx_runtime PUBLIC jyppx_liuding_foundation
-        PRIVATE jyppx_external_migraphx_c jyppx_external_migraphx_hip)
+        PRIVATE jyppx_external_migraphx_c jyppx_external_migraphx_hip
+        ${CMAKE_DL_LIBS} $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_migraphx_runtime)
     list(APPEND JYPPX_ENABLED_COMPONENTS migraphx_runtime)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/migraphx_runtime)
@@ -1297,7 +1299,7 @@ if(JYPPX_LIUDING_BUILD_VISION_TASKS)
 endif()
 if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR
    JYPPX_LIUDING_BUILD_DATA_IMAGE OR JYPPX_LIUDING_BUILD_ONNX_EXPORT OR
-   JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
+   JYPPX_LIUDING_BUILD_ONNX_RUNTIME OR JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME)
     # nlohmann/json is compiled into these archives. Its original MIT notice
     # must accompany the binary SDK as well as the repository summary.
     install(FILES third_party/licenses/nlohmann-json-3.12.0-LICENSE.MIT

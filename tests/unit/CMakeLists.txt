@@ -4,9 +4,11 @@ if(JYPPX_LIUDING_TEST_MIGRAPHX)
     include("${PROJECT_SOURCE_DIR}/cmake/MIGraphXInterchangeTests.cmake")
 endif()
 if(TARGET jyppx::liuding::migraphx_runtime)
-    add_executable(jyppx_test_migraphx_runtime deployment/migraphx_runtime/test_session.cpp)
+    add_executable(jyppx_test_migraphx_runtime deployment/migraphx_runtime/test_session.cpp
+        deployment/migraphx_runtime/test_environment.cpp)
     target_link_libraries(jyppx_test_migraphx_runtime PRIVATE
-        jyppx::liuding::migraphx_runtime jyppx_external_migraphx_hip GTest::gtest_main)
+        jyppx::liuding::migraphx_runtime jyppx_external_migraphx_hip GTest::gtest_main
+        nlohmann_json::nlohmann_json)
     jyppx_apply_instrumentation(jyppx_test_migraphx_runtime)
     jyppx_add_torch_runtime_dependency(jyppx_test_migraphx_runtime)
     set(migraphx_test_prefix "${CMAKE_COMMAND}" -E env "MIGRAPHX_GPU_COMPILE_PARALLEL=1")
@@ -21,6 +23,14 @@ if(TARGET jyppx::liuding::migraphx_runtime)
         --gtest_filter=MIGraphXSession.RejectsInvalidOptionsBeforeDeviceDiscovery)
     set_tests_properties(MIGraphXSession.RejectsInvalidOptionsBeforeDeviceDiscovery
         PROPERTIES LABELS "deployment;migraphx_runtime" TIMEOUT 30)
+    foreach(contract IN ITEMS Roundtrip RequiresExactSchema RequiresExactTypes
+            RejectsInvalidMetadata BoundsEncodedMetadata)
+        add_test(NAME "MIGraphXEnvironment.${contract}"
+            COMMAND ${migraphx_test_prefix} $<TARGET_FILE:jyppx_test_migraphx_runtime>
+            "--gtest_filter=MIGraphXEnvironment.${contract}")
+        set_tests_properties("MIGraphXEnvironment.${contract}" PROPERTIES
+            LABELS "deployment;migraphx_runtime" TIMEOUT 30)
+    endforeach()
     if(JYPPX_LIUDING_TEST_MIGRAPHX)
         add_test(NAME MIGraphXRuntimeInstalledConsumer
             COMMAND ${migraphx_test_prefix} "${Python3_EXECUTABLE}" -I -B
@@ -33,6 +43,11 @@ if(TARGET jyppx::liuding::migraphx_runtime)
         target_compile_definitions(jyppx_test_migraphx_runtime PRIVATE
             JYPPX_MIGRAPHX_RUNTIME_FIXTURES="${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}"
             JYPPX_MIGRAPHX_RUNTIME_EVIDENCE="${CMAKE_BINARY_DIR}/evidence/migraphx-runtime")
+        add_test(NAME MIGraphXEnvironmentGpu.ObservedIdentityAndDrift
+            COMMAND ${migraphx_test_prefix} $<TARGET_FILE:jyppx_test_migraphx_runtime>
+            --gtest_filter=MIGraphXEnvironmentGpu.ObservedIdentityAndDrift)
+        set_tests_properties(MIGraphXEnvironmentGpu.ObservedIdentityAndDrift PROPERTIES
+            LABELS "deployment;migraphx_runtime;gpu" TIMEOUT 600 RUN_SERIAL TRUE)
         foreach(index RANGE 0 3)
             add_test(NAME "MIGraphXSessionGpu.fixed_${index}"
                 COMMAND ${migraphx_test_prefix} $<TARGET_FILE:jyppx_test_migraphx_runtime>

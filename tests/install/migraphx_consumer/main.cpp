@@ -6,6 +6,7 @@
 
 #include <jyppx/liuding/foundation/sha256.hpp>
 #ifndef JYPPX_MIGRAPHX_CONSUMER_FOUNDATION
+#include <jyppx/liuding/deployment/migraphx_runtime/environment.hpp>
 #include <jyppx/liuding/deployment/migraphx_runtime/session.hpp>
 #endif
 #include <cmath>
@@ -61,6 +62,30 @@ int main(int argc, char** argv) {
     mgx::RunResult result;
     {
       mgx::Session session(graph, {.hex = graph_sha}, {.input_shape = {2, 8}});
+      const auto observed = mgx::observe_environment(session);
+      const auto encoded = mgx::serialize_environment_lock(observed);
+      const auto lock_digest =
+          [](std::string_view text) -> jyppx::liuding::ArtifactDigest {
+        return {.hex = jyppx::liuding::sha256_hex(
+                    std::as_bytes(std::span(text.data(), text.size())))};
+      };
+      static_cast<void>(
+          mgx::verify_environment_lock(session, encoded, lock_digest(encoded)));
+      auto drift = observed;
+      --drift.hip_runtime_version;
+      const auto changed = mgx::serialize_environment_lock(drift);
+      bool rejected = false;
+      try {
+        static_cast<void>(mgx::verify_environment_lock(session, changed,
+                                                       lock_digest(changed)));
+      } catch (const jyppx::liuding::CompatibilityError&) {
+        rejected = true;
+      }
+      if (!rejected) throw std::runtime_error("environment drift accepted");
+      std::ofstream lock("environment-lock.json", std::ios::binary);
+      lock << encoded;
+      lock.close();
+      if (!lock) throw std::runtime_error("environment evidence write failure");
       result = session.run(input);
     }
     if (result.shape != std::vector<std::size_t>{2, 3} ||

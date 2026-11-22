@@ -112,14 +112,14 @@ Provider 查询或显式选择接口不代表 GPU 执行资格；CUDA、DirectML
 ### JSON for Modern C++ (nlohmann/json)
 
 - Project: https://github.com/nlohmann/json
-- Role: strict JSON parsing and serialization inside interop, experiment and the
-  optional `jyppx::liuding::data_image` annotation readers
+- Role: strict JSON parsing and serialization inside interop, experiment,
+  deployment environment locks and the optional `jyppx::liuding::data_image` annotation readers
 - Version selected by the current build: 3.12.0
 - Upstream license: MIT
 - Distribution rule: the header is compiled into the experiment config static
   library and is not exposed by JYPPX public headers. Source or binary
   redistribution must retain the upstream copyright notice and MIT license.
-  SDK installations with interop, experiment or data_image include the original notice at
+  SDK installations with interop, experiment, data_image, ONNX or MIGraphX runtime include the original notice at
   `share/doc/jyppx/licenses/nlohmann-json-3.12.0-LICENSE.MIT`. Experiment SDK
   installations also retain the original SQLite copyright/blessing provenance
   in that directory.
