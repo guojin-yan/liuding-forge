@@ -3286,7 +3286,9 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2GiantReferenceReallyRuns) {
 void CheckDinoV3Reference(
     const char* prefix, DinoV3 model,
     const char* directory_variable = "JYPPX_LIUDING_DINOV3_REFERENCE_DIR",
-    std::uint64_t staging_bytes = 1ULL << 30U) {
+    std::uint64_t staging_bytes = 1ULL << 30U, bool cuda = false) {
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   const auto* directory = std::getenv(directory_variable);
   if (directory == nullptr || *directory == '\0') {
     GTEST_SKIP() << "Set " << directory_variable
@@ -3332,11 +3334,28 @@ void CheckDinoV3Reference(
   for (const auto& mismatch : imported.plan.dtype_mismatches)
     diagnostics << "\ndtype mismatch: " << mismatch.key;
   ASSERT_TRUE(imported.applied) << diagnostics.GetString();
+  const auto device =
+      cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
+  if (cuda) {
+    adapter.state().to(device);
+    for (const auto& parameter : adapter.state().parameters()) {
+      ASSERT_EQ(parameter.device(), device) << prefix;
+      ASSERT_EQ(parameter.scalar_type(), torch::kFloat32) << prefix;
+    }
+    for (const auto& buffer : adapter.state().buffers())
+      ASSERT_EQ(buffer.device(), device) << prefix;
+  }
   adapter.state().eval();
   torch::NoGradGuard no_grad;
-  const auto image = ReferenceTensor(input, "input");
-  const auto actual_tokens = model->forward_features(image);
-  const auto actual_cls = model->forward(image);
+  const auto image = ReferenceTensor(input, "input").to(device);
+  const auto device_tokens = model->forward_features(image);
+  const auto device_cls = model->forward(image);
+  ASSERT_EQ(device_tokens.device(), device) << prefix;
+  ASSERT_EQ(device_cls.device(), device) << prefix;
+  ASSERT_EQ(device_tokens.scalar_type(), torch::kFloat32);
+  ASSERT_EQ(device_cls.scalar_type(), torch::kFloat32);
+  const auto actual_tokens = device_tokens.to(torch::kCPU);
+  const auto actual_cls = device_cls.to(torch::kCPU);
   const auto reference_tokens = ReferenceTensor(expected, "tokens");
   const auto reference_cls = ReferenceTensor(expected, "output");
   ASSERT_EQ(actual_tokens.sizes(), reference_tokens.sizes());
@@ -3347,6 +3366,11 @@ void CheckDinoV3Reference(
   EXPECT_TRUE(torch::allclose(actual_cls, reference_cls, 5e-4, 5e-5))
       << prefix << " CLS max error: "
       << (actual_cls - reference_cls).abs().max().item<double>();
+  if (cuda)
+    std::cout << "ARCHITECTURE_REFERENCE device=" << device
+              << " architecture=" << prefix
+              << " parameters=" << adapter.state().parameters().size()
+              << " buffers=" << adapter.state().buffers().size() << '\n';
 }
 
 TEST(ModelsPythonInterop, OfficialMetaDinoV3SmallReferenceReallyRuns) {
@@ -3412,7 +3436,9 @@ void CheckDinoV3ConvNeXtReference(
     const char* prefix, DinoV3ConvNeXt model,
     const char* directory_variable =
         "JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR",
-    std::uint64_t staging_bytes = 1ULL << 30U) {
+    std::uint64_t staging_bytes = 1ULL << 30U, bool cuda = false) {
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   const auto* directory = std::getenv(directory_variable);
   if (directory == nullptr || *directory == '\0') {
     GTEST_SKIP() << "Set " << directory_variable
@@ -3459,12 +3485,26 @@ void CheckDinoV3ConvNeXtReference(
   for (const auto& mismatch : imported.plan.dtype_mismatches)
     diagnostics << "\ndtype mismatch: " << mismatch.key;
   ASSERT_TRUE(imported.applied) << diagnostics.GetString();
+  const auto device =
+      cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
+  if (cuda) {
+    adapter.state().to(device);
+    for (const auto& parameter : adapter.state().parameters()) {
+      ASSERT_EQ(parameter.device(), device) << prefix;
+      ASSERT_EQ(parameter.scalar_type(), torch::kFloat32) << prefix;
+    }
+    for (const auto& buffer : adapter.state().buffers())
+      ASSERT_EQ(buffer.device(), device) << prefix;
+  }
   adapter.state().eval();
   torch::NoGradGuard no_grad;
-  const auto image = ReferenceTensor(input, "input");
-  const auto actual_stages = model->forward_features(image);
+  const auto image = ReferenceTensor(input, "input").to(device);
+  auto actual_stages = model->forward_features(image);
   ASSERT_EQ(actual_stages.size(), 4U);
   for (std::size_t index = 0; index < actual_stages.size(); ++index) {
+    ASSERT_EQ(actual_stages[index].device(), device) << prefix << ' ' << index;
+    ASSERT_EQ(actual_stages[index].scalar_type(), torch::kFloat32);
+    actual_stages[index] = actual_stages[index].to(torch::kCPU);
     const auto reference =
         ReferenceTensor(expected, "stage" + std::to_string(index));
     ASSERT_EQ(actual_stages[index].sizes(), reference.sizes());
@@ -3472,16 +3512,27 @@ void CheckDinoV3ConvNeXtReference(
         << prefix << " stage " << index << " max error: "
         << (actual_stages[index] - reference).abs().max().item<double>();
   }
-  const auto actual_global = model->forward(image);
+  const auto device_global = model->forward(image);
+  ASSERT_EQ(device_global.device(), device) << prefix;
+  ASSERT_EQ(device_global.scalar_type(), torch::kFloat32);
+  const auto actual_global = device_global.to(torch::kCPU);
   const auto reference_global = ReferenceTensor(expected, "output");
   ASSERT_EQ(actual_global.sizes(), reference_global.sizes());
   EXPECT_TRUE(torch::allclose(actual_global, reference_global, 5e-4, 5e-5))
       << prefix << " global max error: "
       << (actual_global - reference_global).abs().max().item<double>();
-  const auto invoked =
+  const auto device_invoked =
       adapter.invoke({.positional = {image}, .keyword = {}}).value.toTensor();
+  ASSERT_EQ(device_invoked.device(), device) << prefix;
+  ASSERT_EQ(device_invoked.scalar_type(), torch::kFloat32);
+  const auto invoked = device_invoked.to(torch::kCPU);
   ASSERT_EQ(invoked.sizes(), reference_global.sizes());
   EXPECT_TRUE(torch::allclose(invoked, reference_global, 5e-4, 5e-5));
+  if (cuda)
+    std::cout << "ARCHITECTURE_REFERENCE device=" << device
+              << " architecture=" << prefix
+              << " parameters=" << adapter.state().parameters().size()
+              << " buffers=" << adapter.state().buffers().size() << '\n';
 }
 
 TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtTinyReferenceReallyRuns) {
@@ -3541,6 +3592,41 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtLargeResourceGate) {
       "dinov3_convnext_large", [] { return dinov3_convnext_large(); },
       196230336U);
 }
+
+#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+class ModelsDinoCudaReference : public ::testing::TestWithParam<const char*> {};
+
+TEST_P(ModelsDinoCudaReference, MatchesPinnedIndependentFp32) {
+  if (!torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
+  const std::string name = GetParam();
+  if (name == "dinov3_convnext_tiny" || name == "dinov3_convnext_small") {
+    auto model = name == "dinov3_convnext_tiny" ? dinov3_convnext_tiny()
+                                                : dinov3_convnext_small();
+    CheckDinoV3ConvNeXtReference(GetParam(), model,
+                                 "JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR",
+                                 1ULL << 30U, true);
+  } else {
+    ASSERT_TRUE(name == "dinov3_vits16" || name == "dinov3_vits16plus" ||
+                name == "dinov3_vitb16");
+    auto model = name == "dinov3_vits16"       ? dinov3_vits16()
+                 : name == "dinov3_vits16plus" ? dinov3_vits16plus()
+                                               : dinov3_vitb16();
+    CheckDinoV3Reference(GetParam(), model,
+                         "JYPPX_LIUDING_DINOV3_REFERENCE_DIR", 1ULL << 30U,
+                         true);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(PinnedDino, ModelsDinoCudaReference,
+                         ::testing::Values("dinov3_vits16", "dinov3_vits16plus",
+                                           "dinov3_vitb16",
+                                           "dinov3_convnext_tiny",
+                                           "dinov3_convnext_small"),
+                         [](const ::testing::TestParamInfo<const char*>& info) {
+                           return std::string(info.param);
+                         });
+#endif
 
 #endif
 
