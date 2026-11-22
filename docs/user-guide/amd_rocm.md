@@ -74,6 +74,8 @@ ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 
 
 [图像读取到训练更新](../benchmarks/README.md#图像读取到训练更新)入口同样支持 HIP 身份、同步与独立显存指标，可选择文件读取、解码缓存或预缩放缓存；`cuda-fp16` 与 `cuda-fp16-storage` 分别使用 FP32 主权重和 FP16 参数存储。每种模型、数据、精度与加载配置须独立采样，训练完成不代表统计稳定或任务准确率。
 
+固定独立随机状态参考另通过 ResNet18/34/50/101、ResNeXt50、DenseNet121、MobileNetV2、MobileNetV3 Small/Large、EfficientNet B0/B2、ConvNeXt Tiny/Small 与带掩码 Transformer Encoder 的 GPU FP32 前向数值合同，Windows 与 WSL 分别验证原 logits 及适用中间 stage。`tf_efficientnetv2_s` 的 GPU 输出和最后一个 stage 均超原容差，仍未授予该数值资格；15 个 CPU 对照全部通过。范围限于兼容矩阵列出的固定随机状态、输入和精度，不推导反向、预训练权重或任务质量。
+
 ## WSL2 原生核心与训练
 
 W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的原生 Linux C++11 ABI=1 组合。范围包括设备与数据管线、八类优化器与十五类调度器的 FP32/FP16/BF16 组合、AMP、Trainer、检查点，以及独立安装应用的 GPU 前向、反向和 HIP 物理设备身份检查。八算法适配器、对应调度器及极端参数的原单元合同也已验证；精确 LibTorch 2.5.1 历史检查点和八份原适配器 canonical 迁移 fixture 仍条件跳过；原生版本查询应报告 `rocm:available:1`。
