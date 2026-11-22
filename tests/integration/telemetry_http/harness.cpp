@@ -49,7 +49,8 @@ int main(int argc, char** argv) {
     const std::string_view port_text(argv[1]), mode(argv[2]);
     const bool dns_tls = argc == 4;
     if (dns_tls && (std::string_view(argv[3]) != "localhost" ||
-                    (mode != "tls-logs" && mode != "tls-certificate-reject")))
+                    (mode != "tls-logs" && mode != "tls-certificate-reject" &&
+                     mode != "logs" && mode != "metrics" && mode != "traces")))
       return 2;
     const bool queue_full = mode.starts_with("queue-full-");
     const bool lost_reply = mode.starts_with("lost-reply-");
@@ -67,7 +68,7 @@ int main(int argc, char** argv) {
                                 : mode == "ipv6-logs" ? "::1"
                                                       : "127.0.0.1",
                         .port = static_cast<std::uint16_t>(port),
-                        .tls = mode == "tls-reject" ||
+                        .tls = dns_tls || mode == "tls-reject" ||
                                mode == "tls-certificate-reject" ||
                                mode == "tls-logs"};
     options.mapping.resource_instance_id = "http.integration.instance";

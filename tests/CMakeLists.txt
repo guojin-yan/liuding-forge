@@ -761,6 +761,21 @@ if(JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR OR JYPPX_LIUDING_TEST_OFFICIAL_TELEM
     set_tests_properties(NativeOtlpCollectorDurableQueue PROPERTIES
         LABELS "experiment;telemetry;otlp;native;official;integration;recovery"
         TIMEOUT 90 RUN_SERIAL TRUE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME NativeOtlpCollectorTrustedTlsDurableQueue
+            COMMAND "${JYPPX_TELEMETRY_PYTHON}" -I -B
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_collector_tls.py"
+                --scenario durable-queue
+                --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>
+                --collector "${JYPPX_OTELCOL_EXECUTABLE}"
+                --artifacts "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-artifacts.json"
+                --config "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-durable-queue.yaml"
+                --system-ca-bundle "${JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE}"
+                --work-dir "${CMAKE_CURRENT_BINARY_DIR}/collector-trusted-tls-queue")
+        set_tests_properties(NativeOtlpCollectorTrustedTlsDurableQueue PROPERTIES
+            LABELS "experiment;telemetry;otlp;native;official;integration;recovery;tls;loopback"
+            TIMEOUT 90 RUN_SERIAL TRUE)
+    endif()
     add_test(NAME NativeOtlpCollectorQueueFull
         COMMAND "${Python3_EXECUTABLE}" -I -B
             "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_queue_full.py"

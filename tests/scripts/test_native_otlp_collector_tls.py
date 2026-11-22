@@ -2,7 +2,7 @@
 # Product: 六丁炼算 (Liuding Forge)
 # Project alias: JYPPX Training Framework
 # Licensed under the Apache License, Version 2.0.
-"""Real pinned Collector HTTPS interchange in an isolated Linux trust view.
+"""Real pinned Collector HTTPS contracts in an isolated Linux trust view.
 
 The original three native product paths and official signal readback remain
 unchanged. Python/OpenSSL prepare and supervise fixtures, never send OTLP.
@@ -37,19 +37,26 @@ def trust_state(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for key in ("cli", "example", "collector", "artifacts", "config", "work-dir", "system-ca-bundle"):
+    for key in ("collector", "artifacts", "config", "work-dir", "system-ca-bundle"):
         parser.add_argument("--" + key, type=Path, required=True)
+    for key in ("cli", "example", "harness"):
+        parser.add_argument("--" + key, type=Path)
+    parser.add_argument("--scenario", choices=("interchange", "durable-queue"), default="interchange")
     parser.add_argument("--inside", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     require(sys.platform == "linux", "Collector private trust gate requires Linux")
-    for key in ("cli", "example", "collector", "artifacts", "config", "system_ca_bundle"):
+    queue = args.scenario == "durable-queue"
+    product_keys = ("harness",) if queue else ("cli", "example")
+    for key in (*product_keys, "collector", "artifacts", "config", "system_ca_bundle"):
+        require(getattr(args, key) is not None, "Missing scenario input: " + key)
         setattr(args, key, getattr(args, key).resolve(strict=True))
     environment = dict(os.environ)
     for key in ("SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE", "OPENSSL_CONF"):
         environment.pop(key, None)
-    checker = Path(__file__).with_name("test_native_otlp_collector.py").resolve(strict=True)
+    checker = Path(__file__).with_name("test_native_otlp_durable_queue.py" if queue else
+                                      "test_native_otlp_collector.py").resolve(strict=True)
     identity = {str(path): digest(path) for path in
-                (args.cli, args.example, args.collector, args.artifacts, args.config, checker,
+                (*[getattr(args, key) for key in product_keys], args.collector, args.artifacts, args.config, checker,
                  Path(__file__).resolve(), Path(__file__).with_name("test_native_otlp_trusted_tls.py"))}
     if args.inside:
         manifest = json.loads(args.inside.read_text("utf-8"))
@@ -72,24 +79,42 @@ def main():
         (directory / "certificate-verify.stderr").write_bytes(control.stderr)
         require(control.returncode == 0, "Independent Collector certificate validation failed")
         command = [sys.executable, "-I", "-B", str(checker)]
-        for key in ("cli", "example", "collector", "artifacts", "config"):
+        for key in (*product_keys, "collector", "artifacts", "config"):
             command.extend(("--" + key, str(getattr(args, key))))
-        command.extend(("--tls-directory", str(directory), "--endpoint-host", "localhost",
-                        "--work-dir", str(directory / "native")))
-        result = subprocess.run(command, capture_output=True, env=environment, timeout=135)
+        command.extend(("--tls-directory", str(directory), "--work-dir", str(directory / "native")))
+        if not queue:
+            command.extend(("--endpoint-host", "localhost"))
+        result = subprocess.run(command, capture_output=True, env=environment, timeout=80 if queue else 135)
         (directory / "native.stdout").write_bytes(result.stdout)
         (directory / "native.stderr").write_bytes(result.stderr)
         require(result.returncode == 0, result.stderr.decode("utf-8", errors="replace"))
-        report = json.loads((directory / "native/report.json").read_text("utf-8"))
-        require(report["tls_qualified"] and not report["durable_ack_qualified"] and
-                not report["failures"] and report["skipped"] == 0, "Wrong native interchange result")
-        require([case["name"] for case in report["cases"]] ==
-                ["public-api", "cli-replay", "worker-six-payloads"], "Original product paths changed")
-        require([case["events"] for case in report["cases"]] == [3, 3, 6], "Original events changed")
-        for case in report["cases"]:
-            require(case["tls"]["version"] == "TLSv1.2" and
-                    case["tls"]["hostname_verified"] == "localhost" and
-                    isinstance(case["collector_exit"], int), "Collector TLS or cleanup missing")
+        if queue:
+            report = json.loads(result.stdout)
+            require(Path(report["work_directory"]).is_relative_to(directory / "native"), "Queue evidence escaped fixture")
+            require(report["passed"] and report["inputs_preserved"] and report["tls_receiver_qualified"] and
+                    report["native_invocations"] == 6 and report["collector_invocations"] == 15,
+                    "Original queue scenarios or results changed")
+            require([(case["signal"], case["persistent"]) for case in report["cases"]] ==
+                    [(signal, persistent) for signal in ("logs", "metrics", "traces") for persistent in (True, False)],
+                    "Original queue signal/control coverage changed")
+            for case in report["cases"]:
+                require(case["passed"] and case["producer_replay_after_crash"] == 0, "Queue recovery result changed")
+                for stage in case["collector_stages"]:
+                    require(stage["tls"]["version"] == "TLSv1.2" and
+                            stage["tls"]["hostname_verified"] == "localhost" and stage["reaped"] and
+                            stage["returncode"] == (-9 if stage["forced_crash"] else 0),
+                            "Queue Collector TLS or process cleanup missing")
+        else:
+            report = json.loads((directory / "native/report.json").read_text("utf-8"))
+            require(report["tls_qualified"] and not report["durable_ack_qualified"] and
+                    not report["failures"] and report["skipped"] == 0, "Wrong native interchange result")
+            require([case["name"] for case in report["cases"]] ==
+                    ["public-api", "cli-replay", "worker-six-payloads"], "Original product paths changed")
+            require([case["events"] for case in report["cases"]] == [3, 3, 6], "Original events changed")
+            for case in report["cases"]:
+                require(case["tls"]["version"] == "TLSv1.2" and
+                        case["tls"]["hostname_verified"] == "localhost" and
+                        isinstance(case["collector_exit"], int), "Collector TLS or cleanup missing")
         report.update(private_mount_namespace=namespace, host_mount_namespace=manifest["host_namespace"],
                       private_ca_sha256=digest(args.system_ca_bundle))
         (directory / "inside-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -119,7 +144,7 @@ def main():
     command = ["unshare", "--user", "--map-root-user", "--mount", "--propagation", "private", "--",
                sys.executable, "-I", "-B", str(Path(__file__).resolve()), *sys.argv[1:], "--inside", str(manifest_path)]
     try:
-        result = subprocess.run(command, capture_output=True, env=environment, timeout=160)
+        result = subprocess.run(command, capture_output=True, env=environment, timeout=85 if queue else 160)
         (directory / "namespace.stdout").write_bytes(result.stdout)
         (directory / "namespace.stderr").write_bytes(result.stderr)
         require(result.returncode == 0, result.stderr.decode("utf-8", errors="replace"))
@@ -127,9 +152,13 @@ def main():
         require(trust_state(args.system_ca_bundle) == original, "Host CA changed")
         require(identity == {path: digest(path) for path in identity}, "Collector TLS input changed")
     report = json.loads((directory / "inside-report.json").read_text("utf-8"))
+    if queue:
+        report["native_work_directory"] = report["work_directory"]
     report.update(host_trust_preserved=True, work_directory=str(directory),
-                  scope="Exact pinned Collector TLS1.2 localhost receiver and original native interchange; "
-                        "no revocation, durable ACK, HTTPS crash recovery or exactly-once qualification")
+                  scope=("Exact pinned Collector TLS1.2 localhost receiver with original fsync/volatile process-crash cases; "
+                         "downstream HTTP only; no power loss, disk failure, generic durable ACK or exactly-once qualification"
+                         if queue else "Exact pinned Collector TLS1.2 localhost receiver and original native interchange; "
+                         "no revocation, durable ACK, HTTPS crash recovery or exactly-once qualification"))
     (directory / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, sort_keys=True))
     return 0

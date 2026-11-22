@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -195,11 +196,12 @@ def backend(signal):
 
 
 class Collector:
-    def __init__(self, executable, config, root, port, backend_port):
+    def __init__(self, executable, config, root, port, backend_port, tls_directory=None):
         self.root, self.executable, self.config = root, executable, config
         self.port, self.backend_port = port, backend_port
         self.process = None
         self.stages = []
+        self.tls_directory = tls_directory
 
     def start(self):
         require(self.process is None, "Collector already active")
@@ -218,6 +220,18 @@ class Collector:
             require(self.process.poll() is None, "Collector stopped at startup; inspect its saved log")
             try:
                 with socket.create_connection(("127.0.0.1", self.port), timeout=0.1):
+                    if self.tls_directory is not None:
+                        context = ssl.create_default_context(cafile=str(self.tls_directory / "ca.pem"))
+                        with socket.create_connection(("127.0.0.1", self.port), timeout=2) as raw:
+                            with context.wrap_socket(raw, server_hostname="localhost") as secured:
+                                expected = ssl.PEM_cert_to_DER_cert(
+                                    (self.tls_directory / "valid.pem").read_text("ascii"))
+                                require(secured.version() == "TLSv1.2" and
+                                        secured.getpeercert(binary_form=True) == expected,
+                                        "Collector queue TLS peer or version changed")
+                                self.stages[-1]["tls"] = {"version": secured.version(),
+                                    "hostname_verified": "localhost",
+                                    "peer_der_sha256": hashlib.sha256(expected).hexdigest()}
                     return True
             except OSError:
                 return False
@@ -251,6 +265,13 @@ def run_case(args, root, persistent, signal):
     require(config.count(marker) == 1, "Persistent storage configuration changed")
     if not persistent:
         config = config.replace(marker, "")
+    if args.tls_directory:
+        anchor = "        max_request_body_size: 16777216\n"
+        require(config.count(anchor) == 1, "Collector receiver fixture changed")
+        config = config.replace(anchor, anchor + "        tls:\n" +
+            "          cert_file: " + json.dumps(str(args.tls_directory / "valid.pem")) + "\n" +
+            "          key_file: " + json.dumps(str(args.tls_directory / "server.key")) + "\n" +
+            '          min_version: "1.2"\n          max_version: "1.2"\n')
     config_path = root / "collector.yaml"
     config_path.write_text(config, encoding="utf-8")
     with socket.socket() as probe:
@@ -258,10 +279,13 @@ def run_case(args, root, persistent, signal):
         port = probe.getsockname()[1]
     expected_paths = ["/v1/metrics", "/v1/logs"] if signal == "metrics" else ["/v1/" + signal]
     with backend(signal) as (downstream_port, state, lock):
-        collector = Collector(args.collector, config_path, root, port, downstream_port)
+        collector = Collector(args.collector, config_path, root, port, downstream_port, args.tls_directory)
         try:
             collector.start()
-            result = subprocess.run([str(args.harness), str(port), signal], cwd=root,
+            command = [str(args.harness), str(port), signal]
+            if args.tls_directory:
+                command.append("localhost")
+            result = subprocess.run(command, cwd=root,
                                     stdin=subprocess.DEVNULL, capture_output=True, timeout=12,
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             (root / "native.stdout").write_bytes(result.stdout)
@@ -333,9 +357,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ("harness", "collector", "artifacts", "config", "work-dir"):
         parser.add_argument("--" + key, type=Path, required=True)
+    parser.add_argument("--tls-directory", type=Path,
+                        help="Prepared trusted localhost receiver fixture; trust is isolated by the caller")
     args = parser.parse_args()
     for key in ("harness", "collector", "artifacts", "config"):
         setattr(args, key, getattr(args, key).resolve(strict=True))
+    if args.tls_directory:
+        args.tls_directory = args.tls_directory.resolve(strict=True)
+        for name in ("valid.pem", "server.key", "ca.pem"):
+            require((args.tls_directory / name).is_file(), "Missing queue TLS fixture: " + name)
     args.work_dir.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix="durable-queue-", dir=args.work_dir)).resolve()
     sources = {key: identity(getattr(args, key)) for key in ("harness", "collector", "artifacts", "config")}
@@ -355,6 +385,7 @@ def main():
                  for name, persistent in (("persistent-crash-recovery", True), ("volatile-loss-control", False))]
         report.update({"passed": True, "cases": cases, "native_invocations": 6,
                        "collector_invocations": 15,
+                       "tls_receiver_qualified": bool(args.tls_directory),
                        "qualification": "pinned Collector fsync queues recover logs, metrics with audit, and traces after process kill; volatile controls lose acknowledged events",
                        "power_loss_disk_failure_exactly_once_or_generic_http200_qualified": False})
     except BaseException:
