@@ -117,9 +117,10 @@ std::filesystem::path Evidence(const char* name) {
   std::cout << "native_migraphx_serving_evidence=" << path.string() << '\n';
   return path;
 }
-void Fixed(int index) {
-  const auto root = Evidence(index ? "linear5" : "linear2");
-  Fixture fixture(JYPPX_MIGRAPHX_SERVING_FIXTURES, index);
+void Fixed(int index, bool resnet = false) {
+  const auto root = Evidence(resnet ? (index ? "resnet18-5" : "resnet18-2")
+                                    : (index ? "linear5" : "linear2"));
+  Fixture fixture(JYPPX_MIGRAPHX_SERVING_FIXTURES, index, resnet);
   Bundle bundle(root / "owner", fixture);
   const auto directory = bundle.Publish();
   const auto input_before = fixture.input.clone();
@@ -169,6 +170,12 @@ void Fixed(int index) {
 }
 TEST(MIGraphXServingGpu, FixedLinear2OwnershipConcurrencyAndClose) { Fixed(0); }
 TEST(MIGraphXServingGpu, FixedLinear5OwnershipConcurrencyAndClose) { Fixed(1); }
+TEST(MIGraphXServingGpu, FixedResNet18Batch2OwnershipConcurrencyAndClose) {
+  Fixed(0, true);
+}
+TEST(MIGraphXServingGpu, FixedResNet18Batch5OwnershipConcurrencyAndClose) {
+  Fixed(1, true);
+}
 
 TEST(MIGraphXServingGpu, RejectsUnverifiedContractsAndBudgets) {
   const auto root = Evidence("rejections");
@@ -215,6 +222,18 @@ TEST(MIGraphXServingGpu, RejectsUnverifiedContractsAndBudgets) {
   EXPECT_THROW(backend.load(bundle.Publish("wrong-domain"), {}, known),
                CompatibilityError);
   bundle.manifest.runtime.devices = {"rocm"};
+  bundle.manifest.evidence.front().schema_id = "jyppx.test.wrong-lock";
+  EXPECT_THROW(backend.load(bundle.Publish("wrong-lock-schema"), {}, known),
+               CompatibilityError);
+  bundle.manifest.evidence.front().schema_id =
+      std::string(mgx::kEnvironmentLockSchemaId);
+  auto duplicate =
+      bundle.Description("duplicate-lock", interop::BundleFileRole::evidence,
+                         mgx::serialize_environment_lock(fixture.environment));
+  duplicate.schema_id = std::string(mgx::kEnvironmentLockSchemaId);
+  bundle.manifest.evidence.push_back(std::move(duplicate));
+  EXPECT_THROW(backend.load(bundle.Publish("duplicate-lock-schema"), {}, known),
+               CompatibilityError);
   bundle.manifest.evidence.clear();
   // An unclaimed evidence file is rejected by the common manifest contract.
   EXPECT_THROW(bundle.Publish("missing-evidence"), InvalidArgument);

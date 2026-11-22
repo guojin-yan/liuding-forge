@@ -81,7 +81,9 @@ if(TARGET jyppx::liuding::migraphx_serving)
             JYPPX_MIGRAPHX_SERVING_FIXTURES="${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}"
             JYPPX_MIGRAPHX_SERVING_EVIDENCE="${CMAKE_BINARY_DIR}/evidence/migraphx-serving")
         foreach(contract IN ITEMS FixedLinear2OwnershipConcurrencyAndClose
-                FixedLinear5OwnershipConcurrencyAndClose RejectsUnverifiedContractsAndBudgets
+                FixedLinear5OwnershipConcurrencyAndClose
+                FixedResNet18Batch2OwnershipConcurrencyAndClose
+                FixedResNet18Batch5OwnershipConcurrencyAndClose RejectsUnverifiedContractsAndBudgets
                 CooperativeInterruptionsPreserveReadySession VersionPublicationRetainsLeasesAndRejectsBadWarmup)
             add_test(NAME "MIGraphXServingGpu.${contract}"
                 COMMAND ${migraphx_test_prefix} $<TARGET_FILE:jyppx_test_migraphx_serving>

@@ -15,6 +15,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
@@ -30,9 +31,10 @@ inline ArtifactDigest Digest(std::span<const std::byte> bytes) {
   return {.hex = sha256_hex(bytes)};
 }
 inline std::vector<std::byte> Read(const std::filesystem::path& file,
-                                   const char* digest) {
+                                   const char* digest,
+                                   std::uint64_t maximum_bytes = 1U << 20U) {
   const auto size = std::filesystem::file_size(file);
-  if (!size || size > (1U << 20U))
+  if (!size || size > maximum_bytes)
     throw std::runtime_error("immutable fixture size");
   std::vector<std::byte> result(static_cast<std::size_t>(size));
   std::ifstream stream(file, std::ios::binary);
@@ -56,26 +58,47 @@ struct Fixture {
   Tensor input, expected;
   mgx::SessionOptions options;
   mgx::EnvironmentLock environment;
-  explicit Fixture(const std::filesystem::path& fixtures, int index = 0) {
-    const auto root = fixtures / "linear";
-    graph = Read(
-        root / "model.onnx",
-        "7b4f9bf96cd72143e22c906b0063958ef05b10534785eac3e9fc1b07afcb990a");
+  explicit Fixture(const std::filesystem::path& fixtures, int index = 0,
+                   bool resnet = false) {
+    const auto root = fixtures / (resnet ? "resnet18" : "linear");
+    const char* graph_sha;
+    const char* input_sha;
+    const char* output_sha;
+    if (resnet) {
+      graph_sha =
+          "95fbd4284bb53e1559c3448d49200836f50731bc89ac9694ed1f478c1581a399";
+      input_sha = index ? "697c148d7f14443e742ca11f62dd028a582fb3a216647a6cd0fd"
+                          "99b56f6f538e"
+                        : "e72a6421bd642adf1c13e70636c800abdbbda4fecfbce5413b21"
+                          "ad42a186351e";
+      output_sha = index ? "a80ff115fbbddc54314cdebace0f302765ba4fc311e2f523289"
+                           "52ec23c653165"
+                         : "4c8b23c87357417e3c647d9bc7d8a3db1cc8f1a8897bda50888"
+                           "65910b56b489f";
+    } else {
+      graph_sha =
+          "7b4f9bf96cd72143e22c906b0063958ef05b10534785eac3e9fc1b07afcb990a";
+      input_sha = index ? "bafca57808f22a3d4d4d70225cabecb085132ff4c9de22fd4692"
+                          "abd7abee94b7"
+                        : "d55f7abaa5bb2c75cc098aa3dc97579967a294f802b308803833"
+                          "fef7964a94e9";
+      output_sha = index ? "509b6a760633711b6655feca75f3d873d5184fc1076cc552137"
+                           "73a8b91be5529"
+                         : "3b106db38a6dca7aafe95d1af546237ca38ac4d74a084a8f1b0"
+                           "cea5a361c709a";
+    }
+    graph = Read(root / "model.onnx", graph_sha, 256U << 20U);
     const auto prefix = "case-" + std::to_string(index);
     const auto batch = index ? 5 : 2;
-    input = Values(Read(root / (prefix + "-input.f32"),
-                        index ? "bafca57808f22a3d4d4d70225cabecb085132ff4c9de22"
-                                "fd4692abd7abee94b7"
-                              : "d55f7abaa5bb2c75cc098aa3dc97579967a294f802b308"
-                                "803833fef7964a94e9"),
-                   batch, 8);
-    expected = Values(Read(root / (prefix + "-output.f32"),
-                           index ? "509b6a760633711b6655feca75f3d873d5184fc1076"
-                                   "cc55213773a8b91be5529"
-                                 : "3b106db38a6dca7aafe95d1af546237ca38ac4d74a0"
-                                   "84a8f1b0cea5a361c709a"),
-                      batch, 3);
-    options.input_shape = {static_cast<std::size_t>(batch), 8};
+    input = Values(Read(root / (prefix + "-input.f32"), input_sha, 8U << 20U),
+                   batch, resnet ? 3 * 224 * 224 : 8);
+    if (resnet) input = input.view({batch, 3, 224, 224});
+    expected = Values(Read(root / (prefix + "-output.f32"), output_sha), batch,
+                      resnet ? 7 : 3);
+    options.input_shape =
+        resnet ? std::vector<std::size_t>{static_cast<std::size_t>(batch), 3,
+                                          224, 224}
+               : std::vector<std::size_t>{static_cast<std::size_t>(batch), 8};
     const mgx::Session observation(graph, Digest(graph), options);
     environment = mgx::observe_environment(observation);
   }
