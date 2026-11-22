@@ -1,5 +1,9 @@
 # Unit test executables, one per framework module.
 
+if(JYPPX_LIUDING_TEST_MIGRAPHX)
+    include("${PROJECT_SOURCE_DIR}/cmake/MIGraphXInterchangeTests.cmake")
+endif()
+
 if(TARGET jyppx::liuding::foundation)
 jyppx_add_gtest(jyppx_test_foundation
     LINK_TARGET jyppx::liuding::foundation

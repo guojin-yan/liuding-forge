@@ -88,6 +88,10 @@ Provider 查询或显式选择接口不代表 GPU 执行资格；CUDA、DirectML
 
 ## Test Dependency
 
+### MIGraphX（可选原生互操作测试）
+
+`JYPPX_LIUDING_TEST_MIGRAPHX` 使用外部 MIGraphX 2.18.0 C API，对固定原生 ONNX 图执行 GPU 数值与路线检查；默认关闭，不进入产品组件或安装依赖。上游为 <https://github.com/ROCm/AMDMIGraphX>，`rocm-10.1` 源码归档 SHA-256 为 `7cd07fa948ac6bce4a19a86aa7b5445cb25791cf11a609273cbdef6eb6c387cd`，原项目 MIT 许可逐字节留存在 `third_party/licenses/migraphx-2.18.0-LICENSE.MIT`。实际测试 SDK、运行库、构建补丁与精确验证范围独立绑定；测试不安装或分发该 SDK，其传递依赖和完整再分发条件仍由实际 SDK 决定。
+
 ### GoogleTest
 
 - Project: https://github.com/google/googletest

@@ -31,6 +31,8 @@ ctest --test-dir out/build/windows-release -C Release --output-on-failure -j 1 -
 
 ONNX 独立验证可显式设置 `JYPPX_LIUDING_ONNX_REFERENCE_PYTHON`，使用已准备的测试环境执行 `OfficialNativeOnnxExport` 和 `OfficialOnnxRuntimeInterchange`；它只参与 checker/参考数据测试，不进入产品导出或安装依赖。
 
+外部 MIGraphX 的原生 GPU 互操作测试默认关闭。已激活匹配的 ROCm SDK 并备妥 MIGraphX 2.18.0 时，可在兼容构建中增加 `-DJYPPX_LIUDING_TEST_MIGRAPHX=ON -DJYPPX_LIUDING_MIGRAPHX_TEST_ROOT=<原生SDK绝对路径> -DJYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR=<固定参考绝对路径>`，构建 `jyppx_test_migraphx_interchange` 后串行运行 `ctest --test-dir <构建目录> -C Release --output-on-failure -j 1 -R "^MIGraphXInterchange[.]"`。参考目录的 `linear/`、`resnet18/` 各含原 `model.onnx` 及 batch 2/5 的 `case-{0,1}-{input,output}.f32`；测试内固定完整 SHA，不下载、重新生成或更新参考。四项测试核对原 FP32 容差、实际 GPU 指令及同步主存输出，每次向构建目录的 `evidence/migraphx-interchange/` 新目录保留完整输出、编译程序、路线与加载模块。每项最多 600 秒，JIT 并行度为 1；缺硬件或错误 SDK 直接失败。外部图执行测试不提供框架 MIGraphX Session、Serving 或 ORT EP，也不授予动态形状、其他图、精度或性能资格。
+
 将示例中的 target 和测试选择替换为实际受影响的范围。公共头、CMake target 或组件依赖变化还需运行以下检查，并验证安装后消费者及相关组件关闭组合：
 
 ```sh

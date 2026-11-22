@@ -1354,6 +1354,33 @@
       ],
       "linkage": "dynamic-private-sdk",
       "support_status": "optional-directml-development-candidate"
+    },
+    {
+      "id": "migraphx-native-interchange-test",
+      "scope": "optional-test-native-migraphx",
+      "version": "2.18.0 (rocm-10.1 source)",
+      "source": {
+        "type": "source-archive",
+        "url": "https://github.com/ROCm/AMDMIGraphX/archive/refs/tags/rocm-10.1.zip",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "7cd07fa948ac6bce4a19a86aa7b5445cb25791cf11a609273cbdef6eb6c387cd",
+        "size_bytes": 11799229
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64"
+      ],
+      "linkage": "test-only-external-dynamic-sdk",
+      "support_status": "optional-fixed-fixture-interchange-test-only-no-product-adapter"
     }
   ]
 }
