@@ -22,7 +22,7 @@ HTTPS 示例：
 liuding-forge-example-otlp-http collector.example.com 4318 https training-worker-1
 ```
 
-主机参数只接受主机名或不带方括号的 IP 字面量，不接受完整 URL。明文 HTTP 仅允许 `127.0.0.1` 和 `::1`；HTTPS 始终验证系统信任链和主机名。此接口不使用环境代理、凭据、自动认证、Cookie 或重定向，也不支持自定义请求头。
+主机参数只接受主机名或不带方括号的 IP 字面量，不接受完整 URL。明文 HTTP 仅允许 `127.0.0.1` 和 `::1`；HTTPS 验证信任链和主机名；Windows 使用系统信任配置，Linux 使用所选共享 curl SDK 的默认 CA 信任配置，选择 SDK 时应同时确认其 CA 来源。此接口不使用环境代理、凭据、自动认证、Cookie 或重定向，也不支持自定义请求头。
 
 程序成功时输出三个事件的协议响应已通过校验，以及本进程内重放已去重。Collector 应收到一次 `/v1/metrics`、两次 `/v1/logs` 和一次 `/v1/traces` 请求。重复事件不会再次联网。
 
