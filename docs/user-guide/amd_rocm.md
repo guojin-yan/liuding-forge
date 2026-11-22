@@ -68,6 +68,8 @@ Windows 可显式选择独立的 ORT 1.24.4 / DirectML 1.15.4 组合；W7900 已
 
 独立的 `migraphx_serving` Preview 在 Windows 与 WSL2 的本 W7900 组合已验证固定 Linear、ResNet18 的 batch 2/5 FP32 Serving 合同；安装后独立消费者覆盖 Linear batch 2 与 ResNet18 batch 2/5，核对完整输出、实际运行库环境锁及关闭后的响应所有权。每个形状分别编译 Session，主机输入输出均为 CPU FP32；配置见[部署指南](deployment.md)。该范围不包含其他模型、精度、动态形状、任务准确率或性能资格。
 
+原 CIFAR-10 训练图的固定 batch 16 安装消费者还验证了四个调用者并发请求、等待期间取消和到期、运行后取消，以及可信后处理故障后的降级、拒绝新请求和关闭后响应所有权。取消与截止时间是协作边界；已开始的 GPU 计算仍须同步完成。这是原固定输入的代表请求验证，完整数据质量范围见前节与[兼容清单](../../compatibility.json)。
+
 可选原生 TensorBoard/OTLP、WinHTTP 发送、Ed25519 签名和 headless CPU 渲染已验证该组合的组件契约与安装消费，遥测另经锁定官方 reader 和 Collector 检查。签名的私钥/策略符号链接负例受当前环境限制仍未验证；完整范围见兼容矩阵。
 
 ## 本地进程执行
