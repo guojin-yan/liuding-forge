@@ -42,6 +42,7 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -2793,6 +2794,45 @@ torch::Tensor ReferenceTensor(std::span<const std::byte> encoded,
   return torch::from_blob(values.data(), shape, torch::kFloat32).clone();
 }
 
+void WriteArchitectureReferenceCapture(
+    const std::filesystem::path& root, const std::string& architecture,
+    bool cuda, const std::vector<std::pair<std::string, Tensor>>& tensors) {
+  std::vector<Tensor> packed;
+  std::vector<interop::SafeTensorSource> sources;
+  packed.reserve(tensors.size());
+  sources.reserve(tensors.size());
+  for (const auto& [name, tensor] : tensors) {
+    if (!tensor.device().is_cpu() || tensor.scalar_type() != torch::kFloat32)
+      throw std::runtime_error("reference capture requires CPU FP32 tensors");
+    packed.push_back(tensor.detach().contiguous());
+    const auto& value = packed.back();
+    sources.push_back(
+        {.name = name,
+         .dtype = interop::SafeTensorDtype::f32,
+         .shape = std::vector<std::uint64_t>(value.sizes().begin(),
+                                           value.sizes().end()),
+         .data = std::as_bytes(std::span(
+             value.data_ptr<float>(), static_cast<std::size_t>(value.numel())))});
+  }
+  interop::SafeTensorsLimits limits;
+  limits.max_file_bytes = 64ULL << 20U;
+  limits.max_payload_bytes = 64ULL << 20U;
+  limits.max_tensor_bytes = 64ULL << 20U;
+  const auto encoded = interop::serialize_safetensors(sources, {}, limits);
+  const auto directory = root / (architecture + (cuda ? "-cuda0" : "-cpu"));
+  if (!std::filesystem::create_directory(directory))
+    throw std::runtime_error("reference capture directory must be new");
+  std::ofstream stream(directory / "outputs.safetensors", std::ios::binary);
+  stream.exceptions(std::ios::badbit | std::ios::failbit);
+  stream.write(reinterpret_cast<const char*>(encoded.data()),
+               static_cast<std::streamsize>(encoded.size()));
+  stream.close();
+  std::cout << "ARCHITECTURE_CAPTURE architecture=" << architecture
+            << " device=" << (cuda ? "cuda:0" : "cpu")
+            << " tensors=" << tensors.size()
+            << " sha256=" << sha256_hex(encoded) << '\n';
+}
+
 void CheckArchitectureReference(const char* architecture,
                                 ResNet* feature_model = nullptr,
                                 const char* reference_dir_variable = nullptr,
@@ -2877,6 +2917,12 @@ void CheckArchitectureReference(const char* architecture,
   ASSERT_EQ(device_output.device(), device) << prefix;
   ASSERT_EQ(device_output.scalar_type(), torch::kFloat32) << prefix;
   const auto actual = device_output.to(torch::kCPU);
+  const auto* capture_directory =
+      std::getenv("JYPPX_LIUDING_MODELS_REFERENCE_CAPTURE_DIR");
+  const bool capture_requested =
+      capture_directory != nullptr && *capture_directory != '\0';
+  std::vector<std::pair<std::string, Tensor>> captured;
+  if (capture_requested) captured.emplace_back("output", actual);
   const auto reference = ReferenceTensor(expected, "output");
   ASSERT_EQ(actual.sizes(), reference.sizes()) << prefix;
   ASSERT_TRUE(torch::isfinite(actual).all().item<bool>()) << prefix;
@@ -2937,8 +2983,11 @@ void CheckArchitectureReference(const char* architecture,
                  .abs()
                  .max()
                  .item<double>();
+      if (capture_requested) captured.emplace_back(stage_name, stages[index]);
     }
   }
+  if (capture_requested)
+    WriteArchitectureReferenceCapture(capture_directory, prefix, cuda, captured);
   if (cuda)
     std::cout << "ARCHITECTURE_REFERENCE device=" << device
               << " architecture=" << prefix
