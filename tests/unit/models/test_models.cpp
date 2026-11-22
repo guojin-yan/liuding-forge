@@ -3207,7 +3207,9 @@ INSTANTIATE_TEST_SUITE_P(
 #endif
 
 void CheckDinoV2Reference(const char* prefix, DinoV2 model,
-                          std::uint64_t staging_bytes) {
+                          std::uint64_t staging_bytes, bool cuda = false) {
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   const auto* directory = std::getenv("JYPPX_LIUDING_MODELS_REFERENCE_DIR");
   if (directory == nullptr || *directory == '\0') {
     GTEST_SKIP()
@@ -3243,11 +3245,28 @@ void CheckDinoV2Reference(const char* prefix, DinoV2 model,
   import_options.max_staging_bytes = staging_bytes;
   const auto imported = load_weights(adapter, record, state, import_options);
   ASSERT_TRUE(imported.applied);
+  const auto device =
+      cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
+  if (cuda) {
+    adapter.state().to(device);
+    for (const auto& parameter : adapter.state().parameters()) {
+      ASSERT_EQ(parameter.device(), device) << prefix;
+      ASSERT_EQ(parameter.scalar_type(), torch::kFloat32) << prefix;
+    }
+    for (const auto& buffer : adapter.state().buffers())
+      ASSERT_EQ(buffer.device(), device) << prefix;
+  }
   adapter.state().eval();
   torch::NoGradGuard no_grad;
-  const auto image = ReferenceTensor(input, "input");
-  const auto actual_tokens = model->forward_features(image);
-  const auto actual_cls = model->forward(image);
+  const auto image = ReferenceTensor(input, "input").to(device);
+  const auto device_tokens = model->forward_features(image);
+  const auto device_cls = model->forward(image);
+  ASSERT_EQ(device_tokens.device(), device) << prefix;
+  ASSERT_EQ(device_cls.device(), device) << prefix;
+  ASSERT_EQ(device_tokens.scalar_type(), torch::kFloat32);
+  ASSERT_EQ(device_cls.scalar_type(), torch::kFloat32);
+  const auto actual_tokens = device_tokens.to(torch::kCPU);
+  const auto actual_cls = device_cls.to(torch::kCPU);
   const auto reference_tokens = ReferenceTensor(expected, "tokens");
   const auto reference_cls = ReferenceTensor(expected, "output");
   ASSERT_EQ(actual_tokens.sizes(), reference_tokens.sizes());
@@ -3257,6 +3276,11 @@ void CheckDinoV2Reference(const char* prefix, DinoV2 model,
   EXPECT_TRUE(torch::allclose(actual_tokens / scale, reference_tokens / scale,
                               2e-4, 2e-5));
   EXPECT_TRUE(torch::allclose(actual_cls, reference_cls, 2e-4, 2e-5));
+  if (cuda)
+    std::cout << "ARCHITECTURE_REFERENCE device=" << device
+              << " architecture=" << prefix
+              << " parameters=" << adapter.state().parameters().size()
+              << " buffers=" << adapter.state().buffers().size() << '\n';
 }
 
 TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
@@ -3385,7 +3409,10 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3BaseReferenceReallyRuns) {
 
 template <typename Factory>
 void CheckDinoV3HighResourceReference(const char* prefix, Factory factory,
-                                      std::uint64_t parameters) {
+                                      std::uint64_t parameters,
+                                      bool cuda = false) {
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   const auto* enabled =
       std::getenv("JYPPX_LIUDING_DINOV3_VIT_HIGH_RESOURCE_GATE");
   if (enabled == nullptr || std::string_view(enabled) != "1") {
@@ -3407,7 +3434,7 @@ void CheckDinoV3HighResourceReference(const char* prefix, Factory factory,
   const auto construction_peak = ProcessPeakRssBytes();
   CheckDinoV3Reference(prefix, model,
                        "JYPPX_LIUDING_DINOV3_VIT_HIGH_REFERENCE_DIR",
-                       6ULL << 30U);
+                       6ULL << 30U, cuda);
   const auto end = std::chrono::steady_clock::now();
   const auto peak = ProcessPeakRssBytes();
   ASSERT_GT(peak, 0U);
@@ -3546,7 +3573,10 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtSmallReferenceReallyRuns) {
 template <typename Factory>
 void CheckDinoV3ConvNeXtHighResourceReference(const char* prefix,
                                               Factory factory,
-                                              std::uint64_t parameters) {
+                                              std::uint64_t parameters,
+                                              bool cuda = false) {
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   const auto* enabled =
       std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_RESOURCE_GATE");
   if (enabled == nullptr || std::string_view(enabled) != "1") {
@@ -3567,7 +3597,7 @@ void CheckDinoV3ConvNeXtHighResourceReference(const char* prefix,
   const auto construction_peak = ProcessPeakRssBytes();
   CheckDinoV3ConvNeXtReference(
       prefix, model, "JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_REFERENCE_DIR",
-      3ULL << 30U);
+      3ULL << 30U, cuda);
   const auto end = std::chrono::steady_clock::now();
   const auto peak = ProcessPeakRssBytes();
   ASSERT_GT(peak, 0U);
@@ -3626,6 +3656,69 @@ INSTANTIATE_TEST_SUITE_P(PinnedDino, ModelsDinoCudaReference,
                          [](const ::testing::TestParamInfo<const char*>& info) {
                            return std::string(info.param);
                          });
+
+class ModelsDinoCapacityCudaReference
+    : public ::testing::TestWithParam<const char*> {};
+
+TEST_P(ModelsDinoCapacityCudaReference, MatchesPinnedIndependentFp32) {
+  const auto* enabled = std::getenv("JYPPX_LIUDING_DINO_CUDA_REFERENCE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1")
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINO_CUDA_REFERENCE_GATE=1 for "
+                    "serial DINO GPU fixed-reference capacity checks";
+  if (!torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
+  const std::string name = GetParam();
+  {
+    const auto warmup = torch::zeros(
+        {1}, torch::TensorOptions().device(torch::Device(torch::kCUDA, 0)));
+    ASSERT_EQ(warmup.device(), torch::Device(torch::kCUDA, 0));
+    torch::cuda::synchronize(0);
+  }
+  torch::cuda::synchronize(0);
+  c10::cuda::CUDACachingAllocator::resetPeakStats(0);
+  if (name == "vit_small_patch14_dinov2") {
+    CheckDinoV2Reference(GetParam(), dinov2_vits14(), 512ULL << 20U, true);
+  } else if (name == "vit_base_patch14_dinov2") {
+    CheckDinoV2Reference(GetParam(), dinov2_vitb14(), 2ULL << 30U, true);
+  } else if (name == "vit_large_patch14_dinov2") {
+    CheckDinoV2Reference(GetParam(), dinov2_vitl14(), 6ULL << 30U, true);
+  } else if (name == "dinov3_vitl16") {
+    CheckDinoV3HighResourceReference(
+        GetParam(), [] { return dinov3_vitl16(); }, 303154176U, true);
+  } else if (name == "dinov3_vitl16plus") {
+    CheckDinoV3HighResourceReference(
+        GetParam(), [] { return dinov3_vitl16plus(); }, 403915776U, true);
+  } else if (name == "dinov3_convnext_base") {
+    CheckDinoV3ConvNeXtHighResourceReference(
+        GetParam(), [] { return dinov3_convnext_base(); }, 87566464U, true);
+  } else {
+    ASSERT_EQ(name, "dinov3_convnext_large");
+    CheckDinoV3ConvNeXtHighResourceReference(
+        GetParam(), [] { return dinov3_convnext_large(); }, 196230336U, true);
+  }
+  torch::cuda::synchronize(0);
+  const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  EXPECT_GT(stats.allocated_bytes[0].peak, 0);
+  std::cout << "REFERENCE_ALLOCATOR architecture=" << name
+#if defined(USE_ROCM)
+            << " peak_rocm_allocated_bytes="
+#else
+            << " peak_cuda_allocated_bytes="
+#endif
+            << stats.allocated_bytes[0].peak << '\n';
+}
+
+INSTANTIATE_TEST_SUITE_P(PinnedDinoCapacity, ModelsDinoCapacityCudaReference,
+                         ::testing::Values("vit_small_patch14_dinov2",
+                                           "vit_base_patch14_dinov2",
+                                           "vit_large_patch14_dinov2",
+                                           "dinov3_vitl16", "dinov3_vitl16plus",
+                                           "dinov3_convnext_base",
+                                           "dinov3_convnext_large"),
+                         [](const ::testing::TestParamInfo<const char*>& info) {
+                           return std::string(info.param);
+                         });
+
 #endif
 
 #endif
