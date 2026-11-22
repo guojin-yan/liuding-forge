@@ -34,7 +34,7 @@ DINOv2/DINOv3 的部分架构已验证 CPU FP32 与 GPU FP16 autocast 的完整�
 
 固定独立随机状态参考另通过 ResNet18/34/50/101、ResNeXt50、DenseNet121、MobileNetV2、MobileNetV3 Small/Large、EfficientNet B0/B2、ConvNeXt Tiny/Small、ViT Tiny/Small/Base、Swin Tiny 与带掩码 Transformer Encoder 的 GPU FP32 前向数值合同，Windows 与 WSL 分别验证原 logits 及适用中间 stage。`tf_efficientnetv2_s` 的 GPU 输出和最后一个 stage 均超原容差，仍未授予该数值资格；19 个 CPU 对照分两批全部通过。ViT 另核对完整 tokens 和 patch grid，Swin 核对四级完整特征。范围限于兼容矩阵列出的固定随机状态、输入和精度，不推导反向、预训练权重或任务质量。
 
-固定独立随机状态的 DINOv3 ViT Small/Small+/Base 与 ConvNeXt Tiny/Small 另通过两系统 GPU FP32 数值合同：ViT 核对完整 tokens 和 CLS，ConvNeXt 核对四级特征、全局输出及模型适配器输出，保留原参考与容差。此范围只授这五个架构的固定前向数值，不包含高容量、反向、预训练权重或真实任务质量。
+固定独立随机状态的 DINOv3 ViT Small/Small+/Base 与 ConvNeXt Tiny/Small 另通过两系统 GPU FP32 数值合同：ViT 核对完整 tokens 和 CLS，ConvNeXt 核对四级特征、全局输出及模型适配器输出，保留原参考与容差。DINOv2 Small/Base/Large、DINOv3 ViT Large/Large+ 与 ConvNeXt Base/Large 也通过两系统的 GPU FP32 固定参考；高容量 DINOv3 保留原参数量、暂存和峰值 RSS 断言。以上范围限于所列固定前向数值与资源合同，不包含反向、预训练权重、真实任务质量或性能资格。
 
 Windows 同组合另通过十个 P6 检测入口的 FP16 动态回退后更新合同；两套系统分别记录逐轮 scale、溢出跳步和最终一次实际更新。范围限于固定合成输入，不推导其余目录入口的 Windows 资格；具体入口与源码身份见兼容矩阵。
 
