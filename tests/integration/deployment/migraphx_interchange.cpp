@@ -240,10 +240,29 @@ std::filesystem::path Utf8Path(const char* text) {
   return std::filesystem::path(value);
 }
 
+bool Digest(std::string_view value) {
+  return value.size() == 64U &&
+         std::all_of(value.begin(), value.end(), [](char character) {
+           return (character >= '0' && character <= '9') ||
+                  (character >= 'a' && character <= 'f');
+         });
+}
+
+void Write(const std::filesystem::path& path,
+           std::span<const std::byte> bytes) {
+  std::ofstream stream(path, std::ios::binary);
+  stream.write(reinterpret_cast<const char*>(bytes.data()),
+               static_cast<std::streamsize>(bytes.size()));
+  stream.close();
+  if (!stream) throw std::runtime_error("artifact write failure");
+}
+
 int Run(int argc, char** argv) {
-  if (argc != 5)
+  const bool reload = argc == 10 && std::string_view(argv[5]) == "--reload";
+  if (argc != 5 && !reload)
     throw std::runtime_error(
-        "expected fixture_root model case evidence_parent");
+        "expected fixture_root model case evidence_parent "
+        "[--reload compiled_program program_sha baseline_output output_sha]");
   const auto fixture = Select(argv[2], argv[3]);
   const auto folder = Utf8Path(argv[1]) / argv[2];
   const auto graph =
@@ -253,44 +272,68 @@ int Run(int argc, char** argv) {
                       fixture.input_sha);
   const auto expected = Tensor(folder / (prefix + "-output.f32"),
                                fixture.output_shape, fixture.expected_sha);
+  std::vector<std::byte> serialized;
+  std::vector<float> baseline;
+  if (reload) {
+    if (!Digest(argv[7]) || !Digest(argv[9]))
+      throw std::runtime_error("reload requires lowercase SHA-256 digests");
+    serialized = Read(Utf8Path(argv[6]), 512U << 20U, argv[7]);
+    baseline = Tensor(Utf8Path(argv[8]), fixture.output_shape, argv[9]);
+  }
   const auto output = Evidence(Utf8Path(argv[4]), argv[2], argv[3]);
   std::cout << "evidence=" << output.string() << '\n';
   std::cout << "MIGraphX 2.18.0 gpu FP32; separately specialized shape; "
                "offload_copy=true fast_math=false exhaustive_tune=false\n";
   Owner<migraphx_onnx_options_t, migraphx_onnx_options_destroy> onnx;
-  Check(migraphx_onnx_options_create(&onnx.value), "onnx_options_create");
   auto dimensions = fixture.input_shape;
-  Check(migraphx_onnx_options_set_input_parameter_shape(
-            onnx.value, "input", dimensions.data(), dimensions.size()),
-        "set_input_parameter_shape");
   Owner<migraphx_program_t, migraphx_program_destroy> program;
-  Check(migraphx_parse_onnx_buffer(&program.value, graph.data(), graph.size(),
-                                   onnx.value),
-        "parse_onnx_buffer");
   Owner<migraphx_target_t, migraphx_target_destroy> target;
-  Check(migraphx_target_create(&target.value, "gpu"), "target_create_gpu");
   Owner<migraphx_compile_options_t, migraphx_compile_options_destroy> options;
-  Check(migraphx_compile_options_create(&options.value),
-        "compile_options_create");
-  Check(migraphx_compile_options_set_offload_copy(options.value, true),
-        "offload_copy");
-  Check(migraphx_compile_options_set_fast_math(options.value, false),
-        "fast_math");
-  Check(migraphx_compile_options_set_exhaustive_tune_flag(options.value, false),
-        "exhaustive_tune");
-  Check(migraphx_program_compile(program.value, target.value, options.value),
-        "program_compile_gpu");
-  Check(migraphx_program_print(program.value), "program_print");
   Owner<migraphx_file_options_t, migraphx_file_options_destroy> file_options;
   Check(migraphx_file_options_create(&file_options.value),
         "file_options_create");
   Check(migraphx_file_options_set_file_format(file_options.value, "msgpack"),
         "file_format");
   const auto compiled_path = (output / "compiled.mxr").u8string();
-  Check(migraphx_save(program.value,
-                      reinterpret_cast<const char*>(compiled_path.c_str()),
-                      file_options.value),
-        "save_compiled_program");
+  if (reload) {
+    // Load a private copy of the verified bytes, never the caller's mutable
+    // path.
+    Write(output / "compiled.mxr", serialized);
+    Write(output / "baseline.f32", std::as_bytes(std::span(baseline)));
+    Check(migraphx_load(&program.value,
+                        reinterpret_cast<const char*>(compiled_path.c_str()),
+                        file_options.value),
+          "load_compiled_program");
+    Read(output / "compiled.mxr", 512U << 20U, argv[7]);
+    std::cout << "reload_program_sha256=" << argv[7]
+              << " reload_baseline_sha256=" << argv[9]
+              << "; no ONNX parse or program_compile API call\n";
+  } else {
+    Check(migraphx_onnx_options_create(&onnx.value), "onnx_options_create");
+    Check(migraphx_onnx_options_set_input_parameter_shape(
+              onnx.value, "input", dimensions.data(), dimensions.size()),
+          "set_input_parameter_shape");
+    Check(migraphx_parse_onnx_buffer(&program.value, graph.data(), graph.size(),
+                                     onnx.value),
+          "parse_onnx_buffer");
+    Check(migraphx_target_create(&target.value, "gpu"), "target_create_gpu");
+    Check(migraphx_compile_options_create(&options.value),
+          "compile_options_create");
+    Check(migraphx_compile_options_set_offload_copy(options.value, true),
+          "offload_copy");
+    Check(migraphx_compile_options_set_fast_math(options.value, false),
+          "fast_math");
+    Check(
+        migraphx_compile_options_set_exhaustive_tune_flag(options.value, false),
+        "exhaustive_tune");
+    Check(migraphx_program_compile(program.value, target.value, options.value),
+          "program_compile_gpu");
+    Check(migraphx_save(program.value,
+                        reinterpret_cast<const char*>(compiled_path.c_str()),
+                        file_options.value),
+          "save_compiled_program");
+  }
+  Check(migraphx_program_print(program.value), "program_print");
   Owner<migraphx_program_parameter_shapes_t,
         migraphx_program_parameter_shapes_destroy>
       shapes;
@@ -376,6 +419,13 @@ int Run(int argc, char** argv) {
             << " elements=" << actual.size() << " violations=" << violations
             << " max_abs=" << max_abs << " max_tolerance_ratio=" << max_ratio
             << " trace_instructions=" << trace.names.size() << '\n';
+  if (reload) {
+    const bool identical =
+        std::memcmp(actual.data(), baseline.data(), actual_bytes.size()) == 0;
+    std::cout << "byte_identical_to_compiled_output=" << std::boolalpha
+              << identical << '\n';
+    if (!identical) return 3;
+  }
   return violations == 0U ? 0 : 2;
 }
 }  // namespace

@@ -78,6 +78,13 @@ function(jyppx_add_migraphx_interchange_tests)
     foreach(model IN ITEMS linear resnet18)
         foreach(index RANGE 0 1)
             set(name "MIGraphXInterchange.${model}_${index}")
+            set(reload_name "MIGraphXReload.${model}_${index}")
+            set(reload_command "${CMAKE_COMMAND}"
+                "-DTEST_EXECUTABLE=$<TARGET_FILE:jyppx_test_migraphx_interchange>"
+                "-DFIXTURE_ROOT=${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}"
+                "-DMODEL=${model}" "-DCASE=${index}"
+                "-DEVIDENCE_PARENT=${CMAKE_BINARY_DIR}/evidence/migraphx-reload"
+                -P "${PROJECT_SOURCE_DIR}/cmake/RunMIGraphXReload.cmake")
             # The activated SDK supplies transitive ROCm dependencies and device data.
             # The explicit native SDK precedes any system MIGraphX DLL on Windows.
             if(WIN32)
@@ -87,16 +94,24 @@ function(jyppx_add_migraphx_interchange_tests)
                     $<TARGET_FILE:jyppx_test_migraphx_interchange>
                     "${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}" "${model}" "${index}"
                     "${CMAKE_BINARY_DIR}/evidence/migraphx-interchange")
+                add_test(NAME "${reload_name}" COMMAND "${CMAKE_COMMAND}" -E env
+                    "PATH=${_jyppx_mgx_root}/bin;$ENV{PATH}"
+                    "MIGRAPHX_GPU_COMPILE_PARALLEL=1" ${reload_command})
             else()
                 add_test(NAME "${name}" COMMAND "${CMAKE_COMMAND}" -E env
                     "MIGRAPHX_GPU_COMPILE_PARALLEL=1"
                     $<TARGET_FILE:jyppx_test_migraphx_interchange>
                     "${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}" "${model}" "${index}"
                     "${CMAKE_BINARY_DIR}/evidence/migraphx-interchange")
+                add_test(NAME "${reload_name}" COMMAND "${CMAKE_COMMAND}" -E env
+                    "MIGRAPHX_GPU_COMPILE_PARALLEL=1" ${reload_command})
             endif()
             set_tests_properties("${name}" PROPERTIES
                 LABELS "deployment;onnx_export;migraphx;gpu;interchange"
                 TIMEOUT 600 RUN_SERIAL TRUE)
+            set_tests_properties("${reload_name}" PROPERTIES
+                LABELS "deployment;onnx_export;migraphx;gpu;interchange;reload"
+                TIMEOUT 700 RUN_SERIAL TRUE)
         endforeach()
     endforeach()
 endfunction()
