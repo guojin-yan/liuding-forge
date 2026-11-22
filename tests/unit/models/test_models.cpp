@@ -2743,7 +2743,10 @@ void CheckArchitectureReference(const char* architecture,
                                 MobileNetV2* mobile_v2_model = nullptr,
                                 EfficientNet* efficient_model = nullptr,
                                 EfficientNetV2* efficient_v2_model = nullptr,
-                                ConvNeXt* convnext_model = nullptr) {
+                                ConvNeXt* convnext_model = nullptr,
+                                bool cuda = false) {
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   if (reference_dir_variable == nullptr)
     reference_dir_variable =
         feature_model == nullptr
@@ -2791,17 +2794,32 @@ void CheckArchitectureReference(const char* architecture,
     import_options.max_staging_bytes = 768ULL * 1024U * 1024U;
   const auto imported = load_weights(adapter, record, state, import_options);
   ASSERT_TRUE(imported.applied) << prefix;
+  const auto device =
+      cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
+  if (cuda) {
+    adapter.state().to(device);
+    for (const auto& parameter : adapter.state().parameters()) {
+      ASSERT_EQ(parameter.device(), device) << prefix;
+      ASSERT_EQ(parameter.scalar_type(), torch::kFloat32) << prefix;
+    }
+    for (const auto& buffer : adapter.state().buffers())
+      ASSERT_EQ(buffer.device(), device) << prefix;
+  }
   adapter.state().eval();
   torch::NoGradGuard no_grad;
-  nn::Invocation invocation{.positional = {ReferenceTensor(input, "input")},
-                            .keyword = {}};
+  nn::Invocation invocation{
+      .positional = {ReferenceTensor(input, "input").to(device)},
+      .keyword = {}};
   if (prefix == "transformer_encoder") {
-    invocation.keyword.emplace("attention_mask",
-                               ReferenceTensor(input, "attention_mask"));
-    invocation.keyword.emplace("padding_mask",
-                               ReferenceTensor(input, "padding_mask"));
+    invocation.keyword.emplace(
+        "attention_mask", ReferenceTensor(input, "attention_mask").to(device));
+    invocation.keyword.emplace(
+        "padding_mask", ReferenceTensor(input, "padding_mask").to(device));
   }
-  const auto actual = adapter.invoke(invocation).value.toTensor();
+  const auto device_output = adapter.invoke(invocation).value.toTensor();
+  ASSERT_EQ(device_output.device(), device) << prefix;
+  ASSERT_EQ(device_output.scalar_type(), torch::kFloat32) << prefix;
+  const auto actual = device_output.to(torch::kCPU);
   const auto reference = ReferenceTensor(expected, "output");
   ASSERT_EQ(actual.sizes(), reference.sizes()) << prefix;
   ASSERT_TRUE(torch::isfinite(actual).all().item<bool>()) << prefix;
@@ -2847,6 +2865,10 @@ void CheckArchitectureReference(const char* architecture,
               : (dense_model == nullptr ? "layer" : "denseblock") +
                     std::to_string(index + 1);
       const auto expected_stage = ReferenceTensor(expected, stage_name);
+      ASSERT_EQ(stages[index].device(), device) << prefix << ' ' << stage_name;
+      ASSERT_EQ(stages[index].scalar_type(), torch::kFloat32)
+          << prefix << ' ' << stage_name;
+      stages[index] = stages[index].to(torch::kCPU);
       ASSERT_EQ(stages[index].sizes(), expected_stage.sizes()) << stage_name;
       const auto stage_scale = expected_stage.abs().max().item<double>();
       ASSERT_GT(stage_scale, 0.0) << stage_name;
@@ -2860,6 +2882,11 @@ void CheckArchitectureReference(const char* architecture,
                  .item<double>();
     }
   }
+  if (cuda)
+    std::cout << "ARCHITECTURE_REFERENCE device=" << device
+              << " architecture=" << prefix
+              << " parameters=" << adapter.state().parameters().size()
+              << " buffers=" << adapter.state().buffers().size() << '\n';
 }
 
 TEST(ModelsPythonInterop, OfficialTorchvisionResNet18ReferenceReallyRuns) {
@@ -3052,6 +3079,71 @@ TEST(ModelsPythonInterop,
 TEST(ModelsPythonInterop, OfficialTransformerEncoderReferenceReallyRuns) {
   CheckArchitectureReference("transformer_encoder");
 }
+
+#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+class ModelsCudaReference : public ::testing::TestWithParam<const char*> {};
+
+TEST_P(ModelsCudaReference, MatchesPinnedIndependentFp32) {
+  if (!torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
+  const std::string name = GetParam();
+  if (name == "resnet34" || name == "resnet101" || name == "resnext50_32x4d") {
+    auto model = name == "resnet34"    ? resnet34()
+                 : name == "resnet101" ? resnet101()
+                                       : resnext50_32x4d();
+    CheckArchitectureReference(
+        GetParam(), &model,
+        name == "resnext50_32x4d"
+            ? "JYPPX_LIUDING_RESNEXT_REFERENCE_DIR"
+            : "JYPPX_LIUDING_RESNET_EXTENDED_REFERENCE_DIR",
+        nullptr, nullptr, nullptr, nullptr, nullptr, true);
+  } else if (name == "densenet121") {
+    auto model = densenet121();
+    CheckArchitectureReference(GetParam(), nullptr,
+                               "JYPPX_LIUDING_DENSENET_REFERENCE_DIR", &model,
+                               nullptr, nullptr, nullptr, nullptr, true);
+  } else if (name == "mobilenetv2_100") {
+    auto model = mobilenetv2_100();
+    CheckArchitectureReference(
+        GetParam(), nullptr, "JYPPX_LIUDING_MOBILENETV2_REFERENCE_DIR", nullptr,
+        &model, nullptr, nullptr, nullptr, true);
+  } else if (name == "efficientnet_b0" || name == "efficientnet_b2") {
+    auto model =
+        name == "efficientnet_b0" ? efficientnet_b0() : efficientnet_b2();
+    CheckArchitectureReference(
+        GetParam(), nullptr, "JYPPX_LIUDING_EFFICIENTNET_REFERENCE_DIR",
+        nullptr, nullptr, &model, nullptr, nullptr, true);
+  } else if (name == "tf_efficientnetv2_s") {
+    auto model = tf_efficientnetv2_s();
+    CheckArchitectureReference(
+        GetParam(), nullptr, "JYPPX_LIUDING_EFFICIENTNETV2_REFERENCE_DIR",
+        nullptr, nullptr, nullptr, &model, nullptr, true);
+  } else if (name == "convnext_tiny" || name == "convnext_small") {
+    auto model = name == "convnext_tiny" ? convnext_tiny() : convnext_small();
+    CheckArchitectureReference(GetParam(), nullptr,
+                               "JYPPX_LIUDING_CONVNEXT_REFERENCE_DIR", nullptr,
+                               nullptr, nullptr, nullptr, &model, true);
+  } else {
+    ASSERT_TRUE(name == "resnet18" || name == "resnet50" ||
+                name == "mobilenet_v3_small" || name == "mobilenet_v3_large" ||
+                name == "transformer_encoder");
+    CheckArchitectureReference(GetParam(), nullptr, nullptr, nullptr, nullptr,
+                               nullptr, nullptr, nullptr, true);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    OfficialArchitectures, ModelsCudaReference,
+    ::testing::Values("resnet18", "resnet50", "resnet34", "resnet101",
+                      "resnext50_32x4d", "densenet121", "mobilenetv2_100",
+                      "efficientnet_b0", "efficientnet_b2",
+                      "tf_efficientnetv2_s", "convnext_tiny", "convnext_small",
+                      "mobilenet_v3_small", "mobilenet_v3_large",
+                      "transformer_encoder"),
+    [](const ::testing::TestParamInfo<const char*>& info) {
+      return std::string(info.param);
+    });
+#endif
 
 void CheckDinoV2Reference(const char* prefix, DinoV2 model,
                           std::uint64_t staging_bytes) {
