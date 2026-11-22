@@ -20,6 +20,48 @@
           "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001",
           "build_type": "Release",
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-e87032c-ghost-small-fp16-dynamic-backoff",
+          "commit": "e87032cbda7542bd4f951caf20a62d0380cd63b8",
+          "tests": "干净e87032c离线增量构建；新增YOLOv8s Ghost P6原生FP16允许动态回退的更新合同与五仓库门禁共6项通过，0失败、0跳过、0未准入。本次两次溢出跳步，scale8减至2后实际SGD更新一步。原其余十个回退用例未重跑。",
+          "quality_evidence": {
+            "source_identity": "同一干净完整提交的原生C++测试；冻结源码和binary前后SHA、版本和build provenance。暂存Torch/C10 DLL与指定原生Windows LibTorch逐文件SHA一致。",
+            "contract": "仅新增YOLOv8s Ghost P6检测参数入口；原公共首步目录逐字节不变，回退循环实现和原十个参数入口不变。seed7/batch2/原架构输入、FP32主参数、FP16autocast/init_scale8/max32；每轮清梯度，溢出时全部参数保持/SGD步数0/scale减半；最终有限非零梯度、实际SGD一步、全部参数有限和冻结参数保持。BN buffers正常forward更新。",
+            "cycle_observation": "{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov8s_ghost_p6\",\"attempts\":3,\"overflow_skips\":2,\"final_scale\":2.0,\"optimizer_steps\":1}",
+            "admission_and_audit": "每例独立进程，4GiB可用物理内存与4GiB磁盘准入，CTest600秒/父监督630秒、GPU串行；独立审核原JUnit、逐轮精确scale从8减半、attempts=skips+1和最终一次更新。",
+            "scope": "仅该系统/编译器/W7900上新增随机权重合成输入入口的独立动态回退后更新合同。Windows原严格FP16首步失败与WSL原严格首步通过均保留；回退次数的系统差异不授数值等价、真实数据质量、收敛、性能、其他设备或发布资格。极小scale不是推荐配置。",
+            "validation_receipt_sha256": "a8ace07cbc5cc750e8191a304718ebb6dd8aa75d0aaafca2edf1a999d9844941",
+            "qualification_summary_sha256": "fb6723004b738b6c9d0f3b5668be09ccf33238efb78dfb08236fdbc2353bc02f"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0",
+          "build_type": "Release",
+          "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-e87032c-ghost-small-fp16-dynamic-backoff",
+          "commit": "e87032cbda7542bd4f951caf20a62d0380cd63b8",
+          "tests": "干净e87032c离线增量构建；新增YOLOv8s Ghost P6原生FP16允许动态回退的更新合同与五仓库门禁共6项通过，0失败、0跳过、0未准入。本次首步成功，零溢出跳步，未实际触发回退。原其余十个回退用例未重跑。",
+          "quality_evidence": {
+            "source_identity": "同一干净完整提交的原生C++测试；冻结源码和binary前后SHA、版本和build provenance。实际ldd解析到指定原生Linux Torch/C10共享库并核对SHA。",
+            "contract": "仅新增YOLOv8s Ghost P6检测参数入口；原公共首步目录逐字节不变，回退循环实现和原十个参数入口不变。seed7/batch2/原架构输入、FP32主参数、FP16autocast/init_scale8/max32；每轮清梯度，溢出时全部参数保持/SGD步数0/scale减半；最终有限非零梯度、实际SGD一步、全部参数有限和冻结参数保持。BN buffers正常forward更新。",
+            "cycle_observation": "{\"name\":\"P6Models/VisionAmpOverflowRecovery.FiniteUpdateAfterDynamicBackoff/yolov8s_ghost_p6  # GetParam() = yolov8s_ghost_p6\",\"attempts\":1,\"overflow_skips\":0,\"final_scale\":8.0,\"optimizer_steps\":1}",
+            "admission_and_audit": "每例独立进程，4GiB可用物理内存及cgroup有效余量与4GiB磁盘准入，CTest600秒/父监督630秒、GPU串行；独立审核原JUnit、逐轮精确scale从8减半、attempts=skips+1和最终一次更新。",
+            "scope": "仅该系统/编译器/W7900上新增随机权重合成输入入口的独立动态回退后更新合同。Windows原严格FP16首步失败与WSL原严格首步通过均保留；回退次数的系统差异不授数值等价、真实数据质量、收敛、性能、其他设备或发布资格。极小scale不是推荐配置。",
+            "validation_receipt_sha256": "88c8ff708daad3bbeddb0a185cd307cac52db024cca0212bc8c67c5ddf2ee23a",
+            "qualification_summary_sha256": "39b01158705b59f6e68eab2e9d429b860f88ebe158ced1f987a3e57d2156db72"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK 10.1.0; HIP 7.16.26385; driver 32.0.21030.2001",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-e0ece11-expanded-vision-bf16",
           "commit": "e0ece11d16fe234d34d28ec237b3d02bc495ce59",
           "tests": "干净e0ece11六项原仓库门禁/安装消费者通过；额外208个目录入口的GPU BF16原单步合同：208通过、0失败、0跳过、0未准入。仅授通过子集。",
