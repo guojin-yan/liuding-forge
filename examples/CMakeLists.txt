@@ -355,6 +355,8 @@ if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::bundle_signing
     jyppx_apply_instrumentation(jyppx_liuding_image_migraphx)
     jyppx_add_torch_runtime_dependency(jyppx_liuding_image_migraphx)
     if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND)
+        # A registered CTest must have its executable after the default build.
+        set_target_properties(jyppx_liuding_image_migraphx PROPERTIES EXCLUDE_FROM_ALL FALSE)
         set(image_migraphx_prefix "${CMAKE_COMMAND}" -E env "MIGRAPHX_GPU_COMPILE_PARALLEL=1")
         if(WIN32)
             string(REPLACE ";" "\\;" image_migraphx_path "${JYPPX_LIUDING_MIGRAPHX_ROOT}/bin;$ENV{PATH}")

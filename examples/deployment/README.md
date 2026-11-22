@@ -116,7 +116,7 @@ policy_sha=AUTHORIZED_PUBLIC_POLICY_SHA256
 
 [image_migraphx.cpp](image_migraphx.cpp) 是独立的 Preview 入口，将上述已有 ONNX bundle 中的同一图和六组原生 checkpoint 参考用于 MIGraphX；无需重新导出或训练。它与 ONNX 示例共用图片解码、类别顺序和 CPU NCHW FP32 codec，显式选择 HIP 设备 0，分别创建 batch 128、16 的固定形状包。外部 SDK、设备和已验证范围见 [MIGraphX API](../../docs/api/onnx.md#migraphx-原生-gpu-preview) 与[兼容清单](../../compatibility.json)。
 
-在兼容配置中启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE`、`JYPPX_LIUDING_BUILD_BUNDLE_SIGNING` 和 `JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING`，显式构建默认不参与 ALL 的 target：
+在兼容配置中启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE`、`JYPPX_LIUDING_BUILD_BUNDLE_SIGNING` 和 `JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING`。注册参数契约测试时，程序随默认测试构建生成；其他配置可显式构建此 target：
 
 ```sh
 cmake --build out/build/your-profile --config Release --target jyppx_liuding_image_migraphx --parallel 1
