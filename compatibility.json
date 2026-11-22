@@ -1089,7 +1089,9 @@
             "fixed_batchnorm_diagnostic_analysis_sha256": "2f8ba1aeaf1385fbd96b11641f9bd3693d60e3f8d026d40038bc3ff0b8af9a8b",
             "fixed_convolution_local_diagnostic": "原第2批四组state/backend捕获的全部20个卷积层，固定原输入、上游adjoint、权重、stride/padding、dilation1/groups1/biasnone；CPU/HIP各80次局部FP32调用，共160次；独立CPU FP64 unfold/einsum/fold前向、dinput和dweight80组，另以NumPy滑窗/张量收缩/转置累加独立核对全部FP64结果。不执行完整模型或optimizer更新。同捕获后端的output/dweight共160份完整张量逐字节相同；孤立dinput未冒用有多个消费者的图节点梯度作为参考。独立FP64实现最大relativeL2=1.8458726074247348e-16；HIP局部output/dinput/dweight相对独立FP64的最大relativeL2分别为5.5912985340565567e-07/6.3801547060454803e-07/9.7309923740507226e-07。原15份输入与240份结果完整SHA审核，干净检出daab2bb，复用core/interop安装SDK单独登记为3dab113；Torch/C10实际锁定原生SDK且完整库SHA前后相同。仅该批局部数值诊断，未证明错误算子或完整质量失败原因；原两质量失败、门槛、配方、seed、数据和参考不变，不授新增质量或数值等价资格。",
             "fixed_convolution_diagnostic_receipt_sha256": "c563904bf60c936c0cd167aa20f098722ac7d88b7d2c27742b5930076b0b425c",
-            "fixed_convolution_diagnostic_analysis_sha256": "7b48d12a2d9c603cbfafa795be23f9526f6a18dd54739af4d322dd09f705e0d9"
+            "fixed_convolution_diagnostic_analysis_sha256": "7b48d12a2d9c603cbfafa795be23f9526f6a18dd54739af4d322dd09f705e0d9",
+            "fixed_primitive_capture_diagnostic": "仅独立NumPy读取同一原第2批四组完整捕获，零新增模型/LibTorch/GPU调用和零optimizer更新。四组MaxPool3/stride2/pad1均逐字节符合首个最大值前向及FP32累加反向；共32个残差相加前向及主分支/存在的下采样分支adjoint逐字节符合；四组最终1x1空间均值前向/反向逐字节符合。分类头完整仿射前向及dinput/dweight/dbias相对独立FP64公式的最大relativeL2=2.5373518251049605e-07；softmax交叉熵logits梯度相对稳定FP64公式的最大relativeL2=3.6581233834369262e-08。引用既有4x17个ReLU边界逐字节审计，不重复模型执行。原15份输入SHA前后不变；描述范围仅该批算术/局部导数，无新质量、数值等价、错误算子或完整质量失败原因结论，两原质量失败与原门槛保持。",
+            "fixed_primitive_capture_diagnostic_analysis_sha256": "0ae45e9f1eb220a00adee62b1954af36ab10f1e468172756462e057645dc318a"
           }
         },
         {
