@@ -124,6 +124,8 @@ cmake --build out/build/your-profile --config Release --target jyppx_liuding_ima
 
 以下沿用前节 `sha` 函数和 `/work/unsigned-onnx`。操作者须独立授权源 manifest 摘要；该摘要只固定来源身份，不证明原生产者可信。Windows 运行环境须包含匹配 MIGraphX、HIP 和 LibTorch 动态库搜索路径。每次命令使用新的绝对输出目录，GPU 编译和运行串行：
 
+Linux 输出目录须支持原子 no-replace 发布；WSL 使用本机 ext4 目录进行打包和签名。WSL 的 Windows 挂载盘不在此原子发布验证范围，操作不受支持时会明确失败。
+
 ```sh
 example=./out/build/your-profile/examples/liuding-forge-example-image-migraphx
 source_sha=AUTHORIZED_SOURCE_MANIFEST_SHA256
