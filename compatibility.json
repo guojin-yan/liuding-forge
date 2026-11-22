@@ -21,7 +21,7 @@
           "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
           "id": "windows-clangcl24-rocm101-gfx1100-974ab2e-architecture-gpu-fp32-references",
           "commit": "974ab2e68e69a5e132898599fabf6f0046beefab",
-          "accelerator": "CPU numerical implementation in AMD ROCm LibTorch distribution; AMD Radeon PRO W7900 host, CPU tests only",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK 10.1.0 / HIP 7.16.26385; native LibTorch 2.14.0; CPU and explicit cuda:0 FP32 reference contracts",
           "tests": "干净974ab2e原15项CPU固定参考、新增15项GPU FP32独立架构参考及五仓库门禁：34通过、1失败、0跳过、0未准入；CPU15全部通过，GPU14通过，tf_efficientnetv2_s保留输出及blocks5原容差失败。",
           "quality_evidence": {
             "source_identity": "冻结同一干净提交的源码、binary及实际Torch/C10 SDK前后SHA，原45份state/input/output固定文件的大小与SHA保持；离线配置/最多两编译任务，GPU串行、每例独立进程。",
@@ -41,7 +41,7 @@
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
-          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK10.1.0 / HIP7.16.26385 native Linux LibTorch2.14.0 CPU reference path",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm SDK 10.1.0 / HIP 7.16.26385; native LibTorch 2.14.0; CPU and explicit cuda:0 FP32 reference contracts",
           "build_type": "Release",
           "instrumentation": "CMake3.28.3/Ninja1.11.1，原生Linux C++11 ABI1共享库；离线增量构建、最多两个编译任务和串行CTest；仅启动环境设置ROCPROFILER_REGISTER_ENABLED=0，不改系统环境或GPU屏蔽字段。",
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-974ab2e-architecture-gpu-fp32-references",

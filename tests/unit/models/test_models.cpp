@@ -2951,7 +2951,9 @@ TEST(ModelsPythonInterop, OfficialTimmConvNeXtSmallReferenceReallyRuns) {
                              "JYPPX_LIUDING_CONVNEXT_REFERENCE_DIR", nullptr,
                              nullptr, nullptr, nullptr, &model);
 }
-void CheckViTReference(const char* name, ViT model) {
+void CheckViTReference(const char* name, ViT model, bool cuda = false) {
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   const auto* directory = std::getenv("JYPPX_LIUDING_VIT_REFERENCE_DIR");
   if (directory == nullptr || *directory == '\0')
     GTEST_SKIP() << "Set JYPPX_LIUDING_VIT_REFERENCE_DIR for the pinned "
@@ -2982,16 +2984,31 @@ void CheckViTReference(const char* name, ViT model) {
   import_options.max_staging_bytes = 1024ULL * 1024U * 1024U;
   const auto imported = load_weights(adapter, record, state, import_options);
   ASSERT_TRUE(imported.applied) << name;
+  const auto device =
+      cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
+  if (cuda) {
+    model->to(device);
+    for (const auto& parameter : model->parameters()) {
+      ASSERT_EQ(parameter.device(), device) << name;
+      ASSERT_EQ(parameter.scalar_type(), torch::kFloat32) << name;
+    }
+    for (const auto& buffer : model->buffers())
+      ASSERT_EQ(buffer.device(), device) << name;
+  }
   model->eval();
   torch::NoGradGuard no_grad;
-  const auto image = ReferenceTensor(input, "input");
+  const auto image = ReferenceTensor(input, "input").to(device);
   const auto actual_logits = model->forward(image);
   const auto actual_tokens = model->forward_features(image);
   const auto actual_grid = model->forward_patch_grid(image);
-  for (const auto& [actual, key] :
+  for (const auto& [device_output, key] :
        {std::pair<Tensor, const char*>{actual_logits, "output"},
         {actual_tokens, "tokens"},
         {actual_grid, "grid"}}) {
+    ASSERT_EQ(device_output.device(), device) << name << ' ' << key;
+    ASSERT_EQ(device_output.scalar_type(), torch::kFloat32)
+        << name << ' ' << key;
+    const auto actual = device_output.to(torch::kCPU);
     const auto reference = ReferenceTensor(expected, key);
     ASSERT_EQ(actual.sizes(), reference.sizes()) << name << ' ' << key;
     ASSERT_TRUE(torch::isfinite(actual).all().item<bool>())
@@ -3002,6 +3019,11 @@ void CheckViTReference(const char* name, ViT model) {
         << name << ' ' << key << " normalized maximum absolute error: "
         << ((actual - reference) / scale).abs().max().item<double>();
   }
+  if (cuda)
+    std::cout << "ARCHITECTURE_REFERENCE device=" << device
+              << " architecture=" << name
+              << " parameters=" << model->parameters().size()
+              << " buffers=" << model->buffers().size() << '\n';
 }
 
 TEST(ModelsPythonInterop, OfficialTimmViTTinyReferenceReallyRuns) {
@@ -3017,7 +3039,9 @@ TEST(ModelsPythonInterop, OfficialTimmViTBaseReferenceReallyRuns) {
                     vit_base_patch16_224({.dynamic_image_size = true}));
 }
 
-TEST(ModelsPythonInterop, OfficialTimmSwinTinyReferenceReallyRuns) {
+void CheckSwinReference(bool cuda = false) {
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   const auto* directory = std::getenv("JYPPX_LIUDING_SWIN_REFERENCE_DIR");
   if (directory == nullptr || *directory == '\0')
     GTEST_SKIP() << "Set JYPPX_LIUDING_SWIN_REFERENCE_DIR for the pinned "
@@ -3048,15 +3072,30 @@ TEST(ModelsPythonInterop, OfficialTimmSwinTinyReferenceReallyRuns) {
   interop::ModelWeightImportOptions import_options;
   import_options.max_staging_bytes = 512ULL * 1024U * 1024U;
   ASSERT_TRUE(load_weights(adapter, record, state, import_options).applied);
+  const auto device =
+      cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
+  if (cuda) {
+    model->to(device);
+    for (const auto& parameter : model->parameters()) {
+      ASSERT_EQ(parameter.device(), device) << prefix;
+      ASSERT_EQ(parameter.scalar_type(), torch::kFloat32) << prefix;
+    }
+    for (const auto& buffer : model->buffers())
+      ASSERT_EQ(buffer.device(), device) << prefix;
+  }
   model->eval();
   torch::NoGradGuard no_grad;
-  const auto image = ReferenceTensor(input, "input");
+  const auto image = ReferenceTensor(input, "input").to(device);
   const auto actual_stages = model->forward_features(image);
   const auto actual_logits = model->forward(image);
   ASSERT_EQ(actual_stages.size(), 4U);
   for (std::size_t index = 0; index < 5; ++index) {
     const auto key = index == 4 ? "output" : "stage" + std::to_string(index);
-    const auto actual = index == 4 ? actual_logits : actual_stages[index];
+    const auto device_output =
+        index == 4 ? actual_logits : actual_stages[index];
+    ASSERT_EQ(device_output.device(), device) << key;
+    ASSERT_EQ(device_output.scalar_type(), torch::kFloat32) << key;
+    const auto actual = device_output.to(torch::kCPU);
     const auto reference = ReferenceTensor(expected, key);
     ASSERT_EQ(actual.sizes(), reference.sizes()) << key;
     ASSERT_TRUE(torch::isfinite(actual).all().item<bool>()) << key;
@@ -3066,6 +3105,15 @@ TEST(ModelsPythonInterop, OfficialTimmSwinTinyReferenceReallyRuns) {
         << key << " normalized maximum absolute error: "
         << ((actual - reference) / scale).abs().max().item<double>();
   }
+  if (cuda)
+    std::cout << "ARCHITECTURE_REFERENCE device=" << device
+              << " architecture=" << prefix
+              << " parameters=" << model->parameters().size()
+              << " buffers=" << model->buffers().size() << '\n';
+}
+
+TEST(ModelsPythonInterop, OfficialTimmSwinTinyReferenceReallyRuns) {
+  CheckSwinReference();
 }
 
 TEST(ModelsPythonInterop,
@@ -3087,7 +3135,18 @@ TEST_P(ModelsCudaReference, MatchesPinnedIndependentFp32) {
   if (!torch::cuda::is_available())
     GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   const std::string name = GetParam();
-  if (name == "resnet34" || name == "resnet101" || name == "resnext50_32x4d") {
+  if (name == "vit_tiny_patch16_224" || name == "vit_small_patch16_224" ||
+      name == "vit_base_patch16_224") {
+    auto model = name == "vit_tiny_patch16_224"
+                     ? vit_tiny_patch16_224({.dynamic_image_size = true})
+                 : name == "vit_small_patch16_224"
+                     ? vit_small_patch16_224({.dynamic_image_size = true})
+                     : vit_base_patch16_224({.dynamic_image_size = true});
+    CheckViTReference(GetParam(), model, true);
+  } else if (name == "swin_tiny_patch4_window7_224") {
+    CheckSwinReference(true);
+  } else if (name == "resnet34" || name == "resnet101" ||
+             name == "resnext50_32x4d") {
     auto model = name == "resnet34"    ? resnet34()
                  : name == "resnet101" ? resnet101()
                                        : resnext50_32x4d();
@@ -3139,7 +3198,9 @@ INSTANTIATE_TEST_SUITE_P(
                       "efficientnet_b0", "efficientnet_b2",
                       "tf_efficientnetv2_s", "convnext_tiny", "convnext_small",
                       "mobilenet_v3_small", "mobilenet_v3_large",
-                      "transformer_encoder"),
+                      "transformer_encoder", "vit_tiny_patch16_224",
+                      "vit_small_patch16_224", "vit_base_patch16_224",
+                      "swin_tiny_patch4_window7_224"),
     [](const ::testing::TestParamInfo<const char*>& info) {
       return std::string(info.param);
     });
