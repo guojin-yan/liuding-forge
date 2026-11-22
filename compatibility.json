@@ -1083,7 +1083,10 @@
             "official_resnet18_zero_update_diagnostic": "官方torchvision0.29.1的训练态ResNet18脚本架构载体由锁定CPU Torch2.14.1生成，实际在原生Linux ROCm LibTorch2.14.0加载并关闭JIT graph optimizer；不调用Forge的ResNet架构。原第1步CPU/GPU完整122状态逐字段导入并逐字节核对，保留原第2批4x3x32x32输入，两状态x两后端四组各一次forward/backward、零optimizer更新。四组logits与全部62梯度均逐字节等于原生产路径观测，两组对角后端的60个BatchNorm buffer也逐字节相同，交叉后端不套用对角buffer参考。运行时干净检出为7b2ad53，复用的core/interop安装SDK单独核对为3dab113；实际Torch/C10解析到指定原生SDK，前后完整库SHA相同。此为独立架构零更新诊断，不是Python eager GPU、完整重训、错误算子证明或质量通过；原两失败、数据、seed、配方、容差与门槛全部保留。",
             "official_resnet18_diagnostic_receipt_sha256": "5874506ec582694409c95cbce0691f36cba9d4d8618f77948ea0d5d610a5aa1c",
             "official_resnet18_diagnostic_analysis_sha256": "c5b6e71af896db516234a66da10e5dd1763e35a2c4d5c94a670eb2a7ce34dfb5",
-            "official_resnet18_graph_preparation_receipt_sha256": "fb5828d61a0b0b66ba8a1645a9b6e9d5a1a14fb584d48546a3d402d477b08f54"
+            "official_resnet18_graph_preparation_receipt_sha256": "fb5828d61a0b0b66ba8a1645a9b6e9d5a1a14fb584d48546a3d402d477b08f54",
+            "fixed_batchnorm_local_diagnostic": "原第2批四组state/backend捕获的全部20个BatchNorm层，固定原输入、上游adjoint、参数和training=true/eps1e-5/momentum0.1；CPU/HIP各80次局部FP32调用，共160次，独立CPU FP64两遍均值/方差及闭式梯度80组；不执行完整模型或optimizer更新。同捕获后端的output/dinput/dweight/dbias共320份完整张量逐字节相同，原14份输入及240份结果文件SHA前后审核。独立NumPy FP64公式与原生FP64公式最大relativeL2=3.8837355843029448e-16；局部dinput相对独立FP64的最大relativeL2为CPU=3.3249187676340884e-07/HIP=1.0499221666848506e-05。干净检出501ebab，复用core/interop安装SDK单独登记为3dab113，实际Torch/C10解析到锁定原生SDK且完整库SHA前后相同。仅诊断该批局部数值，未证明错误算子或完整质量失败原因；两原质量失败及所有原门槛、配方、seed、数据、参考保持，不授数值等价或新增质量资格。",
+            "fixed_batchnorm_diagnostic_receipt_sha256": "7d2ee34250702c726fc2bb11df4af0aa3862539b620aaf37a0ce244e0efa49c9",
+            "fixed_batchnorm_diagnostic_analysis_sha256": "2f8ba1aeaf1385fbd96b11641f9bd3693d60e3f8d026d40038bc3ff0b8af9a8b"
           }
         },
         {
