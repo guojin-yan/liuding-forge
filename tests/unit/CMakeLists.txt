@@ -1195,12 +1195,31 @@ if(TARGET jyppx::liuding::telemetry_http)
         LABELS "experiment;telemetry;otlp;native;cancellation;loopback"
         TIMEOUT 180 RUN_SERIAL TRUE)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE
+            "/etc/ssl/certs/ca-certificates.crt" CACHE FILEPATH
+            "Default trust file of the selected curl SDK; isolated TLS tests only")
+        if(NOT IS_ABSOLUTE "${JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE}" OR
+           NOT EXISTS "${JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE}" OR
+           IS_DIRECTORY "${JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE}")
+            message(FATAL_ERROR "Native TLS tests require an existing absolute JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE matching the curl SDK default trust file")
+        endif()
         add_test(NAME NativeOtlpHttpTrustedTls
             COMMAND "${Python3_EXECUTABLE}" -I -B
                 "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_trusted_tls.py"
                 --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>
-                --work-dir "${CMAKE_CURRENT_BINARY_DIR}/trusted-tls")
+                --work-dir "${CMAKE_CURRENT_BINARY_DIR}/trusted-tls"
+                --system-ca-bundle "${JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE}")
         set_tests_properties(NativeOtlpHttpTrustedTls PROPERTIES
+            LABELS "experiment;telemetry;otlp;native;tls;loopback"
+            TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME NativeOtlpHttpTrustedDns
+            COMMAND "${Python3_EXECUTABLE}" -I -B
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_trusted_tls.py"
+                --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>
+                --work-dir "${CMAKE_CURRENT_BINARY_DIR}/trusted-dns"
+                --system-ca-bundle "${JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE}"
+                --endpoint-host localhost)
+        set_tests_properties(NativeOtlpHttpTrustedDns PROPERTIES
             LABELS "experiment;telemetry;otlp;native;tls;loopback"
             TIMEOUT 120 RUN_SERIAL TRUE)
     endif()

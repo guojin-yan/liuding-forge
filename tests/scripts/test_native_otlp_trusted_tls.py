@@ -43,7 +43,7 @@ def run(command, directory, environment):
     return result
 
 
-def prepare(directory, environment):
+def prepare(directory, environment, endpoint_host):
     (directory / "issued").mkdir()
     (directory / "index.txt").touch()
     (directory / "serial").write_text("01\n", encoding="ascii")
@@ -65,14 +65,15 @@ commonName = supplied
 basicConstraints = critical,CA:FALSE
 keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = serverAuth
-subjectAltName = IP:127.0.0.1
+subjectAltName = SELECTED_LOOPBACK_SAN
 [mismatch]
 basicConstraints = critical,CA:FALSE
 keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = serverAuth
 subjectAltName = DNS:wrong.invalid
 """
-    (directory / "ca.cnf").write_text(config, encoding="ascii")
+    san = "DNS:localhost" if endpoint_host == "localhost" else "IP:127.0.0.1"
+    (directory / "ca.cnf").write_text(config.replace("SELECTED_LOOPBACK_SAN", san), encoding="ascii")
     run(["openssl", "req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes",
          "-keyout", "ca.key", "-out", "ca.pem", "-days", "30",
          "-subj", "/CN=Liuding Forge Ephemeral Loopback Test CA",
@@ -91,12 +92,13 @@ subjectAltName = DNS:wrong.invalid
 
 
 @contextmanager
-def collector(certificate, key):
+def collector(certificate, key, endpoint_host):
     observed = {"connections": 0, "handshakes": 0, "closed": 0,
-                "rejected_handshakes": 0, "requests": [], "errors": []}
+                "rejected_handshakes": 0, "requests": [], "errors": [], "sni_names": []}
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certificate, key)
+    context.set_servername_callback(lambda connection, name, selected: observed["sni_names"].append(name))
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -110,6 +112,8 @@ def collector(certificate, key):
             require(self.path == "/v1/logs", "Unexpected signal path")
             require(self.headers.get("Content-Type") == "application/x-protobuf",
                     "Unexpected OTLP media type")
+            require(self.headers.get("Host") == f"{endpoint_host}:{self.server.server_port}",
+                    "Native HTTP host changed")
             require(not any(self.headers.get(name) for name in
                             ("Authorization", "Proxy-Authorization", "Cookie")),
                     "Ambient credentials leaked")
@@ -163,6 +167,9 @@ def inside(manifest_path):
     manifest = json.loads(manifest_path.read_text("utf-8"))
     directory = manifest_path.parent
     environment = dict(os.environ)
+    endpoint_host = manifest["endpoint_host"]
+    require(endpoint_host in ("127.0.0.1", "localhost"), "Not a selected loopback host")
+    dns_tls = endpoint_host == "localhost"
     namespace = os.readlink("/proc/self/ns/mnt")
     require(namespace != manifest["host_mount_namespace"], "No private mount namespace")
     bundle = Path(manifest["system_ca_bundle"])
@@ -175,7 +182,8 @@ def inside(manifest_path):
     for name in ("valid", "expired", "mismatch"):
         certificate = directory / (name + ".pem")
         control = subprocess.run(["openssl", "verify", "-CAfile", str(directory / "ca.pem"),
-                                  "-purpose", "sslserver", "-verify_ip", "127.0.0.1",
+                                  "-purpose", "sslserver",
+                                  "-verify_hostname" if dns_tls else "-verify_ip", endpoint_host,
                                   str(certificate)], capture_output=True, timeout=10)
         control_text = (control.stdout + control.stderr).decode("utf-8", errors="replace")
         (directory / (name + "-independent-verify.log")).write_text(control_text, encoding="utf-8")
@@ -183,10 +191,14 @@ def inside(manifest_path):
         if name == "expired":
             require("certificate has expired" in control_text, "Expiry control failed for another reason")
         if name == "mismatch":
-            require("IP address mismatch" in control_text, "Hostname control failed for another reason")
-        with collector(certificate, directory / "server.key") as (port, observed):
+            require(("hostname mismatch" if dns_tls else "IP address mismatch") in control_text,
+                    "Hostname control failed for another reason")
+        with collector(certificate, directory / "server.key", endpoint_host) as (port, observed):
             mode = "tls-logs" if name == "valid" else "tls-certificate-reject"
-            native = subprocess.run([manifest["harness"], str(port), mode], cwd=directory,
+            command = [manifest["harness"], str(port), mode]
+            if dns_tls:
+                command.append(endpoint_host)
+            native = subprocess.run(command, cwd=directory,
                                     env=environment, capture_output=True, timeout=20)
         (directory / (name + "-native.stdout")).write_bytes(native.stdout)
         (directory / (name + "-native.stderr")).write_bytes(native.stderr)
@@ -200,6 +212,8 @@ def inside(manifest_path):
                 "Unexpected retry or incomplete connection cleanup")
         require(observed["handshakes"] + observed["rejected_handshakes"] == expected_connections,
                 "Incomplete TLS observations")
+        require(observed["sni_names"] == [endpoint_host if dns_tls else None] * expected_connections,
+                "Native TLS server name changed")
         require(len(observed["requests"]) == (1 if name == "valid" else 0),
                 "HTTP accepted an invalid certificate or duplicate request")
         if name != "valid":
@@ -212,7 +226,10 @@ def inside(manifest_path):
               "host_mount_namespace": manifest["host_mount_namespace"],
               "system_ca_sha256_inside": digest(bundle), "native_processes": 3,
               "native_network_connections": 5, "native_http_requests": 1,
-              "qualification": "Linux system trust: trusted success, expiry and IP-name rejection; revocation and durable collector ACK remain unqualified"}
+              "endpoint_host": endpoint_host, "selected_ca_bundle": str(bundle),
+              "qualification": "Selected Linux CA bundle: trusted TLS1.2 success, expiry and " +
+                               ("DNS" if dns_tls else "IP") +
+                               "-name rejection; revocation and durable collector ACK remain unqualified"}
     (directory / "inside-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
 
@@ -222,6 +239,7 @@ def main():
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--system-ca-bundle", type=Path,
                         default=Path("/etc/ssl/certs/ca-certificates.crt"))
+    parser.add_argument("--endpoint-host", choices=("127.0.0.1", "localhost"), default="127.0.0.1")
     parser.add_argument("--inside", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     require(sys.platform == "linux", "Private system-trust TLS gate requires Linux")
@@ -240,10 +258,19 @@ def main():
     environment = dict(os.environ)
     for key in ("SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE", "OPENSSL_CONF"):
         environment.pop(key, None)
-    prepare(directory, environment)
+    if args.endpoint_host == "localhost":
+        # Require an explicit local hosts entry before asking the native resolver
+        # for localhost. No fixture requires an external DNS service.
+        hosts = [line.partition("#")[0].split()
+                 for line in Path("/etc/hosts").read_text("utf-8").splitlines()]
+        addresses = [entry[0] for entry in hosts if len(entry) >= 2 and "localhost" in entry[1:]]
+        require(addresses and all(address in ("127.0.0.1", "::1") for address in addresses),
+                "localhost must have only loopback hosts entries")
+    prepare(directory, environment, args.endpoint_host)
     isolated = directory / "isolated-ca-bundle.pem"
     isolated.write_bytes(original + b"\n" + (directory / "ca.pem").read_bytes())
     manifest = {"harness": str(harness), "harness_sha256": digest(harness),
+                "endpoint_host": args.endpoint_host,
                 "system_ca_bundle": str(bundle), "host_ca_sha256": hashlib.sha256(original).hexdigest(),
                 "isolated_ca_sha256": digest(isolated), "host_mount_namespace": os.readlink("/proc/self/ns/mnt")}
     manifest_path = directory / "manifest.json"
