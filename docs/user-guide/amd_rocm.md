@@ -32,7 +32,7 @@ DINOv2/DINOv3 的部分架构已验证 CPU FP32 与 GPU FP16 autocast 的完整�
 
 本 ROCm 分发的 CPU FP32 路径另通过 DINOv2-small 与 DINOv3 Huge+ 的独立随机架构数值对照，覆盖严格状态导入、完整 tokens 和 CLS；Huge+ 还核对三层中间输出与原 12 GiB 峰值 RSS 上限。输入分别为 `2×3×224×280` 和 `1×3×35×50`，参考来源及固定身份见兼容矩阵。这些 CPU 对照不授予 GPU 数值、预训练权重或任务质量资格。
 
-固定独立随机状态参考另通过 ResNet18/34/50/101、ResNeXt50、DenseNet121、MobileNetV2、MobileNetV3 Small/Large、EfficientNet B0/B2、ConvNeXt Tiny/Small、ViT Tiny/Small/Base、Swin Tiny 与带掩码 Transformer Encoder 的 GPU FP32 前向数值合同，Windows 与 WSL 分别验证原 logits 及适用中间 stage。`tf_efficientnetv2_s` 的 GPU 输出和最后一个 stage 均超原容差，仍未授予该数值资格；Windows 同一 AMD Torch/C10 核心库上的官方 timm 实现也未通过这两项对照，尚未证明完整原生输出相等或失败原因。19 个 CPU 对照分两批全部通过。ViT 另核对完整 tokens 和 patch grid，Swin 核对四级完整特征。范围限于兼容矩阵列出的固定随机状态、输入和精度，不推导反向、预训练权重或任务质量。
+固定独立随机状态参考另通过 ResNet18/34/50/101、ResNeXt50、DenseNet121、MobileNetV2、MobileNetV3 Small/Large、EfficientNet B0/B2、ConvNeXt Tiny/Small、ViT Tiny/Small/Base、Swin Tiny 与带掩码 Transformer Encoder 的 GPU FP32 前向数值合同，Windows 与 WSL 分别验证原 logits 及适用中间 stage。`tf_efficientnetv2_s` 的 GPU 输出和最后一个 stage 均超原容差，仍未授予该数值资格；Windows 同一 AMD Torch/C10 核心库上的原生实现与锁定官方 timm 在该固定输入下，CPU/GPU 各六份完整输出逐字节相同，但两者仍未通过这两项 GPU 对照，失败原因未确定。19 个 CPU 对照分两批全部通过。ViT 另核对完整 tokens 和 patch grid，Swin 核对四级完整特征。范围限于兼容矩阵列出的固定随机状态、输入和精度，不推导反向、预训练权重或任务质量。
 
 固定独立随机状态的 DINOv3 ViT Small/Small+/Base 与 ConvNeXt Tiny/Small 另通过两系统 GPU FP32 数值合同：ViT 核对完整 tokens 和 CLS，ConvNeXt 核对四级特征、全局输出及模型适配器输出，保留原参考与容差。DINOv2 Small/Base/Large、DINOv3 ViT Large/Large+ 与 ConvNeXt Base/Large 也通过两系统的 GPU FP32 固定参考；高容量 DINOv3 保留原参数量、暂存和峰值 RSS 断言。Huge+ 另通过完整 tokens、CLS 和第 0/15/31 层输出的 GPU FP32 独立参考，保留原 552 份状态、12 GiB 暂存与峰值 RSS 上限和 14 GiB 主存准入。以上范围限于所列固定前向数值与资源合同，不包含反向、预训练权重、真实任务质量或性能资格。
 
