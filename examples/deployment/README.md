@@ -111,3 +111,41 @@ policy_sha=AUTHORIZED_PUBLIC_POLICY_SHA256
 使用 Windows DirectML 时，先按 [ONNX API](../../docs/api/onnx.md) 准备独立的 DirectML 构建和匹配 SDK。在导出或打包命令中显式传入 `--provider DmlExecutionProvider --provider-option device_id=0`，为该 Provider 生成并验证新的包，再执行临时签名；`device_id` 是 DXGI 适配器索引，独立于 HIP 设备编号。对应 `smoke` 同样使用该 Provider 和选项，`evaluate` 在上述参数末尾追加 `DmlExecutionProvider`。省略末尾参数始终要求 CPUExecutionProvider；请求与签名包环境锁不一致、允许 CPU fallback、SDK 或适配器不可用都会失败。
 
 两种 Provider 均使用 FP32 CPU Tensor 输入输出，评估报告保存实际 Provider、选项和 I/O 设备。六种预热沿用 `atol=1e-5`、`rtol=1e-4`，通过预热不能推导其他图片的逐元素误差、任务质量或性能；实际设备和图的验证范围见[兼容清单](../../compatibility.json)。不声明 GPU 零复制、自动合批、OOM 拆批恢复或生产签名资格。96 MiB 快照和 I/O 限制是逻辑载荷预算，不是进程 RSS 上限。确认交付包及结果摘要后，可删除重复的展开导出包和中间图片输入，保留原训练资产与唯一交付副本；不要将运行库或编译树存入记录目录。
+
+## 原生 MIGraphX 固定形状交付
+
+[image_migraphx.cpp](image_migraphx.cpp) 是独立的 Preview 入口，将上述已有 ONNX bundle 中的同一图和六组原生 checkpoint 参考用于 MIGraphX；无需重新导出或训练。它与 ONNX 示例共用图片解码、类别顺序和 CPU NCHW FP32 codec，显式选择 HIP 设备 0，分别创建 batch 128、16 的固定形状包。外部 SDK、设备和已验证范围见 [MIGraphX API](../../docs/api/onnx.md#migraphx-原生-gpu-preview) 与[兼容清单](../../compatibility.json)。
+
+在兼容配置中启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE`、`JYPPX_LIUDING_BUILD_BUNDLE_SIGNING` 和 `JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING`，显式构建默认不参与 ALL 的 target：
+
+```sh
+cmake --build out/build/your-profile --config Release --target jyppx_liuding_image_migraphx --parallel 1
+```
+
+以下沿用前节 `sha` 函数和 `/work/unsigned-onnx`。操作者须独立授权源 manifest 摘要；该摘要只固定来源身份，不证明原生产者可信。Windows 运行环境须包含匹配 MIGraphX、HIP 和 LibTorch 动态库搜索路径。每次命令使用新的绝对输出目录，GPU 编译和运行串行：
+
+```sh
+example=./out/build/your-profile/examples/liuding-forge-example-image-migraphx
+source_sha=AUTHORIZED_SOURCE_MANIFEST_SHA256
+
+"$example" pack /work/unsigned-onnx "$source_sha" 128 /work/migraphx-128
+"$example" pack /work/unsigned-onnx "$source_sha" 16 /work/migraphx-16
+"$example" sign /work/migraphx-128/bundle \
+  "$(sha /work/migraphx-128/bundle/manifest.json)" /work/signed-migraphx-128
+"$example" sign /work/migraphx-16/bundle \
+  "$(sha /work/migraphx-16/bundle/manifest.json)" /work/signed-migraphx-16
+
+# Pass the four independently authorized digests from the local producer.
+"$example" evaluate \
+  /work/signed-migraphx-128/bundle "$manifest128_sha" \
+  /work/signed-migraphx-128/public-trust-policy.json "$policy128_sha" \
+  /work/signed-migraphx-16/bundle "$manifest16_sha" \
+  /work/signed-migraphx-16/public-trust-policy.json "$policy16_sha" \
+  /data/cifar10/validation /work/migraphx-evaluation
+```
+
+`pack` 为一个固定 batch 编译原生 GPU Session，以源包中的独立参考按 `atol=1e-5`、`rtol=1e-4` 验证，再发布新的环境锁、固定输入输出描述符、已知向量报告及有限依赖子集。保留原图、原参考和来源报告；来源报告仅描述原 ONNX 导出，不授予新的后端资格。包包含原 source manifest 摘要与明确的 `source_authenticated=false`。`dispatch.txt` 保存打包阶段实际运行指令，`warmup.f32` 保存完整已知向量输出。
+
+`sign` 沿用前节临时内存 Ed25519 教学授权。新的 `evaluate` 进程要求两个包均有可信签名，并在 JIT 前核对独立预期摘要、四个 owner 描述符、固定形状及共同图/参考/来源；Backend 仍根据实际 Session 核对环境锁并执行原参考预热。随后用两个 predictor 完成 78×128+16 的 79 个请求，输出与前节相同的完整 logits、labels、逐图清单和混淆矩阵，准确率门槛仍为 0.65。关闭并销毁 predictor 后再次检查保留响应的数值，报告中记录该所有权检查。
+
+每次 Session 运行严格检查真实 GPU 路线与同步主存输出；公共 Serving 响应不包含逐请求指令日志，评估目录仅保存两把环境锁和两组已知向量输出。不提供动态图、自动合批、FP16/BF16 推理、ORT GPU EP 或生产密钥治理；逻辑载荷预算不等于进程 RSS/显存硬上限，阻塞编译及运行需由调用方另设进程监督。

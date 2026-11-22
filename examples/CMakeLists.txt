@@ -344,6 +344,31 @@ if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::bundle_signing
     jyppx_add_onnx_runtime_dependency(jyppx_liuding_image_onnx)
 endif()
 
+if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::bundle_signing
+   AND TARGET jyppx::liuding::migraphx_serving)
+    add_executable(jyppx_liuding_image_migraphx EXCLUDE_FROM_ALL deployment/image_migraphx.cpp)
+    set_target_properties(jyppx_liuding_image_migraphx PROPERTIES
+        OUTPUT_NAME liuding-forge-example-image-migraphx)
+    target_link_libraries(jyppx_liuding_image_migraphx PRIVATE
+        jyppx::liuding::data_image jyppx::liuding::bundle_signing
+        jyppx::liuding::migraphx_serving nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_liuding_image_migraphx)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_image_migraphx)
+    if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND)
+        set(image_migraphx_prefix "${CMAKE_COMMAND}" -E env "MIGRAPHX_GPU_COMPILE_PARALLEL=1")
+        if(WIN32)
+            string(REPLACE ";" "\\;" image_migraphx_path "${JYPPX_LIUDING_MIGRAPHX_ROOT}/bin;$ENV{PATH}")
+            list(APPEND image_migraphx_prefix "PATH=${image_migraphx_path}")
+        endif()
+        add_test(NAME ImageMIGraphXArguments
+            COMMAND ${image_migraphx_prefix} "${Python3_EXECUTABLE}" -I -B
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_image_migraphx.py"
+                --example $<TARGET_FILE:jyppx_liuding_image_migraphx>)
+        set_tests_properties(ImageMIGraphXArguments PROPERTIES
+            LABELS "examples;deployment;migraphx_serving" TIMEOUT 60 RUN_SERIAL TRUE)
+    endif()
+endif()
+
 # Public models/optimizer lesson; local weights are explicit at runtime.
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::optim)
     add_executable(jyppx_transfer_group_rates EXCLUDE_FROM_ALL
