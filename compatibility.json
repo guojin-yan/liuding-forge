@@ -710,7 +710,10 @@
             "reference_identity": "权重88240512字节，SHAf3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5；复用原真实首批次18固定文件，不生成、替换或筛选。原Windows a5ac395失败收据SHA649f9b0e73ed9429e8f8ca6b49bb52ce3838abfa5db0a7ead29871463e82e3e0保留，不被本WSL结果覆盖。",
             "scope": "仅此精确WSL/Ubuntu/GCC/ROCm分发的CPU FP32真实首批次数值合同，不授Windows原失败、GPU真实首批次梯度、完整微调或质量、恢复、性能、其他设备/系统、多卡或发布资格。",
             "validation_receipt_sha256": "ef9c65cba36181f75d9e12bf85b5973bfd668137d06b39cbdc0f6cfedb622a14",
-            "qualification_summary_sha256": "9a267c815408a6706a4efd7c24e5e27f7d223d2224cc0690dfaec75f4217b854"
+            "qualification_summary_sha256": "9a267c815408a6706a4efd7c24e5e27f7d223d2224cc0690dfaec75f4217b854",
+            "real_first_batch_gpu_observation": "干净bf5abb9离线增量构建后，固定8x3x224x224真实图像首批次CPU/GPU原生门禁与五仓库门禁，6通过/1失败，零跳过、零未准入；CPU原完整首批次合同在共享helper重构后仍全部通过，原参考与容差保持。新增GPU FP32/cuda0原生门禁实际完成forward/backward和分组SGD一步，176份主参数/梯度在GPU、FP32且梯度全部有限；logits/loss、六份完整梯度与六份完整更新继续按原18文件和原rtol/atol对照。GPU仅patch_embed.proj.weight梯度失败：83/225792元素超原rtol0.003/atol0.00003，max_abs_error0.000209808349609375，完整实际梯度SHA8f503bcd853db1fb302d46d95366253f191ba78af2dc7818b550a9f25597e308与另一AMD系统本次观察一致；不从该单张量一致推导跨系统完整等价。原19资产、参数组、参考和容差保持，Torch/C10实际锁定本系统原生SDK且前后SHA相同。4GiB物理及适用cgroup/磁盘准入、每项600秒CTest/630秒父监督、GPU串行、至多两编译任务。GPU数值门禁明确未通过，不授真实GPU首批次梯度、完整微调或质量资格；执行SGD不覆盖梯度失败。",
+            "real_first_batch_gpu_clean_receipt_sha256": "f4dcb567fb126556398661a8722a85479850415a8dd597a13a112a189971bfe2",
+            "real_first_batch_gpu_clean_analysis_sha256": "db7de227e4b0ca4d199a94e5af5d788b54ec1931ecec8c5e9f15921050db1abe"
           }
         },
         {
@@ -1778,7 +1781,10 @@
             "real_first_batch_diagnosis": "9736a85补充失败元素数和实际tensor SHA诊断，不改比较语义。干净本机7通过/1原失败、Windows8通过、Linux7通过/1原失败，零跳过。Linux C++全部225792个patch梯度原始字节SHA a838a886449294f05c5ea9ec306c1e9961778ff18d96ec8868894990d5aadede与独立HF4.56.2/Torch2.14.1+cpu默认eager输出精确相同，同样相对原Windows参考71元素超差；禁用oneDNN仍155元素超差。此为所捕获Linux张量的原参考跨平台数值差异，原门禁保持失败。",
             "real_first_batch_diagnosis_receipt_sha256": "00e0ca1fad5552f90e3fe8bd1e619a3b679dd9e6c03d64725c2321222262576d",
             "real_first_batch_local_upstream_diagnosis": "干净da91b89的CPU私有诊断副本仅增加原始tensor捕获和显式oneDNN关闭控制，原操作/18文件身份/容差不变。独立HF4.56.2 eager使用本机现有Torch2.14.0+rocm10.1.0，其torch_cpu.dll与原生LibTorch完整SHA相同；GPU隐藏。默认与关闭oneDNN两种模式，C++和HF各14个完整tensor（logits、loss、六梯度、六更新后参数）全部逐字节一致。默认patch梯度225792元素SHA c80bffab6f2263167f0cb1ad7c18cf794a006aae4e6137c364f40fcfc7975b67，相对原Windows参考2元素超差、max_abs_error0.00011587142944335938；关闭oneDNN后SHA aab0a4bd81faf3949893667f4dc046ad440eb2cee1761a20a2a3f27376c31063，同样与HF一致但82元素超差、max_abs_error0.00021660327911376953。所捕获tensor差异属于该CPU分发的数值行为；未定位具体底层算子，也不授原参考门禁通过，不更换参考、放宽容差或改变产品计算路径。",
-            "real_first_batch_local_upstream_receipt_sha256": "afd71e513da597bdeed3b364332420af77b9be220823d16b884114b38087b040"
+            "real_first_batch_local_upstream_receipt_sha256": "afd71e513da597bdeed3b364332420af77b9be220823d16b884114b38087b040",
+            "real_first_batch_gpu_observation": "干净bf5abb9离线增量构建后，固定8x3x224x224真实图像首批次CPU/GPU原生门禁与五仓库门禁，5通过/2失败，零跳过、零未准入；CPU保留原patch_embed.proj.weight两元素超差，完整实际梯度SHAc80bffab6f2263167f0cb1ad7c18cf794a006aae4e6137c364f40fcfc7975b67未变。新增GPU FP32/cuda0原生门禁实际完成forward/backward和分组SGD一步，176份主参数/梯度在GPU、FP32且梯度全部有限；logits/loss、六份完整梯度与六份完整更新继续按原18文件和原rtol/atol对照。GPU仅patch_embed.proj.weight梯度失败：83/225792元素超原rtol0.003/atol0.00003，max_abs_error0.000209808349609375，完整实际梯度SHA8f503bcd853db1fb302d46d95366253f191ba78af2dc7818b550a9f25597e308与另一AMD系统本次观察一致；不从该单张量一致推导跨系统完整等价。原19资产、参数组、参考和容差保持，Torch/C10实际锁定本系统原生SDK且前后SHA相同。4GiB物理及适用cgroup/磁盘准入、每项600秒CTest/630秒父监督、GPU串行、至多两编译任务。GPU数值门禁明确未通过，不授真实GPU首批次梯度、完整微调或质量资格；执行SGD不覆盖梯度失败。",
+            "real_first_batch_gpu_clean_receipt_sha256": "1c0da874b43e73615daf8bf40dcc3b2cf1673412082554e9d2a9d48dd3081978",
+            "real_first_batch_gpu_clean_analysis_sha256": "f6246b3b4b4924cfe7ca7ac2b281adab032f80f8bf4f3d72f546876fce4963ea"
           }
         },
         {
