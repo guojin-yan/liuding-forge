@@ -151,3 +151,29 @@ source_sha=AUTHORIZED_SOURCE_MANIFEST_SHA256
 `sign` 沿用前节临时内存 Ed25519 教学授权。新的 `evaluate` 进程要求两个包均有可信签名，并在 JIT 前核对独立预期摘要、四个 owner 描述符、固定形状及共同图/参考/来源；Backend 仍根据实际 Session 核对环境锁并执行原参考预热。随后用两个 predictor 完成 78×128+16 的 79 个请求，输出与前节相同的完整 logits、labels、逐图清单和混淆矩阵，准确率门槛仍为 0.65。关闭并销毁 predictor 后再次检查保留响应的数值，报告中记录该所有权检查。
 
 每次 Session 运行严格检查真实 GPU 路线与同步主存输出；公共 Serving 响应不包含逐请求指令日志，评估目录仅保存两把环境锁和两组已知向量输出。不提供动态图、自动合批、FP16/BF16 推理、ORT GPU EP 或生产密钥治理；逻辑载荷预算不等于进程 RSS/显存硬上限，阻塞编译及运行需由调用方另设进程监督。
+
+在独立应用中使用安装包时，将本例的 `image_migraphx.cpp` 与私有 `cifar10_common.hpp` 一起放入应用源码目录，再链接三个公开组件。私有 codec 随示例提供；`nlohmann/json` 3.12.0 头文件是应用自己的显式依赖，不由 SDK 安装或公开导出：
+
+```cmake
+cmake_minimum_required(VERSION 3.18)
+project(cifar_migraphx LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+find_package(jyppx CONFIG REQUIRED COMPONENTS
+    data_image bundle_signing migraphx_serving)
+if(NOT IS_ABSOLUTE "${APP_JSON_INCLUDE_DIR}" OR
+   NOT EXISTS "${APP_JSON_INCLUDE_DIR}/nlohmann/json.hpp")
+    message(FATAL_ERROR "Set APP_JSON_INCLUDE_DIR to existing JSON headers")
+endif()
+add_executable(cifar_migraphx image_migraphx.cpp)
+target_include_directories(cifar_migraphx SYSTEM PRIVATE "${APP_JSON_INCLUDE_DIR}")
+target_link_libraries(cifar_migraphx PRIVATE jyppx::liuding::data_image
+    jyppx::liuding::bundle_signing jyppx::liuding::migraphx_serving)
+if(WIN32)
+    target_compile_definitions(cifar_migraphx PRIVATE NOMINMAX)
+endif()
+```
+
+配置应用时显式设置安装包的 `jyppx_DIR`、匹配的 `Torch_DIR`、`JYPPX_LIUDING_MIGRAPHX_ROOT`、`JYPPX_LIUDING_MIGRAPHX_HIP_ROOT` 和 `APP_JSON_INCLUDE_DIR`，并沿用已验证编译器与运行库环境。Windows 与 WSL2 的 W7900 精确组合已通过安装后独立应用对原签名模型的全部 10000 张验证图评估；具体结果和范围见[AMD 使用指南](../../docs/user-guide/amd_rocm.md)。
