@@ -1,6 +1,13 @@
 @PACKAGE_INIT@
 
 include(CMakeFindDependencyMacro)
+if(@JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME@)
+    if(NOT jyppx_FIND_COMPONENTS OR "migraphx_runtime" IN_LIST jyppx_FIND_COMPONENTS
+       OR "all" IN_LIST jyppx_FIND_COMPONENTS)
+        include("${CMAKE_CURRENT_LIST_DIR}/MIGraphXRuntimeDependency.cmake")
+        jyppx_require_migraphx_runtime()
+    endif()
+endif()
 find_dependency(Torch REQUIRED)
 if("@JYPPX_ACCELERATOR_BUILD@" STREQUAL "rocm")
     if(NOT TARGET torch_hip OR NOT Torch_VERSION VERSION_EQUAL "@Torch_VERSION@"
@@ -54,6 +61,7 @@ set(_jyppx_known_components
     telemetry_http
     telemetry_native
     models
+    migraphx_runtime
     serving
     all
     sdk
@@ -83,6 +91,7 @@ foreach(_jyppx_exported_target IN ITEMS
         jyppx::liuding::foundation jyppx::liuding::core jyppx::liuding::interop jyppx::liuding::data jyppx::liuding::data_image jyppx::liuding::nn
         jyppx::liuding::training jyppx::liuding::optim jyppx::liuding::experiment jyppx::liuding::telemetry_native jyppx::liuding::telemetry_http
         jyppx::liuding::models jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime
+        jyppx::liuding::migraphx_runtime
         jyppx::liuding::onnx_serving jyppx::liuding::bundle_signing
         jyppx::liuding::serving
         jyppx::liuding::vision_render jyppx::liuding::vision_ops

@@ -1,6 +1,6 @@
 # ONNX 导出与推理
 
-部署功能集中在 `deployment/`：`onnx_export` 将原生 C++ 模型导出为 ONNX，`onnx_runtime` 加载 ONNX 并执行推理。两个组件分别启用、默认关闭，安装后的导出与推理均无需 Python。
+部署功能集中在 `deployment/`：`onnx_export` 将原生 C++ 模型导出为 ONNX，`onnx_runtime` 加载 ONNX 并执行推理，`migraphx_runtime` Preview 提供固定形状的原生 AMD GPU 路线。这些组件分别启用、默认关闭，安装后的导出与推理均无需 Python。
 
 完整的原生检查点恢复、双输入双输出导出和动态 batch 数值核对，见 [C++ 部署示例](../../examples/deployment/README.md)。
 
@@ -248,3 +248,25 @@ liuding-forge model onnx pack \
 `<jyppx/liuding/deployment/onnx_runtime/environment.hpp>` 提供 `EnvironmentLock` 与 `EnvironmentRequirements`：`observe_environment(session)` 观察实际执行环境，`serialize_environment_lock()`、`parse_environment_lock()` 保存和严格解析上述 v1 格式，`verify_environment_lock()` 核对原始字节摘要、声明及实际 Session 的版本、平台、依赖和 Provider/options/fallback。该 API 属于 `onnx_runtime`，可独立于导出器与 bundle 模块使用；环境匹配不替代来源认证或数值验收。
 
 需要 bundle 加载、已知向量 warmup 与受控版本切换时，使用独立可选的 [`onnx_serving`](serving.md) 组件；完整应用见 [C++ ONNX Serving 示例](../../examples/serving/README.md#onnx-bundle-与多输入输出)。
+
+## MIGraphX 原生 GPU Preview
+
+构建时开启 `JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME=ON`，显式设置 `JYPPX_LIUDING_MIGRAPHX_ROOT` 为原生 MIGraphX 2.18.0 SDK、`JYPPX_LIUDING_MIGRAPHX_HIP_ROOT` 为 ROCm 10.1.0 HIP SDK 的绝对路径。仅接受 Windows/Linux x64，已验证的具体设备、SDK 构建与数值范围以 [`compatibility.json`](../../compatibility.json) 为准。安装消费者请求 `find_package(jyppx CONFIG REQUIRED COMPONENTS migraphx_runtime)` 并链接 `jyppx::liuding::migraphx_runtime`，也须显式提供这两个 SDK 根；安装包不复制外部 SDK。运行前激活其完整运行库、设备数据与传递依赖，Windows 的 MIGraphX `bin` 应在 DLL 搜索路径中。
+
+```cpp
+#include <jyppx/liuding/deployment/migraphx_runtime/session.hpp>
+
+namespace mgx = jyppx::liuding::migraphx_runtime;
+mgx::SessionOptions options;
+options.device_id = 0;  // HIP 可见设备编号。
+options.input_name = "input";
+options.input_shape = {2, 8};
+// model_bytes 和 trusted_sha256 来自已独立验证的自包含 ONNX 产物。
+mgx::Session session(model_bytes, {.hex = trusted_sha256}, options);
+auto result = session.run(input_values);
+// result.values/result.shape 独立拥有输出；instructions 是本次实际路线。
+```
+
+Session 只接受单输入、单输出、dense FP32、rank 1..8，每个 Session 的 batch 和完整形状在编译时固定。不同 batch/形状使用独立 Session；设备编号不从 LibTorch tensor 或 ORT Provider 推断。默认模型/输入/输出上限为 256/64/64 MiB、batch 上限 1024，均可显式设置正值；输入、输出大小和有限值在相应操作前后核对，输出上限在图编译前检查。编译使用显式 GPU target、同步主存拷贝、关闭 fast math 和 exhaustive tuning；运行还要求实际轨迹包含 GPU 算术及同步主存输出，并拒绝 CPU/reference 指令。
+
+同一 Session 的调用串行，不同 Session 各自拥有程序；调用期间输入必须保持有效和不变。调用绑定所选 HIP 设备并恢复线程先前的设备，输出可在 Session 销毁后继续使用。销毁不得与调用并发。运行错误时先作设备级同步再释放借用输入，其他同设备工作可能延迟清理。解析、编译、等待和执行均为同步阻塞接口，尚无取消或硬超时；字节上限不限制图中间分配、后端缓存、RSS 或总显存。不承诺重复执行逐字节确定性，也不提供序列化程序加载、Serving/bundle 桥接或 ORT MIGraphX EP。

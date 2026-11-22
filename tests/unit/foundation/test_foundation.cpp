@@ -348,10 +348,10 @@ TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
 
 TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
   const auto manifest = jyppx::liuding::current_capability_manifest();
-  ASSERT_EQ(manifest.features.size(), 16U);
+  ASSERT_EQ(manifest.features.size(), 17U);
   EXPECT_EQ(manifest.build.jyppx_version, jyppx::liuding::version());
 
-  const std::array<std::pair<std::string_view, bool>, 16U> expected_components{{
+  const std::array<std::pair<std::string_view, bool>, 17U> expected_components{{
       {"bundle_signing", JYPPX_LIUDING_COMPONENT_BUNDLE_SIGNING_ENABLED != 0},
       {"core", JYPPX_LIUDING_COMPONENT_CORE_ENABLED != 0},
       {"data", JYPPX_LIUDING_COMPONENT_DATA_ENABLED != 0},
@@ -359,6 +359,8 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
       {"experiment", JYPPX_LIUDING_COMPONENT_EXPERIMENT_ENABLED != 0},
       {"foundation", true},
       {"interop", JYPPX_LIUDING_COMPONENT_INTEROP_ENABLED != 0},
+      {"migraphx_runtime",
+       JYPPX_LIUDING_COMPONENT_MIGRAPHX_RUNTIME_ENABLED != 0},
       {"models", JYPPX_LIUDING_COMPONENT_MODELS_ENABLED != 0},
       {"nn", JYPPX_LIUDING_COMPONENT_NN_ENABLED != 0},
       {"onnx_export", JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED != 0},
@@ -377,7 +379,8 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
         component == "models" || component == "serving" ||
         component == "data_image" || component == "vision_render" ||
         component == "onnx_export" || component == "onnx_runtime" ||
-        component == "onnx_serving" || component == "bundle_signing";
+        component == "onnx_serving" || component == "bundle_signing" ||
+        component == "migraphx_runtime";
     EXPECT_EQ(feature.status,
               enabled
                   ? (preview ? jyppx::liuding::CapabilityStatus::experimental

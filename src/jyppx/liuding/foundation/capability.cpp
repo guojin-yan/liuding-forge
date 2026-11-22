@@ -467,7 +467,7 @@ CapabilityManifest make_current_capability_manifest(
 }
 
 CapabilityManifest current_capability_manifest() {
-  const std::array<std::pair<const char*, bool>, 16U> components{{
+  const std::array<std::pair<const char*, bool>, 17U> components{{
       {"bundle_signing", JYPPX_LIUDING_COMPONENT_BUNDLE_SIGNING_ENABLED != 0},
       {"foundation", true},
       {"core", JYPPX_LIUDING_COMPONENT_CORE_ENABLED != 0},
@@ -480,6 +480,8 @@ CapabilityManifest current_capability_manifest() {
       {"training", JYPPX_LIUDING_COMPONENT_TRAINING_ENABLED != 0},
       {"experiment", JYPPX_LIUDING_COMPONENT_EXPERIMENT_ENABLED != 0},
       {"models", JYPPX_LIUDING_COMPONENT_MODELS_ENABLED != 0},
+      {"migraphx_runtime",
+       JYPPX_LIUDING_COMPONENT_MIGRAPHX_RUNTIME_ENABLED != 0},
       {"onnx_export", JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED != 0},
       {"onnx_runtime", JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED != 0},
       {"onnx_serving", JYPPX_LIUDING_COMPONENT_ONNX_SERVING_ENABLED != 0},
@@ -492,7 +494,8 @@ CapabilityManifest current_capability_manifest() {
     const bool preview = name == "models" || name == "serving" ||
                          name == "data_image" || name == "vision_render" ||
                          name == "onnx_export" || name == "onnx_runtime" ||
-                         name == "onnx_serving" || name == "bundle_signing";
+                         name == "onnx_serving" || name == "bundle_signing" ||
+                         name == "migraphx_runtime";
     features.push_back(component_descriptor(component, enabled, preview));
   }
   return make_current_capability_manifest(std::move(features));

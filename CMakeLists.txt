@@ -39,6 +39,7 @@ option(JYPPX_LIUDING_BUILD_MODELS "Build the independent models Preview" OFF)
 option(JYPPX_LIUDING_BUILD_SERVING "Build the independent in-process serving Preview" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_EXPORT "Build the optional native C++ ONNX exporter" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_RUNTIME "Build the optional ONNX Runtime adapter with explicit providers" OFF)
+option(JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME "Build the optional native MIGraphX GPU adapter" OFF)
 option(JYPPX_LIUDING_ONNX_RUNTIME_DIRECTML "Use the exact Windows ONNX Runtime 1.24.4 DirectML profile" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_SERVING "Build the optional ONNX Runtime serving bridge" OFF)
 option(JYPPX_LIUDING_BUILD_BUNDLE_SIGNING "Build native Ed25519 model bundle signing" OFF)
@@ -269,6 +270,10 @@ endif()
 if(JYPPX_LIUDING_BUILD_SERVING)
     find_package(Threads REQUIRED)
 endif()
+if(JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME)
+    include(cmake/MIGraphXRuntimeDependency.cmake)
+    jyppx_require_migraphx_runtime()
+endif()
 
 # SQLite stays an implementation dependency of experiment. Compile its pinned
 # amalgamation separately so project warning/tidy gates do not scan upstream C,
@@ -402,6 +407,7 @@ set(JYPPX_LIUDING_COMPONENT_EXPERIMENT_ENABLED ${JYPPX_LIUDING_BUILD_EXPERIMENT}
 set(JYPPX_LIUDING_COMPONENT_MODELS_ENABLED ${JYPPX_LIUDING_BUILD_MODELS})
 set(JYPPX_LIUDING_COMPONENT_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_SERVING})
 set(JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_RUNTIME})
+set(JYPPX_LIUDING_COMPONENT_MIGRAPHX_RUNTIME_ENABLED ${JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME})
 set(JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_EXPORT})
 set(JYPPX_LIUDING_COMPONENT_ONNX_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_SERVING})
 set(JYPPX_LIUDING_COMPONENT_BUNDLE_SIGNING_ENABLED ${JYPPX_LIUDING_BUILD_BUNDLE_SIGNING})
@@ -862,6 +868,22 @@ if(JYPPX_LIUDING_BUILD_MODELS)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS models)
 endif()
 
+if(JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME)
+    add_library(jyppx_liuding_migraphx_runtime STATIC
+        src/jyppx/liuding/deployment/migraphx_runtime/session.cpp)
+    add_library(jyppx::liuding::migraphx_runtime ALIAS jyppx_liuding_migraphx_runtime)
+    set_target_properties(jyppx_liuding_migraphx_runtime PROPERTIES
+        OUTPUT_NAME liuding-forge-migraphx-runtime EXPORT_NAME migraphx_runtime)
+    target_include_directories(jyppx_liuding_migraphx_runtime PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(jyppx_liuding_migraphx_runtime PUBLIC jyppx_liuding_foundation
+        PRIVATE jyppx_external_migraphx_c jyppx_external_migraphx_hip)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_migraphx_runtime)
+    list(APPEND JYPPX_ENABLED_COMPONENTS migraphx_runtime)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/migraphx_runtime)
+endif()
+
 if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     add_library(jyppx_liuding_onnx_runtime STATIC
         src/jyppx/liuding/deployment/onnx_runtime/session.cpp
@@ -1175,6 +1197,11 @@ install(EXPORT jyppxTargetsExport
 # Package Configuration
 # ============================================
 include(CMakePackageConfigHelpers)
+if(JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME)
+    install(FILES cmake/MIGraphXRuntimeDependency.cmake DESTINATION lib/cmake/jyppx)
+    install(FILES third_party/licenses/migraphx-2.18.0-LICENSE.MIT
+        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+endif()
 
 if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     jyppx_install_onnx_runtime()

@@ -120,6 +120,21 @@
         "nn"
       ]
     },
+    "migraphx_runtime": {
+      "header_roots": [
+        "deployment/migraphx_runtime"
+      ],
+      "source_roots": [
+        "deployment/migraphx_runtime"
+      ],
+      "required_dependencies": [
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "foundation"
+      ],
+      "optional_dependencies": []
+    },
     "models": {
       "header_roots": [
         "models"

@@ -7,6 +7,7 @@
 | 运行 C++ 训练程序 | `training` | [训练 API](../api/training.md) |
 | 从 C++ 模型导出 ONNX | `onnx_export` | [ONNX 导出与推理](../api/onnx.md) |
 | 直接执行 ONNX | `onnx_runtime` | [部署示例](../../examples/deployment/README.md) |
+| 固定形状 ONNX 的原生 AMD GPU 推理 | `migraphx_runtime` Preview | [MIGraphX 接口](../api/onnx.md#migraphx-原生-gpu-preview) |
 | 模型包 Ed25519 签名与外部策略验签 | `bundle_signing` | [签名指南与 C++ 示例](bundle-signing.md) |
 | native bundle 本地推理 | `serving` | [Serving API](../api/serving.md) |
 | ONNX bundle 本地推理与版本切换 | `onnx_serving` | [本地服务示例](../../examples/serving/README.md) |

@@ -1356,8 +1356,8 @@
       "support_status": "optional-directml-development-candidate"
     },
     {
-      "id": "migraphx-native-interchange-test",
-      "scope": "optional-test-native-migraphx",
+      "id": "migraphx-native",
+      "scope": "optional-native-migraphx-runtime-and-tests",
       "version": "2.18.0 (rocm-10.1 source)",
       "source": {
         "type": "source-archive",
@@ -1379,8 +1379,8 @@
         "windows-x86_64",
         "linux-x86_64"
       ],
-      "linkage": "test-only-external-dynamic-sdk",
-      "support_status": "optional-fixed-fixture-interchange-test-only-no-product-adapter"
+      "linkage": "private-external-dynamic-sdk-not-bundled",
+      "support_status": "optional-native-gpu-preview-and-fixed-fixture-development-tests"
     }
   ]
 }

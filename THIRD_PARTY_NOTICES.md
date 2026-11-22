@@ -86,11 +86,13 @@ Provider 查询或显式选择接口不代表 GPU 执行资格；CUDA、DirectML
   disclaims copyright and provides a blessing rather than a license requirement.
   Preserve this provenance and the pinned digest in source distributions.
 
+## Optional Native GPU Dependency
+
+### MIGraphX（原生推理与开发测试）
+
+`JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME` 提供默认关闭的原生 GPU 推理 Preview；`JYPPX_LIUDING_TEST_MIGRAPHX` 独立启用固定图的数值、路线和重载开发测试。两者使用外部 MIGraphX 2.18.0 C API 与所选 HIP SDK。上游为 <https://github.com/ROCm/AMDMIGraphX>，`rocm-10.1` 源码归档 SHA-256 为 `7cd07fa948ac6bce4a19a86aa7b5445cb25791cf11a609273cbdef6eb6c387cd`，原项目 MIT 许可逐字节留存在 `third_party/licenses/migraphx-2.18.0-LICENSE.MIT`。实际 SDK、运行库、构建补丁与精确验证范围独立绑定；安装适配器仅保留接口、配置和许可，不复制外部 SDK 的二进制、依赖或本地补丁，其传递依赖和再分发条件仍由实际 SDK 决定。
+
 ## Test Dependency
-
-### MIGraphX（可选原生互操作测试）
-
-`JYPPX_LIUDING_TEST_MIGRAPHX` 使用外部 MIGraphX 2.18.0 C API，对固定原生 ONNX 图执行 GPU 数值与路线检查；默认关闭，不进入产品组件或安装依赖。上游为 <https://github.com/ROCm/AMDMIGraphX>，`rocm-10.1` 源码归档 SHA-256 为 `7cd07fa948ac6bce4a19a86aa7b5445cb25791cf11a609273cbdef6eb6c387cd`，原项目 MIT 许可逐字节留存在 `third_party/licenses/migraphx-2.18.0-LICENSE.MIT`。实际测试 SDK、运行库、构建补丁与精确验证范围独立绑定；测试不安装或分发该 SDK，其传递依赖和完整再分发条件仍由实际 SDK 决定。
 
 ### GoogleTest
 

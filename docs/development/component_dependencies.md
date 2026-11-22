@@ -4,6 +4,8 @@
 
 CMake 在配置时生成 `component-target-graph.tsv`，`scripts/validation/component_graph.py` 同时检查实际 target、公共链接接口、文件归属及 `<jyppx/liuding/...>` 包含关系，并在构建目录写入 `component-dependency-report.json`。检查覆盖关闭测试的组件配置，也注册为 `ComponentDependencyGraph` CTest。
 
+`migraphx_runtime` 是独立、默认关闭的原生 GPU Preview，公共和生产源码归属 `deployment/migraphx_runtime`，只直接依赖 `foundation`，私有链接显式提供的 MIGraphX/HIP SDK。它不依赖 `onnx_runtime`、`serving` 或模型导出器。安装配置在消费者请求该组件、`all` 或未选组件时要求显式外部 SDK；不将 SDK 复制进安装包，也不因仅请求 `foundation` 发现未使用的 MIGraphX SDK。
+
 检查拒绝未声明或循环依赖、缺少直接链接、公共包含缺少公共链接接口、重复声明、非法或未归属路径以及归属断言漂移。新增组件或依赖时，同步更新架构决策与 JSON 清单；`jyppx::liuding::all`、`jyppx::liuding::sdk` 等聚合 target 或其他组件的传递链接不能替代必要的直接依赖。
 
 `OptionalComponentMatrix` 和 `PreviewComponentMatrix` 的嵌套配置继承父构建的 `FETCHCONTENT_FULLY_DISCONNECTED`、`FETCHCONTENT_UPDATES_DISCONNECTED`（含逐依赖设置）及 `FETCHCONTENT_SOURCE_DIR_*`，两组矩阵各自复用一套构建树及其依赖构建目录。基础组件矩阵还复用一套消费者构建树及其 Windows DLL 暂存，并使用一个较短的缓存目录依次检查非法组合；每次重配显式选择完整组件集。矩阵暂存位于源码 `out/` 内，每种组合都先刷新安装目录，再核对启用组件、关闭组件及独立消费者。先准备锁定依赖并以 `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` 配置父构建；矩阵覆盖组件关闭、安装及独立消费者，不能用完整 SDK 构建替代。

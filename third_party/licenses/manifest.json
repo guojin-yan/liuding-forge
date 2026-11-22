@@ -51,7 +51,7 @@
     "vision-extension-clip": "pending",
     "onnxruntime-directml-windows-x64": "recorded",
     "directml-windows-x64": "recorded",
-    "migraphx-native-interchange-test": "recorded"
+    "migraphx-native": "recorded"
   },
   "files": [
     {
@@ -1428,7 +1428,7 @@
       "size_bytes": 10439
     },
     {
-      "dependency_id": "migraphx-native-interchange-test",
+      "dependency_id": "migraphx-native",
       "path": "migraphx-2.18.0-LICENSE.MIT",
       "size_bytes": 1117,
       "sha256": "2282fd4f9d4acde1c5ab41a3d189752fd0af1048aec181519a903a0c8da8de53",
@@ -1457,7 +1457,7 @@
     "The pinned timm source retains MIT notices for inherited ConvNeXt/Swin code in addition to its Apache-2.0 root license. The two torchvision source archives also contain the separately retained TensorFlow Apache-2.0 notice for damaged-JPEG test assets. These are observed source-archive license identities, not an assertion that test assets, weights or all upstream files are included in the SDK. All four model-reference notice states and C++ provenance/redistribution boundaries remain pending.",
     "The actual Linux CPU 2.14.1 archive has pinned third-party header/oneDNN notices and now retains exact GCC GPLv3 and Runtime Library Exception 3.1 texts. libgomp code/data and loader semantics are traced to the official AlmaLinux 8.5.0-28.el8_10.alma.1 package and its exact source packaging revision; whole ELF bytes differ by downstream loader metadata. Actual Corresponding Source conveyance, packaging-modification material, exact static numerical library composition, full transitive notices, CVE and redistribution qualification remain pending. CPU notice state is unchanged.",
     "Vision extension references retain exact upstream license documents and selected-source hashes in EXTENSION_SOURCE_INVENTORY.json. These native implementation profiles do not imply official checkpoint compatibility, numerical parity, pretrained weight availability, full transitive notice review or release qualification.",
-    "MIGraphX仅留存上游项目MIT许可；可选测试使用外部SDK，不安装或分发其二进制、依赖及本地构建补丁，不授予整套SDK再分发资格。"
+    "MIGraphX仅留存上游项目MIT许可；可选原生适配器和测试使用外部SDK，不安装或分发其二进制、依赖及本地构建补丁，不授予整套SDK再分发资格。"
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"

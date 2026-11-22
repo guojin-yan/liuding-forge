@@ -32,6 +32,7 @@ function(jyppx_write_component_graph output_path)
         experiment
         foundation
         interop
+        migraphx_runtime
         models
         models_yolo
         models_rcnn
@@ -77,7 +78,8 @@ function(jyppx_write_component_graph output_path)
         elseif(component STREQUAL "vision_tasks")
             set(header_roots vision/tasks)
         elseif(component STREQUAL "onnx_export" OR component STREQUAL "onnx_runtime"
-               OR component STREQUAL "onnx_serving" OR component STREQUAL "bundle_signing")
+               OR component STREQUAL "onnx_serving" OR component STREQUAL "bundle_signing"
+               OR component STREQUAL "migraphx_runtime")
             set(header_roots "deployment/${component}")
         endif()
         foreach(header_root IN LISTS header_roots)
