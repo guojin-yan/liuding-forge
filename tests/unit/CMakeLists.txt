@@ -938,6 +938,17 @@ if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo
     jyppx_add_gtest(jyppx_test_vision_models
         LINK_TARGET jyppx::liuding::vision_tasks
         vision/test_models.cpp)
+    add_executable(jyppx_test_vision_amp_recovery
+        vision/test_amp_overflow_recovery.cpp
+        "${JYPPX_TESTS_SOURCE_DIR}/test_utils/runtime_environment.cpp")
+    target_link_libraries(jyppx_test_vision_amp_recovery PRIVATE
+        jyppx::liuding::vision_tasks GTest::gtest_main)
+    jyppx_apply_instrumentation(jyppx_test_vision_amp_recovery)
+    jyppx_add_torch_runtime_dependency(jyppx_test_vision_amp_recovery)
+    gtest_discover_tests(jyppx_test_vision_amp_recovery
+        DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
+        PROPERTIES RUN_SERIAL TRUE TIMEOUT 600
+            SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\]")
     add_executable(jyppx_test_vision_reference EXCLUDE_FROM_ALL
         vision/reference_probe.cpp)
     target_link_libraries(jyppx_test_vision_reference PRIVATE
