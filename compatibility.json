@@ -14,6 +14,30 @@
       "verified_lanes": [
         {
           "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100 under WSL2; HIP 7.16.26385 / ROCm SDK 10.1.0; standalone Linux MIGraphX 2.18.0 with MLIR enabled; explicit gpu target; no LibTorch or ORT execution in probe",
+          "build_type": "Release",
+          "instrumentation": "与Windows逐字节相同的C++探针；GCC13.3，显式gpu/offload_copy=true/fast_math=false/exhaustive_tune=false；MIGRAPHX_GPU_COMPILE_PARALLEL=1与ROCPROFILER_REGISTER_ENABLED=0仅进程内设置。完整输出、编译程序、dispatch和实际加载ELF路径/SHA均封存，GPU串行。",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-4825bb0-migraphx-native-feasibility",
+          "commit": "4825bb05f81bed4de528da5a16533cca238b40b6",
+          "tests": "独立Linux C++ MIGraphX C API消费既有原生导出的Linear及ResNet18 ONNX，batch2/5各自编译，四次首次GPU原生进程均通过原FP32数值对照。原linear0父脚本路线断言失败保持，补充审计复用其输出后仅继续尚未执行三项。仅授外部引擎可行性观察。",
+          "quality_evidence": {
+            "identity": "复用干净5b23c5e原生导出的同两图及batch2/5原始FP32输入/CPU输出，与Windows四份资产摘要全部相同。图/权重/输入/参考未重新导出或修改；所有数值保持abs(actual-reference)<=0.00001+0.0001*abs(reference)。4825bb0仅为主仓上下文，探针独立编译且未链接框架或LibTorch，不表示该提交完整框架资格。",
+            "observed": "四份完整输出均0违规；Linear两份输出逐字节等于原参考；ResNet18两份最大绝对误差2.1457672119140625e-6及1.9073486328125e-6。Linear各8、ResNet18各53条实际trace，观察MLIR gpu::code_object和显式host/GPU拷贝；未观察cpu::或ref::执行指令。Linux SDK的MLIR路线独立于Windows本地SDK的hip_gemm/卷积路线，不授跨系统逐字节等价或性能结论。",
+            "sdk": "所验原生Linux MIGraphX2.18.0、HIP及实际加载ELF内容由收据完整绑定；初次执行前封存的核心MIGraphX/大部分HIP依赖按路径或相同内容匹配，两个动态加载驱动库仅在首个原生进程后、其余三项前首次登记摘要。执行后原SDK/原收据/原输出/二进制均不变；不声称所有库均有首项执行前身份。",
+            "retained_failure": "首个Linear原生进程退出0、完整数值0违规，原父driver因错误要求Linux必须执行gpu::hip_gemm而断言失败；实际为MLIR GPU代码对象。原失败收据/源码/日志保持。补充脚本独立重算已有输出并复用，后续只执行原未运行三项，没有重跑首项或挑选通过结果。",
+            "resources": "四次保留4GiB主存/cgroup有效余量及4GiB磁盘准入，630秒监督；单JIT编译及串行GPU，不授RSS/显存硬配额或性能资格。",
+            "scope": "仅本WSL2/W7900精确SDK、两个固定图和四个FP32形状的外部引擎可行性；batch单独特化，不授框架MIGraphX Session/Serving、ORT MIGraphX EP、动态shape、其他图/算子/精度、训练、任务质量、其他Linux/GPU或发布资格。",
+            "qualification_receipt_sha256": "245022490fd53977ea66ac22a140c043d3bda64bc07ec4f80dae45558605f472",
+            "qualification_analysis_sha256": "eb4f3204ba3d9d177ae57ccb86e595765795c6a9b244b0e74fb4b54e18b6a13b",
+            "retained_original_failure_receipt_sha256": "e308212291c4e5339697364a4c7ee25096d023bfdfcc4b2a7deaf5b74539cbeb",
+            "case_results": "[{\"model\":\"linear\",\"case\":0,\"input_shape\":[2,8],\"output_shape\":[2,3],\"elements\":6,\"violations\":0,\"max_abs\":0.0,\"max_tolerance_ratio\":0.0,\"actual_sha256\":\"3b106db38a6dca7aafe95d1af546237ca38ac4d74a084a8f1b0cea5a361c709a\",\"trace_instructions\":8},{\"model\":\"linear\",\"case\":1,\"input_shape\":[5,8],\"output_shape\":[5,3],\"elements\":15,\"violations\":0,\"max_abs\":0.0,\"max_tolerance_ratio\":0.0,\"actual_sha256\":\"509b6a760633711b6655feca75f3d873d5184fc1076cc55213773a8b91be5529\",\"trace_instructions\":8},{\"model\":\"resnet18\",\"case\":0,\"input_shape\":[2,3,224,224],\"output_shape\":[2,7],\"elements\":14,\"violations\":0,\"max_abs\":2.1457672119140625e-06,\"max_tolerance_ratio\":0.017950398382166496,\"actual_sha256\":\"4cb6a6153ab1a877f241d2835ecda826dfc111be908fdbd217a5a6829c159b8c\",\"trace_instructions\":53},{\"model\":\"resnet18\",\"case\":1,\"input_shape\":[5,3,224,224],\"output_shape\":[5,7],\"elements\":35,\"violations\":0,\"max_abs\":1.9073486328125e-06,\"max_tolerance_ratio\":0.06411900276471275,\"actual_sha256\":\"cba0b37f563242ec99e6ff8e95f88a57e0fab0cfa49f561b91ef6ae89c27b88d\",\"trace_instructions\":53}]"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
           "os": "windows-11",
           "architecture": "x86_64",
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
