@@ -64,6 +64,8 @@ Windows 可显式选择独立的 ORT 1.24.4 / DirectML 1.15.4 组合；W7900 已
 
 可选 `serving` 组件已验证本组合的 native bundle 与显式可信 TorchScript GPU 加载、warmup 和数值前向，以及并发租约、取消、版本切换和安装消费。使用前仍须调用 `initialize_runtime()`。`onnx_serving` 已验证 ORT 1.23.2 CPU Provider，以及显式 DirectML 组合的合成多输入输出图加载、warmup、并发请求和关闭；它不会根据 ROCm LibTorch 自动选择 AMD GPU。组件仍为 Preview，接口与边界见 [Serving](../api/serving.md)。
 
+独立的 `migraphx_serving` Preview 在 Windows 与 WSL2 的本 W7900 组合已验证固定 Linear、ResNet18 的 batch 2/5 FP32 Serving 合同；安装后独立消费者覆盖 Linear batch 2 与 ResNet18 batch 2/5，核对完整输出、实际运行库环境锁及关闭后的响应所有权。每个形状分别编译 Session，主机输入输出均为 CPU FP32；配置见[部署指南](deployment.md)。该范围不包含其他模型、精度、动态形状、任务准确率或性能资格。
+
 可选原生 TensorBoard/OTLP、WinHTTP 发送、Ed25519 签名和 headless CPU 渲染已验证该组合的组件契约与安装消费，遥测另经锁定官方 reader 和 Collector 检查。签名的私钥/策略符号链接负例受当前环境限制仍未验证；完整范围见兼容矩阵。
 
 ## 本地进程执行
