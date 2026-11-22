@@ -228,15 +228,25 @@ Tensor RealBatchTensor(const std::filesystem::path& path,
 // This is the eight-image regression that fails with the C++ frontend's
 // separate matmul/bias path. References remain the original independent HF
 // eager results; neither their values nor the numerical tolerances change.
-TEST(ModelsPretrainedBackward, DinoV2SmallRealFirstBatchCpuGradientsAndSgd) {
+void CheckRealFirstBatch(bool cuda) {
   const auto* fixture = std::getenv("JYPPX_LIUDING_DINOV2_REAL_FIRST_STEP_DIR");
   const auto* weight_root =
       std::getenv("JYPPX_LIUDING_PRETRAINED_REFERENCE_DIR");
   if (!fixture || !*fixture || !weight_root || !*weight_root)
     GTEST_SKIP() << "Explicit fixed real first-step capture/reference required";
+  if (cuda && !torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA/HIP runtime unavailable";
   torch::set_num_threads(1);
   at::globalContext().setDeterministicAlgorithms(true, false);
   at::globalContext().setFloat32MatmulPrecision("highest");
+  if (cuda) {
+    at::globalContext().setDeterministicCuDNN(true);
+    at::globalContext().setBenchmarkCuDNN(false);
+    at::globalContext().setAllowTF32CuDNN(false);
+    at::globalContext().setAllowTF32CuBLAS(false);
+  }
+  const auto device =
+      cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
   const auto root = std::filesystem::path(fixture);
   const auto capture = root / "capture";
   const auto reference = root / "reference";
@@ -267,6 +277,10 @@ TEST(ModelsPretrainedBackward, DinoV2SmallRealFirstBatchCpuGradientsAndSgd) {
         capture / "head-bias.f32", {10},
         "f0f311719a1285d5b40205d2fed9e9adb034ef9d8dc8332497ebfe7c659943aa"));
   }
+  if (cuda) {
+    backbone->to(device);
+    head->to(device);
+  }
   std::map<std::string, Tensor> parameters;
   std::vector<optim::SgdParameterGroup> groups(2);
   for (std::size_t index = 0; index < groups.size(); ++index) {
@@ -288,13 +302,17 @@ TEST(ModelsPretrainedBackward, DinoV2SmallRealFirstBatchCpuGradientsAndSgd) {
   ASSERT_EQ(parameters.size(), 176U);
   optim::SgdOptimizerAdapter optimizer("real-first-step.sgd",
                                        std::move(groups));
-  const auto input = RealBatchTensor(
-      capture / "input.f32", {8, 3, 224, 224},
-      "5b26501aaf619fe2548bfca1a4364ad948769f32b7c488bc90fa85fd738207c0");
-  const auto labels = RealBatchTensor(
-      capture / "labels.i64", {8},
-      "94cf11a79244e63b1de366b6887293ddd6c42b867fbdcb53b164ac3cbc235e45",
-      torch::kInt64);
+  const auto input =
+      RealBatchTensor(
+          capture / "input.f32", {8, 3, 224, 224},
+          "5b26501aaf619fe2548bfca1a4364ad948769f32b7c488bc90fa85fd738207c0")
+          .to(device);
+  const auto labels =
+      RealBatchTensor(
+          capture / "labels.i64", {8},
+          "94cf11a79244e63b1de366b6887293ddd6c42b867fbdcb53b164ac3cbc235e45",
+          torch::kInt64)
+          .to(device);
   optimizer.zero_grad();
   const auto logits = head->forward(backbone->forward(input));
   const auto loss = torch::nn::functional::cross_entropy(logits, labels);
@@ -311,6 +329,15 @@ TEST(ModelsPretrainedBackward, DinoV2SmallRealFirstBatchCpuGradientsAndSgd) {
           "34ae934d033ab4331240d43eccb8574605dc3a78dfa723f1654d3f2a0b99d2ea"),
       "real-first-step.loss", 3e-4, 3e-4);
   loss.backward();
+  if (cuda) {
+    for (const auto& [name, parameter] : parameters) {
+      ASSERT_EQ(parameter.device(), device) << name;
+      ASSERT_EQ(parameter.scalar_type(), torch::kFloat32) << name;
+      ASSERT_TRUE(parameter.grad().defined()) << name;
+      ASSERT_EQ(parameter.grad().device(), device) << name;
+      ASSERT_TRUE(torch::isfinite(parameter.grad()).all().item<bool>()) << name;
+    }
+  }
   struct Check {
     const char* name;
     const char* index;
@@ -367,8 +394,21 @@ TEST(ModelsPretrainedBackward, DinoV2SmallRealFirstBatchCpuGradientsAndSgd) {
                 reference / "updated" / (std::string(check.index) + ".f32"),
                 check.shape, check.updated_digest),
             std::string("real-first-step.updated.") + check.name, 3e-4, 3e-5);
+  std::cout << "REAL_FIRST_STEP device=" << device
+            << " gradient_parameters=" << parameters.size()
+            << " full_gradients=" << checks.size()
+            << " full_updates=" << checks.size()
+            << " optimizer_steps=" << optimizer.completed_steps() << '\n';
+}
+
+TEST(ModelsPretrainedBackward, DinoV2SmallRealFirstBatchCpuGradientsAndSgd) {
+  CheckRealFirstBatch(false);
 }
 #if defined(JYPPX_LIUDING_PRETRAINED_CUDA_TESTS)
+TEST(ModelsPretrainedBackward, DinoV2SmallRealFirstBatchCudaGradientsAndSgd) {
+  CheckRealFirstBatch(true);
+}
+
 TEST(ModelsPretrainedBackward, DinoV2SmallCudaGradientsAndGroupedSgd) {
   CheckBackward(true);
 }
