@@ -99,6 +99,17 @@ if(TARGET jyppx::liuding::migraphx_serving)
             --fixtures "${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}")
         set_tests_properties(MIGraphXServingInstalledConsumer PROPERTIES
             LABELS "deployment;migraphx_serving;install;gpu" TIMEOUT 1200 RUN_SERIAL TRUE)
+        foreach(index RANGE 0 1)
+            add_test(NAME "MIGraphXServingInstalledResNet18.case_${index}"
+                COMMAND ${migraphx_test_prefix} "${Python3_EXECUTABLE}" -I -B
+                "${PROJECT_SOURCE_DIR}/tests/scripts/verify_migraphx_serving_install.py"
+                --cmake "${CMAKE_COMMAND}" --ctest "${CMAKE_CTEST_COMMAND}"
+                --source-root "${PROJECT_SOURCE_DIR}" --parent-build "${CMAKE_BINARY_DIR}"
+                --fixtures "${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}"
+                --model resnet18 --case "${index}")
+            set_tests_properties("MIGraphXServingInstalledResNet18.case_${index}" PROPERTIES
+                LABELS "deployment;migraphx_serving;install;gpu" TIMEOUT 1200 RUN_SERIAL TRUE)
+        endforeach()
     endif()
 endif()
 
