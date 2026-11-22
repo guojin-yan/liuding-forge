@@ -32,6 +32,10 @@ DINOv2/DINOv3 的部分架构已验证 CPU FP32 与 GPU FP16 autocast 的完整�
 
 本 ROCm 分发的 CPU FP32 路径另通过 DINOv2-small 与 DINOv3 Huge+ 的独立随机架构数值对照，覆盖严格状态导入、完整 tokens 和 CLS；Huge+ 还核对三层中间输出与原 12 GiB 峰值 RSS 上限。输入分别为 `2×3×224×280` 和 `1×3×35×50`，参考来源及固定身份见兼容矩阵。这些 CPU 对照不授予 GPU 数值、预训练权重或任务质量资格。
 
+固定独立随机状态参考另通过 ResNet18/34/50/101、ResNeXt50、DenseNet121、MobileNetV2、MobileNetV3 Small/Large、EfficientNet B0/B2、ConvNeXt Tiny/Small、ViT Tiny/Small/Base、Swin Tiny 与带掩码 Transformer Encoder 的 GPU FP32 前向数值合同，Windows 与 WSL 分别验证原 logits 及适用中间 stage。`tf_efficientnetv2_s` 的 GPU 输出和最后一个 stage 均超原容差，仍未授予该数值资格；19 个 CPU 对照分两批全部通过。ViT 另核对完整 tokens 和 patch grid，Swin 核对四级完整特征。范围限于兼容矩阵列出的固定随机状态、输入和精度，不推导反向、预训练权重或任务质量。
+
+固定独立随机状态的 DINOv3 ViT Small/Small+/Base 与 ConvNeXt Tiny/Small 另通过两系统 GPU FP32 数值合同：ViT 核对完整 tokens 和 CLS，ConvNeXt 核对四级特征、全局输出及模型适配器输出，保留原参考与容差。此范围只授这五个架构的固定前向数值，不包含高容量、反向、预训练权重或真实任务质量。
+
 Windows 同组合另通过十个 P6 检测入口的 FP16 动态回退后更新合同；两套系统分别记录逐轮 scale、溢出跳步和最终一次实际更新。范围限于固定合成输入，不推导其余目录入口的 Windows 资格；具体入口与源码身份见兼容矩阵。
 
 Windows 的其余 208 个视觉目录入口已分批执行原单步合同，结果为 CPU FP32：208 通过、0 失败、0 跳过、0 未准入；GPU FP32：208 通过、0 失败、0 跳过、0 未准入；GPU FP16：197 通过、11 失败、0 跳过、0 未准入；GPU BF16：208 通过、0 失败、0 跳过、0 未准入。仅授各批通过子集；CPU 使用原公共目录，GPU 扩展仅改变仓库外测试选择并复用原训练函数。范围限于随机初始化模型、合成输入的前向、loss、反向、实际更新与冻结参数保持；精确入口、源码身份和保留失败见兼容矩阵。
@@ -73,8 +77,6 @@ ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 
 模型与 Serving 的[通用资源入口](../../scripts/benchmarks/RESOURCE_BASELINE.md)使用 HIP 身份、同步与独立 `peak_rocm_*` 字段；缺少功耗/频率控制观测时保留独立样本并阻止写入可比较 reference。图像入口与真实任务性能须分别验证。
 
 [图像读取到训练更新](../benchmarks/README.md#图像读取到训练更新)入口同样支持 HIP 身份、同步与独立显存指标，可选择文件读取、解码缓存或预缩放缓存；`cuda-fp16` 与 `cuda-fp16-storage` 分别使用 FP32 主权重和 FP16 参数存储。每种模型、数据、精度与加载配置须独立采样，训练完成不代表统计稳定或任务准确率。
-
-固定独立随机状态参考另通过 ResNet18/34/50/101、ResNeXt50、DenseNet121、MobileNetV2、MobileNetV3 Small/Large、EfficientNet B0/B2、ConvNeXt Tiny/Small、ViT Tiny/Small/Base、Swin Tiny 与带掩码 Transformer Encoder 的 GPU FP32 前向数值合同，Windows 与 WSL 分别验证原 logits 及适用中间 stage。`tf_efficientnetv2_s` 的 GPU 输出和最后一个 stage 均超原容差，仍未授予该数值资格；19 个 CPU 对照分两批全部通过。ViT 另核对完整 tokens 和 patch grid，Swin 核对四级完整特征。范围限于兼容矩阵列出的固定随机状态、输入和精度，不推导反向、预训练权重或任务质量。
 
 ## WSL2 原生核心与训练
 
