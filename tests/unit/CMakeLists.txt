@@ -58,6 +58,48 @@ if(TARGET jyppx::liuding::migraphx_runtime)
     endif()
 endif()
 
+if(TARGET jyppx::liuding::migraphx_serving)
+    add_executable(jyppx_test_migraphx_serving deployment/migraphx_serving/test_backend.cpp
+        "${JYPPX_TESTS_SOURCE_DIR}/test_utils/runtime_environment.cpp")
+    target_link_libraries(jyppx_test_migraphx_serving PRIVATE
+        jyppx::liuding::migraphx_serving GTest::gtest_main)
+    jyppx_apply_instrumentation(jyppx_test_migraphx_serving)
+    jyppx_add_torch_runtime_dependency(jyppx_test_migraphx_serving)
+    if(WIN32)
+        target_compile_definitions(jyppx_test_migraphx_serving PRIVATE NOMINMAX)
+        target_link_libraries(jyppx_test_migraphx_serving PRIVATE psapi)
+    endif()
+    foreach(contract IN ITEMS ExplicitDeclarationContracts ExactFixedSchemas)
+        add_test(NAME "MIGraphXServing.${contract}"
+            COMMAND ${migraphx_test_prefix} $<TARGET_FILE:jyppx_test_migraphx_serving>
+            "--gtest_filter=MIGraphXServing.${contract}")
+        set_tests_properties("MIGraphXServing.${contract}" PROPERTIES
+            LABELS "deployment;migraphx_serving" TIMEOUT 30)
+    endforeach()
+    if(JYPPX_LIUDING_TEST_MIGRAPHX)
+        target_compile_definitions(jyppx_test_migraphx_serving PRIVATE
+            JYPPX_MIGRAPHX_SERVING_FIXTURES="${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}"
+            JYPPX_MIGRAPHX_SERVING_EVIDENCE="${CMAKE_BINARY_DIR}/evidence/migraphx-serving")
+        foreach(contract IN ITEMS FixedLinear2OwnershipConcurrencyAndClose
+                FixedLinear5OwnershipConcurrencyAndClose RejectsUnverifiedContractsAndBudgets
+                CooperativeInterruptionsPreserveReadySession VersionPublicationRetainsLeasesAndRejectsBadWarmup)
+            add_test(NAME "MIGraphXServingGpu.${contract}"
+                COMMAND ${migraphx_test_prefix} $<TARGET_FILE:jyppx_test_migraphx_serving>
+                "--gtest_filter=MIGraphXServingGpu.${contract}")
+            set_tests_properties("MIGraphXServingGpu.${contract}" PROPERTIES
+                LABELS "deployment;migraphx_serving;gpu" TIMEOUT 600 RUN_SERIAL TRUE)
+        endforeach()
+        add_test(NAME MIGraphXServingInstalledConsumer
+            COMMAND ${migraphx_test_prefix} "${Python3_EXECUTABLE}" -I -B
+            "${PROJECT_SOURCE_DIR}/tests/scripts/verify_migraphx_serving_install.py"
+            --cmake "${CMAKE_COMMAND}" --ctest "${CMAKE_CTEST_COMMAND}"
+            --source-root "${PROJECT_SOURCE_DIR}" --parent-build "${CMAKE_BINARY_DIR}"
+            --fixtures "${JYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR}")
+        set_tests_properties(MIGraphXServingInstalledConsumer PROPERTIES
+            LABELS "deployment;migraphx_serving;install;gpu" TIMEOUT 1200 RUN_SERIAL TRUE)
+    endif()
+endif()
+
 if(TARGET jyppx::liuding::foundation)
 jyppx_add_gtest(jyppx_test_foundation
     LINK_TARGET jyppx::liuding::foundation

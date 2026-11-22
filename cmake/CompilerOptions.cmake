@@ -29,6 +29,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_onnx_export
     jyppx_liuding_onnx_runtime
     jyppx_liuding_onnx_serving
+    jyppx_liuding_migraphx_serving
     jyppx_liuding_bundle_signing
     jyppx_liuding_serving
     jyppx_dataset_preparation

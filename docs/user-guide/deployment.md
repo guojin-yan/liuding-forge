@@ -11,6 +11,7 @@
 | 模型包 Ed25519 签名与外部策略验签 | `bundle_signing` | [签名指南与 C++ 示例](bundle-signing.md) |
 | native bundle 本地推理 | `serving` | [Serving API](../api/serving.md) |
 | ONNX bundle 本地推理与版本切换 | `onnx_serving` | [本地服务示例](../../examples/serving/README.md) |
+| 固定形状 ONNX bundle 的原生 AMD GPU 推理与版本切换 | `migraphx_serving` Preview | [Serving API](../api/serving.md#加载与请求) |
 
 例如，安装包已启用 ONNX Serving 时，应用链接对应组件即可：
 
@@ -21,6 +22,8 @@ target_link_libraries(my_service PRIVATE jyppx::liuding::onnx_serving)
 ```
 
 构建库时，`JYPPX_LIUDING_BUILD_ONNX_EXPORT`、`JYPPX_LIUDING_BUILD_ONNX_RUNTIME`、`JYPPX_LIUDING_BUILD_SERVING` 和 `JYPPX_LIUDING_BUILD_ONNX_SERVING` 均默认关闭。ONNX Serving bridge 要求同时开启 `SERVING` 与 `ONNX_RUNTIME`，并通过 `JYPPX_LIUDING_ONNX_RUNTIME_ROOT` 提供匹配的 ORT SDK；它不依赖导出器，仅启用 `serving` 也不引入 ORT。运行从 C++ 导出模型的 ONNX Serving 示例时，还须开启 `ONNX_EXPORT` 和 `JYPPX_LIUDING_BUILD_EXAMPLES`。
+
+原生 MIGraphX Serving 同样默认关闭：开启 `JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING`、`JYPPX_LIUDING_BUILD_SERVING` 与 `JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME`，提供[精确外部 MIGraphX/HIP SDK](../api/onnx.md#migraphx-原生-gpu-preview)。安装消费者使用 `find_package(jyppx CONFIG REQUIRED COMPONENTS migraphx_serving)`，链接 `jyppx::liuding::migraphx_serving`，并显式提供两个 SDK 根及匹配的运行库环境。它不要求 ORT 或导出器；仅消费 `serving` 时不发现未使用的 MIGraphX SDK，安装包不复制外部 SDK。
 
 需要签名交付时，显式开启 `JYPPX_LIUDING_BUILD_BUNDLE_SIGNING` 并提供匹配的 OpenSSL SDK；该组件也默认关闭。签名发布到新目录，外部信任策略须绑定独立获得的原始 SHA-256。CLI 的 bundle 校验及 ONNX smoke/verify 可复用该策略，在加载推理模型前核对全部声明签名；C++ Serving 加载器通过相同 `ModelBundleVerifyOptions` 接入。具体配置和命令见[模型包签名](bundle-signing.md)。
 

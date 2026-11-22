@@ -10,6 +10,7 @@
 - MIGraphX 开发测试补充编译程序在独立进程中的重载，核对程序 SHA、实际 GPU 指令、原 FP32 参考及首次执行输出的逐字节一致性。
 - 增加默认关闭的原生 `migraphx_runtime` Preview 组件，显式选择 HIP 设备并编译固定形状 ONNX，支持有字节上限的同步主存 FP32 输入输出、串行 Session 调用及实际 GPU 路线检查；安装消费者显式提供外部 MIGraphX/HIP SDK。
 - 原生 MIGraphX Session 增加有界环境锁接口，分别核对编译头文件版本、实际 C API/HIP 模块文件摘要、HIP runtime/driver、设备身份与固定输入输出形状；严格拒绝环境漂移，纯解析无需设备查询。
+- 增加默认关闭的 `migraphx_serving` Preview，将固定形状原生 AMD GPU Session 接入已验证 bundle、可信 pipeline、独立已知向量预热、请求生命周期与同 runtime 版本切换；公共输入输出为 CPU FP32，显式外部 SDK 和环境锁固定实际 GPU。
 - 接入 AMD ROCm LibTorch/HIP 构建、GPU 设备发现与构建指纹，视觉 batch 预检使用 HIP 内存查询；AMD 继续使用 LibTorch 的 `cuda:<index>` 与既有训练/AMP/恢复接口。
 - Windows/Linux ROCm 10.1.0 LibTorch 2.14.0 可启用原生 ONNX 导出；GPU 训练模型通过独立 CPU 副本导出，视觉 CLI 使用 CPU FP32，推理后端由 ONNX Runtime 单独选择。
 - 补齐 AMD 开发组合的八类优化器、十五类调度器与 FP32/FP16/BF16 autocast 数值及精确续训回归；主权重使用 FP32。

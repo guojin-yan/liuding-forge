@@ -135,6 +135,27 @@
       ],
       "optional_dependencies": []
     },
+    "migraphx_serving": {
+      "header_roots": [
+        "deployment/migraphx_serving"
+      ],
+      "source_roots": [
+        "deployment/migraphx_serving"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation",
+        "interop",
+        "migraphx_runtime",
+        "nn",
+        "serving"
+      ],
+      "required_public_dependencies": [
+        "migraphx_runtime",
+        "serving"
+      ],
+      "optional_dependencies": []
+    },
     "models": {
       "header_roots": [
         "models"

@@ -611,8 +611,9 @@ PredictResponse Predictor::predict(const PredictRequest& request,
                              .runtime = impl->Info(),
                              .timing = timing};
     } catch (...) {
-      // An ORT call has independent run options. A cooperative interrupt at
-      // any publication boundary is a failed request, not a poisoned session.
+      // Adapters can guarantee that interrupted work has finished or has
+      // independent run options. A cooperative publication interrupt then
+      // fails the request without poisoning its session.
       if (impl->isolated_interrupts) {
         try {
           throw;

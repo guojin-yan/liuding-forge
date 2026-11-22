@@ -40,6 +40,7 @@ option(JYPPX_LIUDING_BUILD_SERVING "Build the independent in-process serving Pre
 option(JYPPX_LIUDING_BUILD_ONNX_EXPORT "Build the optional native C++ ONNX exporter" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_RUNTIME "Build the optional ONNX Runtime adapter with explicit providers" OFF)
 option(JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME "Build the optional native MIGraphX GPU adapter" OFF)
+option(JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING "Build the optional native MIGraphX serving bridge" OFF)
 option(JYPPX_LIUDING_ONNX_RUNTIME_DIRECTML "Use the exact Windows ONNX Runtime 1.24.4 DirectML profile" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_SERVING "Build the optional ONNX Runtime serving bridge" OFF)
 option(JYPPX_LIUDING_BUILD_BUNDLE_SIGNING "Build native Ed25519 model bundle signing" OFF)
@@ -139,6 +140,11 @@ if(JYPPX_LIUDING_BUILD_ONNX_SERVING AND
    (NOT JYPPX_LIUDING_BUILD_SERVING OR NOT JYPPX_LIUDING_BUILD_ONNX_RUNTIME))
     message(FATAL_ERROR
         "JYPPX_LIUDING_BUILD_ONNX_SERVING=ON requires SERVING and ONNX_RUNTIME components")
+endif()
+if(JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING AND
+   (NOT JYPPX_LIUDING_BUILD_SERVING OR NOT JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME))
+    message(FATAL_ERROR
+        "JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING=ON requires SERVING and MIGRAPHX_RUNTIME components")
 endif()
 if(JYPPX_LIUDING_BUILD_BUNDLE_SIGNING AND NOT JYPPX_LIUDING_BUILD_INTEROP)
     message(FATAL_ERROR "JYPPX_LIUDING_BUILD_BUNDLE_SIGNING=ON requires INTEROP")
@@ -408,6 +414,7 @@ set(JYPPX_LIUDING_COMPONENT_MODELS_ENABLED ${JYPPX_LIUDING_BUILD_MODELS})
 set(JYPPX_LIUDING_COMPONENT_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_SERVING})
 set(JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_RUNTIME})
 set(JYPPX_LIUDING_COMPONENT_MIGRAPHX_RUNTIME_ENABLED ${JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME})
+set(JYPPX_LIUDING_COMPONENT_MIGRAPHX_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING})
 set(JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_EXPORT})
 set(JYPPX_LIUDING_COMPONENT_ONNX_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_SERVING})
 set(JYPPX_LIUDING_COMPONENT_BUNDLE_SIGNING_ENABLED ${JYPPX_LIUDING_BUILD_BUNDLE_SIGNING})
@@ -932,6 +939,24 @@ if(JYPPX_LIUDING_BUILD_SERVING)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_serving)
     list(APPEND JYPPX_ENABLED_COMPONENTS serving)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS serving)
+endif()
+
+if(JYPPX_LIUDING_BUILD_MIGRAPHX_SERVING)
+    add_library(jyppx_liuding_migraphx_serving STATIC
+        src/jyppx/liuding/deployment/migraphx_serving/backend.cpp)
+    add_library(jyppx::liuding::migraphx_serving ALIAS jyppx_liuding_migraphx_serving)
+    set_target_properties(jyppx_liuding_migraphx_serving PROPERTIES
+        OUTPUT_NAME liuding-forge-migraphx-serving EXPORT_NAME migraphx_serving)
+    target_include_directories(jyppx_liuding_migraphx_serving PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(jyppx_liuding_migraphx_serving
+        PUBLIC jyppx_liuding_migraphx_runtime jyppx_liuding_serving
+        PRIVATE jyppx_liuding_core jyppx_liuding_foundation
+                jyppx_liuding_interop jyppx_liuding_nn)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_migraphx_serving)
+    list(APPEND JYPPX_ENABLED_COMPONENTS migraphx_serving)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/migraphx_serving)
 endif()
 
 if(JYPPX_LIUDING_BUILD_ONNX_SERVING)

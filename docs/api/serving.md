@@ -10,6 +10,10 @@
 
 `OnnxRuntimeBackend::load` 从核对完整摘要的 bundle 快照构造真实 Session，核对公共[环境锁](onnx.md#公共环境锁与-serving)、实际依赖、平台及显式 Provider/options/fallback，再调用可信 `OnnxPipelineFactory` 解码四个描述符。工厂须拥有返回后使用的数据，不能保留借用的 bundle 或图签名。adapter 进一步检查全部描述符绑定和精确图边界：输入为 keyword 具名 CPU FP32 Tensor，输出为包含全部具名 Tensor 的封闭字典，名称、rank、固定维度和动态首维必须匹配。`onnx_invocation_schema()`、`onnx_result_schema()` 可从 Session 签名生成对应 schema。
 
+独立的 `migraphx_serving` Preview 通过 `<jyppx/liuding/deployment/migraphx_serving/backend.hpp>` 和 `jyppx::liuding::migraphx_serving` 接入原生 AMD GPU；构建与安装配置见[部署指南](../user-guide/deployment.md)。`MIGraphXRuntimeBackend` 显式接收 `RuntimeDescriptor`、固定 `migraphx_runtime::SessionOptions` 和可信 `MIGraphXPipelineFactory`。`migraphx_runtime_descriptor(lock)` 使用规范环境锁字节的 SHA 固定声明，锁应由独立可信部署流程取得；将这些字节作为 schema `jyppx.liuding.migraphx_runtime_lock`、version 1 的唯一 evidence 描述符放入 bundle。模型变体必须为单文件、自包含 ONNX，runtime 声明 `devices={"rocm"}`、`dtypes={"float32"}` 和精确平台、版本与依赖。
+
+此后端核对快照、锁摘要与实际 Session 环境，再要求工厂解码并绑定全部 input/output/pre/post 描述符的内容，匹配完整固定形状和输入名。输入为单个 keyword CPU FP32 连续 Tensor，响应为单个 CPU FP32 Tensor；使用 `migraphx_invocation_schema(name, shape)`、`migraphx_result_schema(shape)` 构造精确边界。可信 pre/post 仅可保持该 schema；工厂不能保留借用的 bundle 或锁引用。主机 I/O 由 Session 复制到显式 HIP 设备，实际执行配置为 `execution_provider="migraphx.gpu"` 和 `provider_options["device_id"]`；它独立于 ORT，不支持动态形状、自动合批、OOM 重试或 CPU fallback。
+
 ONNX 的 `RuntimeDescriptor::device` 表示 CPU 主机 I/O；`execution_provider`、`provider_options` 和 `allow_cpu_fallback` 固定显式执行配置，设备传输由 ORT 负责，不表示 GPU 零拷贝或执行资格。请求 batch 上限来自 `SessionOptions::max_batch_size`；此 adapter 不接入 `DynamicBatcher`，不启用 native OOM 重试。仅启用 `serving` 不引入 ORT，`onnx_serving` 的构建与安装方式见[部署指南](../user-guide/deployment.md)。
 
 至少一个调用方提供的独立已知向量必须通过完整 pre/invoke/post、输出 schema、资源和数值检查，加载才返回 ready predictor。`load_torchscript_predictor` 实际加载和调用显式可信的 JIT 归档，独立固定归档摘要与环境锁，继承兼容运行时的设备和失败语义；它不把可执行归档混入数据型 bundle，也不支持本组件的批处理或 OOM 拆批重试。
@@ -22,7 +26,7 @@ ONNX 的 `RuntimeDescriptor::device` 表示 CPU 主机 I/O；`execution_provider
 
 ## 同 runtime 的受控切换
 
-`ReloadablePredictor` 在旁路调用现有 `RuntimeBackend::load`，完成 bundle 校验、加载和已知向量 warmup，再比较完整输入输出 schema，原子发布新版本。native 和 ORT bundle 均支持同 runtime 的受控切换；backend ID/version、格式、环境锁、依赖、精确设备、dtype、执行能力及 Provider/options/fallback 必须与初始实例一致。ORT 还比较完整图输入输出名称、形状和动态 batch 符号及其关联，不能只比较动态维度占位或摘要。不支持跨后端迁移、跨设备 placement 或版本化 `DynamicBatcher`。
+`ReloadablePredictor` 在旁路调用现有 `RuntimeBackend::load`，完成 bundle 校验、加载和已知向量 warmup，再比较完整输入输出 schema，原子发布新版本。native、ORT 和 MIGraphX bundle 均支持同 runtime 的受控切换；backend ID/version、格式、环境锁、依赖、精确设备、dtype、执行能力及 Provider/options/fallback 必须与初始实例一致。ORT 还比较完整图输入输出名称、形状和动态 batch 符号及其关联，MIGraphX 比较单输入名及固定 FP32 输入输出边界，不能只比较摘要。不支持跨后端迁移、跨设备 placement 或版本化 `DynamicBatcher`。
 
 ```cpp
 using namespace jyppx::liuding::serving;
@@ -48,6 +52,7 @@ const auto change = current.reload(backend, new_bundle, verify, known_vectors,
 | --- | --- | --- |
 | Native | `2 * max_state_bytes + max_snapshot_bytes` | 声明的模型状态、导入 staging 和已验证快照 |
 | ORT | `max_snapshot_bytes` | 已验证 bundle 快照，ONNX 模型字节计入一次；忽略 native 专用的 `max_state_bytes` |
+| MIGraphX | `max_snapshot_bytes` | 已验证 bundle 快照；不包含图编译、设备程序、后端缓存或 workspace |
 
 两槽总预留超过 `max_resident_bytes`，或已有候选/退役版本时，拒绝下一次加载。请求和 warmup I/O 另受各自上限约束。`statistics()` 的 resident/peak/reserved 反映槽和声明预算，不等同于实测 RSS/显存；ORT 图解析、优化、中间量、allocator 和 Provider workspace 不受快照预算硬限制，实际峰值须独立测量。
 
@@ -66,6 +71,8 @@ LibTorch/CUDA 的确定性设置只约束固定执行配置；合批或 OOM 拆�
 只有显式 retry-safe native forward 中确认的分配失败产生 `RetryableOutOfMemory`，按整个原始 batch 的有限预算迭代拆分，最多 8 次，不重试 singleton。普通资源/schema/pre/post/输出错误不触发重试；JIT 与 ORT 不允许此策略。
 
 predictor 关闭先拒绝新请求，再等待活动 lease；超时返回 false，保持 draining，不卸载运行中的 session。batcher 先停止准入、取消队列并等待 compute/快照，再关闭 predictor；不 detach worker。进入 forward 后的失败会保守地将实例降级，显式 retry-safe native OOM 除外。ORT 使用每次调用独立的取消状态，协作取消或 deadline 超时只使该请求失败，即使在推理后、响应发布前观察到，也允许健康 Session 继续使用；其他执行或输出错误仍会降级。forward 前的 schema/资源/cancel/deadline 拒绝不损害模型。readiness 在 draining/degraded/closed 时为 false。
+
+MIGraphX 的编译和运行同步阻塞，取消/deadline 仅在阶段边界检查，不能抢占 GPU 工作。完成的 run 已同步并拥有主存结果，随后在响应发布边界发现的协作中断只使该请求失败，实例仍可用；执行或输出错误仍会降级。版本切换超时也不能抢占编译，逻辑预算不限制 RSS/显存或后端编译缓存；需要硬时限或隔离时由宿主进程监督器提供。
 
 ## 服务适配与观测
 
