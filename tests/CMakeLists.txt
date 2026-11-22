@@ -732,6 +732,21 @@ if(JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR OR JYPPX_LIUDING_TEST_OFFICIAL_TELEM
     set_tests_properties(NativeOtlpCollectorInterchange PROPERTIES
         LABELS "experiment;telemetry;otlp;native;official;integration"
         TIMEOUT 180 RUN_SERIAL TRUE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME NativeOtlpCollectorTrustedTls
+            COMMAND "${JYPPX_TELEMETRY_PYTHON}" -I -B
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_collector_tls.py"
+                --cli $<TARGET_FILE:jyppx_cli>
+                --example $<TARGET_FILE:jyppx_liuding_otlp_http_example>
+                --collector "${JYPPX_OTELCOL_EXECUTABLE}"
+                --artifacts "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-artifacts.json"
+                --config "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector.yaml"
+                --system-ca-bundle "${JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE}"
+                --work-dir "${CMAKE_CURRENT_BINARY_DIR}/collector-trusted-tls")
+        set_tests_properties(NativeOtlpCollectorTrustedTls PROPERTIES
+            LABELS "experiment;telemetry;otlp;native;official;integration;tls;loopback"
+            TIMEOUT 180 RUN_SERIAL TRUE)
+    endif()
     if(NOT TARGET jyppx_test_otlp_http_harness)
         message(FATAL_ERROR "Collector crash acceptance requires the native HTTP test harness")
     endif()

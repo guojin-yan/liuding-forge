@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+from contextlib import nullcontext
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -15,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -159,9 +161,21 @@ def readback(output, events, instance, clock_mappings):
 
 
 class Collector:
-    def __init__(self, executable, config, root):
+    def __init__(self, executable, config, root, tls_directory=None, host="127.0.0.1"):
         self.root, self.executable, self.config = root, executable, config
+        self.tls_directory, self.host = tls_directory, host
+        self.tls_observation = None
         self.output, self.log = root / "collector.jsonl", root / "collector.log"
+        if tls_directory is not None:
+            text = config.read_text("utf-8")
+            anchor = "        max_request_body_size: 16777216\n"
+            require(text.count(anchor) == 1, "Collector receiver fixture changed")
+            self.config = root / "collector-tls.yaml"
+            self.config.write_text(text.replace(anchor, anchor +
+                "        tls:\n" +
+                "          cert_file: " + json.dumps(str(tls_directory / "valid.pem")) + "\n" +
+                "          key_file: " + json.dumps(str(tls_directory / "server.key")) + "\n" +
+                '          min_version: "1.2"\n          max_version: "1.2"\n'), encoding="utf-8")
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
@@ -179,6 +193,18 @@ class Collector:
                 require(self.process.poll() is None, "Real Collector stopped at startup")
                 try:
                     with socket.create_connection(("127.0.0.1", self.port), timeout=0.1):
+                        if self.tls_directory is not None:
+                            context = ssl.create_default_context(cafile=str(self.tls_directory / "ca.pem"))
+                            with socket.create_connection(("127.0.0.1", self.port), timeout=2) as raw:
+                                with context.wrap_socket(raw, server_hostname=self.host) as secured:
+                                    expected = ssl.PEM_cert_to_DER_cert(
+                                        (self.tls_directory / "valid.pem").read_text("ascii"))
+                                    require(secured.version() == "TLSv1.2" and
+                                            secured.getpeercert(binary_form=True) == expected,
+                                            "Real Collector TLS version or peer changed")
+                                    self.tls_observation = {"version": secured.version(),
+                                        "peer_der_sha256": hashlib.sha256(expected).hexdigest(),
+                                        "hostname_verified": self.host}
                         return self
                 except OSError:
                     time.sleep(0.025)
@@ -243,9 +269,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ("cli", "example", "collector", "artifacts", "config"):
         parser.add_argument("--" + key, type=Path, required=True)
+    parser.add_argument("--tls-directory", type=Path,
+                        help="Prepared loopback CA/certificate/key; trust must already be isolated")
+    parser.add_argument("--endpoint-host", choices=("127.0.0.1", "localhost"), default="127.0.0.1")
+    parser.add_argument("--work-dir", type=Path, help="Keep independent readback and Collector evidence")
     args = parser.parse_args()
     for key in ("cli", "example", "collector", "artifacts", "config"):
         setattr(args, key, getattr(args, key).resolve(strict=True))
+    if args.tls_directory:
+        args.tls_directory = args.tls_directory.resolve(strict=True)
+        for name in ("valid.pem", "server.key", "ca.pem"):
+            require((args.tls_directory / name).is_file(), "Missing TLS fixture: " + name)
+    if args.work_dir:
+        args.work_dir.mkdir(parents=True, exist_ok=False)
     require(sys.version_info[:2] == (3, 11), "Use the locked CPython 3.11 checker")
     for package, expected in {"opentelemetry-proto": "1.37.0", "protobuf": "6.33.5"}.items():
         require(importlib.metadata.version(package) == expected, "Independent reader version changed: " + package)
@@ -255,16 +291,18 @@ def main():
     require(len(pinned) == 1 and sha(args.collector) == pinned[0]["executable_sha256"], "Pinned Collector binary changed")
     require(invoke(args.collector, "--version").decode().strip() == "otelcol-contrib version 0.135.0", "Collector version changed")
     cases = []
-    with tempfile.TemporaryDirectory(prefix="liuding-native-collector-") as directory:
+    workspace = nullcontext(args.work_dir) if args.work_dir else tempfile.TemporaryDirectory(prefix="liuding-native-collector-")
+    with workspace as directory:
         root = Path(directory)
         store = root / "native-run"
         for name in ("public-api", "cli-replay", "worker-six-payloads"):
             case = root / name
             case.mkdir()
-            with Collector(args.collector, args.config, case) as collector:
+            with Collector(args.collector, args.config, case, args.tls_directory, args.endpoint_host) as collector:
                 instance = "native.real." + name
                 if name == "public-api":
-                    stdout = invoke(args.example, "127.0.0.1", collector.port, "http", instance, store)
+                    stdout = invoke(args.example, args.endpoint_host, collector.port,
+                                    "https" if args.tls_directory else "http", instance, store)
                     require(b"Computed validation MAE from 4 samples: 0.125" in stdout and
                             b"exact replay was deduplicated" in stdout, "Example receipts changed")
                     events, anchors = canonical_events(args.cli, store)
@@ -291,7 +329,7 @@ def main():
                         anchors = {"clock.fixture": {"monotonic_ns": 500, "unix_ns": 1_700_000_000_123_456_789}}
                     config = case / "native.json"
                     config.write_text(json.dumps({"schema_version": 1, "endpoint": {
-                        "host": "127.0.0.1", "port": collector.port, "tls": False},
+                        "host": args.endpoint_host, "port": collector.port, "tls": bool(args.tls_directory)},
                         "resource_instance_id": instance, "clock_mappings": anchors,
                         "working_directory": str(worker), "inherit_environment": True}), encoding="utf8")
                     if name == "cli-replay":
@@ -312,13 +350,24 @@ def main():
                         require(len(replies) == 2 and replies[0]["receipts"] == [1] * 6 and
                                 replies[1]["receipts"] == [2] * 6 and
                                 replies[1]["counters"]["exported_events"] == 6, "Worker replay receipts changed")
+                        stdout = raw
+                    if name == "cli-replay":
+                        stdout = json.dumps(reply, sort_keys=True).encode("utf-8")
+                if args.work_dir:
+                    (case / "native.stdout").write_bytes(stdout)
                 report = collector.wait_readback(events, instance, anchors)
                 cases.append({"name": name, "events": len(events), "source_events": events,
-                              "clock_mappings": anchors, **report})
-    print(json.dumps({"cases": cases, "failures": [], "skipped": 0,
+                              "clock_mappings": anchors, "tls": collector.tls_observation, **report})
+            require(collector.process.poll() is not None, "Collector was not reaped")
+            cases[-1].update(collector_pid=collector.process.pid,
+                             collector_exit=collector.process.returncode)
+    report = {"cases": cases, "failures": [], "skipped": 0,
                       "collector_sha256": pinned[0]["executable_sha256"], "collector_version": "0.135.0",
                       "product_paths": "native C++ public API, SQLite producer, CLI and worker",
-                      "tls_qualified": False, "durable_ack_qualified": False}, ensure_ascii=True))
+                      "tls_qualified": bool(args.tls_directory), "durable_ack_qualified": False}
+    if args.work_dir:
+        (args.work_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=True))
 
 
 if __name__ == "__main__":

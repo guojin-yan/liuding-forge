@@ -33,6 +33,8 @@ ONNX 独立验证可显式设置 `JYPPX_LIUDING_ONNX_REFERENCE_PYTHON`，使用�
 
 Linux 原生 HTTP 的 `NativeOtlpHttpTrustedTls` 与 `NativeOtlpHttpTrustedDns` 使用独立 user/mount namespace 验证可信 TLS、过期和 IP/DNS 名称拒绝。`JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE` 必须指向所选 curl SDK 实际使用的默认 CA 文件，默认是 `/etc/ssl/certs/ca-certificates.crt`；可用该 SDK 的 `curl-config --ca` 核对。此选项仅选择测试的私有信任视图，不设置产品 CA、关闭证书验证或修改宿主信任库；缺少 namespace 能力时测试失败。
 
+启用 `JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR` 并指定锁定的 `JYPPX_OTELCOL_EXECUTABLE`、`JYPPX_TELEMETRY_PYTHON` 后，Linux 的 `NativeOtlpCollectorTrustedTls` 使用同一私有信任方式，将原 C++ API、SQLite/CLI 与 worker 的三组事件发送到官方 Collector 的 TLS 1.2 `localhost` 接收器，并由官方 protobuf reader 核对完整信号。测试保留证书、Collector 配置与日志、原始输出和读回报告；原明文互通测试独立保留。HTTPS 互通不授予证书吊销、持久 ACK 或 HTTPS 崩溃恢复资格。
+
 外部 MIGraphX 的原生 GPU 互操作测试默认关闭。已激活匹配的 ROCm SDK 并备妥 MIGraphX 2.18.0 时，可在兼容构建中增加 `-DJYPPX_LIUDING_TEST_MIGRAPHX=ON -DJYPPX_LIUDING_MIGRAPHX_TEST_ROOT=<原生SDK绝对路径> -DJYPPX_LIUDING_MIGRAPHX_TEST_FIXTURE_DIR=<固定参考绝对路径>`，构建 `jyppx_test_migraphx_interchange` 后串行运行 `ctest --test-dir <构建目录> -C Release --output-on-failure -j 1 -R "^MIGraphXInterchange[.]"`。参考目录的 `linear/`、`resnet18/` 各含原 `model.onnx` 及 batch 2/5 的 `case-{0,1}-{input,output}.f32`；测试内固定完整 SHA，不下载、重新生成或更新参考。四项测试核对原 FP32 容差、实际 GPU 指令及同步主存输出，每次向构建目录的 `evidence/migraphx-interchange/` 新目录保留完整输出、编译程序、路线与加载模块。每项最多 600 秒，JIT 并行度为 1；缺硬件或错误 SDK 直接失败。外部图执行测试不提供框架 MIGraphX Session、Serving 或 ORT EP，也不授予动态形状、其他图、精度或性能资格。
 
 同一配置下运行 `ctest --test-dir <构建目录> -C Release --output-on-failure -j 1 -R "^MIGraphXReload[.]"`，另四项测试先在原生进程中编译并执行，再将程序和完整输出的 SHA 传给独立重载进程。重载分支不调用 ONNX 解析或程序编译 API，核验后从证据目录的私有副本加载，保持原 shape、数值和 GPU 路线检查，并要求输出逐字节等于首次执行。编译子进程最多 600 秒，重载子进程最多 60 秒，每项 CTest 最多 700 秒；两次执行的日志、程序、输出、路线及模块留在 `evidence/migraphx-reload/` 新目录。此契约仅适用于同一设备和精确 SDK，不推导编译程序可跨设备、SDK 或操作系统移植。

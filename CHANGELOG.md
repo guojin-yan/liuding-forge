@@ -35,6 +35,7 @@
 - Linux ROCm 初始化延后框架设备查询，并说明动态库加载阶段 profiler 可见性解析的启动设置。
 - Linux ROCm 原生工具在构建与安装后保留所选 LibTorch/HIP SDK 的传递动态库搜索路径，修复默认空环境遥测 worker 在进入入口前缺少数学库而退出的问题。
 - 登记 WSL ROCm 组合与锁定官方 Linux Collector 的原生 HTTP 互通、明确文件队列崩溃恢复、队列满和回复丢失边界。
+- 新增 Linux 官方 Collector HTTPS 互通门禁，使用私有 CA 视图验证原 C++ API、SQLite/CLI 与 worker 三条交付路径和官方信号读回。
 - 登记 WSL2/W7900 本地进程实际 GPU 放置、重试/重放、原生资源计量及独立 cgroup v2 内存隔离验证范围。
 - 提供显式任务 step、模型适配、多优化器、梯度累积、裁剪、AMP、回调及可恢复调度器。
 - 提供 map/iterable 数据管线、确定性采样、线程 worker、结构化批次和游标恢复。
