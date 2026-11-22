@@ -34,6 +34,8 @@ DINOv2/DINOv3 的部分架构已验证 CPU FP32 与 GPU FP16 autocast 的完整�
 
 Windows 同组合另通过十个 P6 检测入口的 FP16 动态回退后更新合同；两套系统分别记录逐轮 scale、溢出跳步和最终一次实际更新。范围限于固定合成输入，不推导其余目录入口的 Windows 资格；具体入口与源码身份见兼容矩阵。
 
+Windows 的其余 208 个视觉目录入口已分批执行原单步合同，结果为 CPU FP32：208 通过、0 失败、0 跳过、0 未准入。仅授各批通过子集；CPU 使用原公共目录。范围限于随机初始化模型、合成输入的前向、loss、反向、实际更新与冻结参数保持；精确入口、源码身份和保留失败见兼容矩阵。
+
 ## 运行与安装
 
 Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像；应用仍需提供匹配的 HIP 运行库、数学库和设备数据。保留 HIP SDK 自身的 `.kpack`、数学库数据目录，按 SDK 激活脚本设置 `HIPBLASLT_TENSILE_LIBPATH`、`ROCBLAS_TENSILE_LIBPATH` 及运行库搜索路径。只复制 `torch_hip.dll` 不能构成完整部署。
