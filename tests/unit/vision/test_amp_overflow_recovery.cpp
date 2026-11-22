@@ -43,7 +43,8 @@ std::string ScaleText(double scale) {
   return output.str();
 }
 
-const std::array<RecoveryCase, 10> kCases{{
+const std::array<RecoveryCase, 11> kCases{{
+    {"yolov8s", "ghost_p6"},
     {"yolov8m", "ghost_p6"},
     {"yolov8l", "ghost_p6"},
     {"yolov8x", "ghost_p6"},
