@@ -10,7 +10,7 @@
 | ONNX Runtime | 校验模型字节与输入，使用显式 Execution Provider 推理 | `<jyppx/liuding/deployment/onnx_runtime/session.hpp>` | `jyppx::liuding::onnx_runtime` |
 | 原生 MIGraphX GPU Preview | 解析固定形状 ONNX 并在 AMD GPU 上执行 | `<jyppx/liuding/deployment/migraphx_runtime/session.hpp>` | `jyppx::liuding::migraphx_runtime` |
 
-ONNX Runtime 与原生 MIGraphX 是两条独立路线。当前 AMD 验证覆盖原生 MIGraphX Session 的固定形状 FP32 GPU 执行；它不表示 ORT 已有 AMD GPU Execution Provider。ORT 仍须使用已安装并单独验证的 Provider，当前 AMD 设备的 ORT 资格范围仍为 CPU EP。
+ONNX Runtime 与原生 MIGraphX 是两条独立路线。当前 AMD 验证覆盖原生 MIGraphX Session 的固定形状 FP32 GPU 执行；它不表示 ORT 已有 AMD ROCm/MIGraphX Execution Provider。Windows/W7900 另有精确 ORT 1.24.4 + DirectML 1.15.4 的 DXGI GPU 验证，不能推导 HIP/ROCm Provider 资格。ORT 仍须使用已安装并单独验证的 Provider，未列入兼容清单的 Provider 保持不支持。
 
 ## 构建与接入
 
