@@ -32,6 +32,8 @@ ROCm LibTorch 沿用 `torch::kCUDA`、`torch::cuda` 和 `cuda:<index>`。C++ 使
 
 DINOv2/DINOv3 的部分架构已验证 CPU FP32 与 GPU FP16 autocast 的完整文件检查点恢复；DINOv3 ViT-huge 另有 FP16 参数存储的独立验证。检查包含全部模型与优化器状态、数据游标、损失和下一 CPU/GPU 随机数。具体模型、输入和资源边界见兼容矩阵；未列容量、精度、预训练权重和任务准确率须分别验证。
 
+Windows Huge+ FP16 存储的当前恢复测试使用顺序检查点校验和两个堆上 1 MiB 缓冲区逐字节比较完整文件，以避免默认 1 MiB 线程栈溢出。固定 `224×224` 输入下的 9 个参与者、1094 字段、约 3.36 GB 完整载荷与归档字节一致性，以及原 10 GiB RSS、5 GiB GPU allocator、600 秒用例限制均通过；这仍是同进程对象重建恢复，不能推导新进程或强杀恢复。
+
 Windows 的 DINOv3 ViT-large/large-plus 另通过 CPU FP32、GPU FP16 autocast 的完整文件恢复，DINOv2-large 通过 CPU FP32 对照。输入分别为 `32×32`、`28×28`，在第 4 次更新保存并销毁训练对象，重建后恢复至第 6 次更新；安全边界与完成态均核对全部参与者元数据和完整载荷，以及 loss、采样顺序和下一 CPU/GPU 随机数。各项保留 12 GiB RSS、适用的 5 GiB GPU allocator 和 600 秒上限。范围为同进程对象重建，真实任务质量、新进程或强杀恢复须独立验证。
 
 本 ROCm 分发的 CPU FP32 路径另通过 DINOv2-small/giant 与 DINOv3 Huge+ 的独立随机架构数值对照，覆盖严格状态导入、完整 tokens 和 CLS；Huge+ 还核对三层中间输出与原 12 GiB 峰值 RSS 上限。DINOv2 输入为 `2×3×224×280`，Huge+ 为 `1×3×35×50`，参考来源及固定身份见兼容矩阵。这些 CPU 对照不授予 GPU 数值、预训练权重或任务质量资格。

@@ -7,6 +7,7 @@
 ### 训练与数据
 
 - 修复大容量恢复测试同时驻留两份检查点快照造成的额外主存峰值；顺序校验后有界逐字节比较。WSL Huge+ FP16存储在原10 GiB RSS及完整断言下通过。
+- 修复 Windows 大容量检查点逐字节比较在 1 MiB 默认线程栈上分配双 1 MiB 缓冲区导致栈溢出；缓冲区改为堆上有界分配。W7900 DINOv3 Huge+ FP16 存储恢复在原 RSS、显存和完整字节断言下通过。
 - 补齐 WSL DINOv3 ViT-large/large-plus CPU FP32、GPU FP16 autocast，DINOv2-large CPU FP32，以及 Huge+ GPU FP16 参数存储完整文件恢复；降低外层准入并保留原断言。修复测试比较时同时驻留两份大检查点的额外主存，Huge+ 现通过原10 GiB RSS门槛。
 - 补齐 Windows DINOv3 ViT-large/large-plus 的 CPU FP32、GPU FP16 autocast 及 DINOv2-large CPU FP32 完整文件检查点恢复范围，保留原逐字段载荷、loss、随机数及资源断言。
 - 补齐 WSL ROCm 分发的 DINOv2 Giant、DINOv3 Huge+ CPU FP32 反向与实际 SGD 更新，以及 Giant 固定 timm 架构数值验证；降低外层内存准入要求，保留原测试断言、RSS 上限及参考容差。

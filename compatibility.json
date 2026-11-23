@@ -4533,6 +4533,28 @@
             "validation": "tests/scripts/test_torch_runtime_staging.py 13/13通过，覆盖新增SDK DLL清单、更新、移除、名称冲突及源/目标重叠；CTest RepositoryHygieneToolUnitTests、ComponentDependencyGraph、ComponentDependencyGraphToolUnitTests和RepositoryHygiene 4/4通过。",
             "scope": "仅Windows 11/W7900 gfx1100、ROCm10.1.0/LibTorch2.14.0/AMD Clang 24的可选构建树导入DLL暂存和CLI设备枚举。未验证安装消费者、DLL延迟或运行时动态加载的其他模块/数据文件、完整训练、其他AMD设备或操作系统，也不构成可再分发ROCm包。"
           }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0及现有ROCm依赖；仅重建恢复测试目标，至多两个编译任务，仅运行Huge+单项合同。",
+          "id": "windows-clangcl24-rocm101-gfx1100-78d934c-huge-half-recovery-compare",
+          "commit": "78d934c",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK10.1.0/HIP7.16.26385; native LibTorch2.14.0+rocm10.1.0; DINOv3 Huge+ GPU FP16 parameter storage",
+          "tests": "DINO/DinoRecoveryTest.RecreatedDomainMatchesEveryParticipantAndNextRandom/dinov3_vith16plus_CudaHalfStorage单项及五仓库门禁共6项通过、零跳过，原生恢复CTest378.25秒。保留先前5fdd46c首轮在中断保存后0xC00000FD失败；修复后通过原完整状态、10GiB RSS、5GiB allocator与600秒合同。",
+          "quality_evidence": {
+            "source_identity": "78d934c仅将当前有界检查点比较器的两个1MiB缓冲区从std::array栈分配改成std::vector堆分配；验证发生在5fdd46c干净基线加该唯一测试修复工作树，修复后测试源码和二进制摘要已冻结，不宣称提交后全库重建。",
+            "stack_failure": "PE header确认原测试exe SizeOfStackReserve=1048576；有界比较器原双1MiB自动数组超过Windows默认栈，首轮在boundary比较前报0xC00000FD。缓冲区移到堆上，未增加线程栈或放宽资源阈值。",
+            "recovery_contract": "原840637443参数、521个参数张量GPU Half存储、224输入、seed20261027、单compute线程、严格确定性；SGD lr0.001/momentum0.8、epoch StepLR gamma0.75及GradScaler init128/growth_interval3。连续基线与第4更新后销毁重建恢复均完成6更新；loss、采样顺序、全部参与者状态和下一CPU/GPU RNG匹配。",
+            "complete_comparison": "安全边界与完成态各验证9参与者、1094字段和3362913777 payload字节；两份完整归档各3363281660字节，以两个固定1MiB堆缓冲区逐字节比较相同，没有仅比较SHA或分类头。",
+            "resources": "process_peak_rss_bytes=10135388160低于10GiB；peak_cuda_allocated_bytes=5288796672低于5GiB；同步清BLAS工作区后活跃分配512字节、emptyCache后reserved2097152字节。原600秒CTest限制；实际378.25秒，无门槛放宽。",
+            "binary_sha256": "f4835ee2a479166d54ce338f81e3ad4f7703749327347b9d8ba6a842e98c9c70",
+            "test_source_sha256": "b905a6d87af915fb9ef0d66d0a86c12d72e1cc8e6f4d3ce8f3c8ef226d6fa95c",
+            "scope": "仅本Windows/W7900精确组合的当前Huge+ GPU FP16参数存储同进程对象销毁重建恢复与原资源合同；不授FP32主权重、预训练/真实任务质量、新进程或强杀恢复、其他模型/精度/设备/系统、多卡或发布资格。既有WSL资格和原失败分别保留。"
+          }
         }
       ],
       "pending_lanes": []
