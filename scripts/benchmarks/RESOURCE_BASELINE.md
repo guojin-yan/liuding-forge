@@ -47,6 +47,8 @@ CUDA 比较还要求可读的功率限额和 persistence mode，变化会拒绝�
 
 Windows WDDM 的 `D3DKMT_ADAPTER_PERFDATA.Power` 以十分之一百分比表示功耗，不是瓦特值或已配置的功率限额；`D3DKMT_NODE_PERFDATA` 的当前、最高和超频频率也不能证明当前调频策略。即使通过 HIP LUID 关联到同一设备且查询成功，这些字段仍不足以解除 ROCm reference 的控制观测限制。
 
+已验证的 WSL2/W7900 组合中，现有 AMD SMI 可枚举 GPU 并按 PCI 身份与 HIP 唯一关联，`amdsmi_get_power_cap_info` 和 `amdsmi_get_clock_info` 查询成功，但 `amdsmi_get_gpu_perf_level` 返回 `AMDSMI_STATUS_NOT_SUPPORTED`。这些读数尚不能证明完整的配置功率与调频策略；保留原始单位和接口语义，不能据此解除 reference 限制，也不推导其他 SMI 查询或原生 Linux 组合的能力。
+
 RSS 使用 Windows 进程生命周期峰值 working set 或 Linux `VmHWM`，包含运行库开销；设备峰值仅覆盖对应 LibTorch caching allocator。所有选定 profile 均要求 RSS，实际 GPU profile 另要求对应后端的两个 allocator 峰值。缺测保留原因并使完整性检查失败；CPU 的设备指标不适用不视为失败。JSONL 只承诺 stream flush，磁盘指标不代表系统级 I/O；独立进程不主动清空 OS 文件缓存或 GPU context。
 
 每个进程默认 120 秒超时、每路输出 1 MiB 限额，保留 `stdout.log`、`stderr.log`、`process.json`、`sample.json`、`validation.json` 及负载目录。失败仍保留可用证据，整体保留 `run.json` 与 `statistics.json`；runner 不递归删除证据。Serving 示例自行清理其生成的临时 bundle。
