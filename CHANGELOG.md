@@ -18,6 +18,7 @@
 - Windows/Linux ROCm 10.1.0 LibTorch 2.14.0 可启用原生 ONNX 导出；GPU 训练模型通过独立 CPU 副本导出，视觉 CLI 使用 CPU FP32，推理后端由 ONNX Runtime 单独选择。
 - 补齐 AMD 开发组合的八类优化器、十五类调度器与 FP32/FP16/BF16 autocast 数值及精确续训回归；主权重使用 FP32。
 - 开发 benchmark 增加独立 ROCm 训练和八类优化器目标，使用真实 HIP 设备身份、同步计时和 allocator 峰值；开发 runner 保留独立进程原始样本并检查环境一致性与统计稳定性。
+- ROCm 训练和优化器基准在缺少合格功耗/频率控制观测时拒绝发布或比较 reference，离线统计工具对历史 v1 样本执行同一限制；原样本和统计稳定性结果继续保留。
 - 增加独立 ROCm 持续验证入口，覆盖固定负载的三精度训练、反复文件检查点精确续训、受控显存 payload 及进程 allocator 配额 OOM 后恢复，按实际时长记录资源与限制。
 - ROCm 持续验证可显式请求每精度两小时及 2000 万更新上限，保留时长不足即失败和原资源限制；资格仍按实际执行结果登记。
 - 行人检测和分割示例接入 HIP allocator，分别执行原有 reserved/allocated 显存预算并输出独立 ROCm 字段；检测入口在使用 LibTorch 前初始化运行时。

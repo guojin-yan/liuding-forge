@@ -40,6 +40,7 @@ BUILD_FIELDS = (
     "build_type", "libtorch_version", "libtorch_build", "accelerator_runtime",
     "dependency_lock_digest",
 )
+COMPARISON_BLOCKED_REASON = "No qualified ROCm power/clock control observer"
 
 
 def canonical(value: Any) -> str:
@@ -199,6 +200,7 @@ def build_report(measured: dict[str, list[dict[str, Any]]], warmups: dict[str, l
     digest = hashlib.sha256(canonical(environment).encode()).hexdigest()
     return {
         "schema_version": 1, "environment_key": f"jyppx-rocm-{suite}-v1:{digest}",
+        "comparison_eligibility": {"passed": False, "blocked_reasons": [COMPARISON_BLOCKED_REASON]},
         "metadata": {"environment": environment, "protocol": {"independent_processes": True, "warmup_processes_per_mode": min(map(len, warmups.values())), "sample_processes_per_mode": min(map(len, measured.values())), "hip_synchronize_timing_boundary": True}, "limitations": ["HIP driver API version is not the Windows display driver version", "Windows adapter observations do not establish a HIP UUID mapping", "No power/clock/temperature/noise telemetry; no cross-device performance claim", "Allocator peaks exclude driver/context and earlier model preparation"]},
         "metrics": rows,
     }
@@ -226,6 +228,8 @@ def main() -> int:
     modes = tuple(dict.fromkeys(args.mode or MODES[args.suite]))
     if any(mode not in MODES[args.suite] for mode in modes):
         raise ValueError("selected mode is outside the suite")
+    if args.reference or args.write_reference:
+        raise ValueError(COMPARISON_BLOCKED_REASON + "; collect standalone samples without reference options")
     binary = args.benchmark.resolve(strict=True)
     binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
     output = args.output_dir.resolve()
@@ -255,10 +259,6 @@ def main() -> int:
     report = build_report(measured, warmups, args.suite, before, host_before, binary_sha)
     write_json(output / "samples.json", report)
     command = [sys.executable, str(Path(__file__).with_name("baseline_stats.py")), str(output / "samples.json"), "--output", str(output / "statistics.json"), "--max-cv-percent", str(args.max_cv_percent), "--min-regression-percent", str(args.min_regression_percent)]
-    if args.reference:
-        command += ["--reference", str(args.reference.resolve())]
-    if args.write_reference:
-        command += ["--write-reference", str(args.write_reference.resolve())]
     statistics = subprocess.run(command, capture_output=True, timeout=120)
     (output / "statistics.log").write_bytes(statistics.stdout + statistics.stderr)
     print(statistics.stdout.decode("utf-8", errors="replace"))

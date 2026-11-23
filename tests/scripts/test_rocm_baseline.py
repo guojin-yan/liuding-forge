@@ -7,13 +7,17 @@
 from __future__ import annotations
 
 import copy
+import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/benchmarks"))
 import run_rocm_baseline as runner
+import baseline_stats as stats
 
 
 def sample() -> dict:
@@ -49,6 +53,22 @@ def sample() -> dict:
     }
 
 
+def optimizer_sample() -> dict:
+    value = sample()
+    value.update(kind="jyppx-rocm-optimizer-benchmark-sample", mode="rocm-fp32-optimizer-adam")
+    value["workload"] = {
+        "id": "jyppx.rocm.optimizer.dense/v1", "digest": "fnv1a64:0123456789abcdef",
+        "seed": 23, "steps": 20, "parameter_count": 2, "parameter_elements": 16,
+        "dtype": "float32", "gradient_policy": "fixed-dense", "option_profile": "fixture",
+    }
+    value["result"] = {
+        "parameter_elements_per_second": 100, "mean_step_milliseconds": 20,
+        "peak_allocated_bytes": 1024, "peak_reserved_bytes": 2048,
+        "completed_steps": 20, "parameters_finite": True, "parameters_changed": True,
+    }
+    return value
+
+
 class RocmBaselineContract(unittest.TestCase):
     def report(self, samples: list[dict] | None = None, warmup: dict | None = None) -> dict:
         value = sample()
@@ -67,6 +87,7 @@ class RocmBaselineContract(unittest.TestCase):
         self.assertEqual(report["metrics"][0]["samples"], [100, 101, 102, 103, 104])
         self.assertTrue(report["metadata"]["protocol"]["hip_synchronize_timing_boundary"])
         self.assertTrue(report["environment_key"].startswith("jyppx-rocm-training-v1:"))
+        self.assertFalse(report["comparison_eligibility"]["passed"])
 
     def test_rejects_changed_uuid_pci_driver_build_and_threads(self):
         for section, field, changed in (
@@ -133,6 +154,108 @@ class RocmBaselineContract(unittest.TestCase):
                 runner.run_native(Path(sys.executable), ["-c", "import sys; sys.stderr.write('failure'); sys.exit(7)"], output, "failed", 5)
             self.assertEqual((output / "failed.stderr.log").read_text(), "failure")
             self.assertIn('"exit_code": 7', (output / "failed.process.json").read_text())
+
+
+class RocmReferenceContract(unittest.TestCase):
+    def report(self, suite: str) -> dict:
+        value = sample() if suite == "training" else optimizer_sample()
+        return runner.build_report(
+            {value["mode"]: [copy.deepcopy(value) for _ in range(5)]},
+            {value["mode"]: [copy.deepcopy(value)]}, suite, value, {}, "fixture-sha",
+        )
+
+    def test_reference_options_refused_before_native_or_host_queries(self):
+        for suite in runner.MODES:
+            for flag in ("--reference", "--write-reference"):
+                with self.subTest(suite=suite, flag=flag), tempfile.TemporaryDirectory() as temporary:
+                    output = Path(temporary) / "unstarted"
+                    arguments = ["runner", "--suite", suite, "--benchmark", "missing.exe",
+                                 "--output-dir", str(output), flag, "unused-reference.json"]
+                    with patch.object(sys, "argv", arguments), patch.object(runner, "run_native") as native, \
+                            patch.object(runner, "observe_host") as host:
+                        with self.assertRaisesRegex(ValueError, "No qualified ROCm power/clock"):
+                            runner.main()
+                        native.assert_not_called()
+                        host.assert_not_called()
+                    self.assertFalse(output.exists())
+
+    def test_collection_preserves_samples_and_stability_without_reference(self):
+        for suite in runner.MODES:
+            with self.subTest(suite=suite), tempfile.TemporaryDirectory() as temporary:
+                folder = Path(temporary)
+                binary = folder / "mock-native"
+                binary.write_bytes(b"never executed")
+                value = sample() if suite == "training" else optimizer_sample()
+                identity = {key: copy.deepcopy(value[key]) for key in
+                            ("schema_version", "build_fingerprint", "rocm", "runtime")}
+                identity["kind"] = "jyppx-rocm-benchmark-identity"
+                outputs = [identity, *[copy.deepcopy(value) for _ in range(6)], identity]
+                arguments = ["runner", "--suite", suite, "--mode", value["mode"],
+                             "--benchmark", str(binary), "--output-dir", str(folder / "collected")]
+                with patch.object(sys, "argv", arguments), \
+                        patch.object(runner, "run_native", side_effect=outputs) as native, \
+                        patch.object(runner, "observe_host", return_value={}):
+                    self.assertEqual(runner.main(), 0)
+                    self.assertEqual(native.call_count, 8)
+                raw = json.loads((folder / "collected/samples.json").read_bytes())
+                summarized = json.loads((folder / "collected/statistics.json").read_bytes())
+                self.assertEqual(raw["metrics"][0]["samples"], [100] * 5)
+                self.assertTrue(summarized["stability"]["passed"])
+                self.assertFalse(summarized["comparison_eligibility"]["passed"])
+                self.assertNotIn("comparison", summarized)
+
+    def test_current_and_legacy_protocol_cannot_create_or_compare_references(self):
+        for suite in runner.MODES:
+            for declaration in (None, {"passed": False}, {"passed": True}):
+                with self.subTest(suite=suite, declaration=declaration):
+                    raw = self.report(suite)
+                    if declaration is None:
+                        raw.pop("comparison_eligibility")
+                    else:
+                        raw["comparison_eligibility"] = declaration
+                    summarized = stats._build_statistics(raw, 10, 10)
+                    self.assertTrue(summarized["stability"]["passed"])
+                    self.assertFalse(summarized["comparison_eligibility"]["passed"])
+                    with self.assertRaisesRegex(ValueError, "unqualified controls"):
+                        stats._reference_from_statistics(summarized)
+                    with self.assertRaisesRegex(ValueError, "unqualified controls"):
+                        stats._compare_reference(summarized, {})
+
+    def test_explicit_ineligible_generic_reference_is_rejected(self):
+        raw = self.report("training")
+        raw["environment_key"] = "fixture-generic"
+        raw.pop("comparison_eligibility")
+        summarized = stats._build_statistics(raw, 10, 10)
+        reference = stats._reference_from_statistics(summarized)
+        reference["comparison_eligibility"] = {"passed": False}
+        with self.assertRaisesRegex(ValueError, "unqualified controls"):
+            stats._compare_reference(summarized, reference)
+
+    def test_offline_cli_keeps_statistics_and_never_writes_or_overwrites_reference(self):
+        for suite in runner.MODES:
+            for flag in ("--reference", "--write-reference"):
+                with self.subTest(suite=suite, flag=flag), tempfile.TemporaryDirectory() as temporary:
+                    folder = Path(temporary)
+                    raw = self.report(suite)
+                    raw.pop("comparison_eligibility")
+                    source = folder / "legacy-samples.json"
+                    source.write_text(json.dumps(raw), encoding="utf-8")
+                    reference = folder / "reference.json"
+                    original = b"existing reference must stay unchanged"
+                    reference.write_bytes(original)
+                    output = folder / "statistics.json"
+                    result = subprocess.run(
+                        [sys.executable, str(Path(stats.__file__)), str(source), "--output", str(output),
+                         flag, str(reference)], capture_output=True, timeout=10,
+                    )
+                    self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                    self.assertIn(b"unqualified controls", result.stdout)
+                    self.assertEqual(reference.read_bytes(), original)
+                    self.assertEqual(json.loads(source.read_bytes()), raw)
+                    summarized = json.loads(output.read_bytes())
+                    self.assertFalse(summarized["comparison_eligibility"]["passed"])
+                    self.assertTrue(summarized["stability"]["passed"])
+                    self.assertNotIn("comparison", summarized)
 
 
 if __name__ == "__main__":

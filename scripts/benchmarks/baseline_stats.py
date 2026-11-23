@@ -48,6 +48,30 @@ def _finite_positive(value: Any, label: str) -> float:
     return result
 
 
+def _comparison_eligibility(report: dict[str, Any]) -> dict[str, Any] | None:
+    # This protocol never observed configured GPU power/clock controls. Legacy
+    # samples lack an explicit eligibility field but remain equally unqualified.
+    if report["environment_key"].startswith(
+        ("jyppx-rocm-training-v1:", "jyppx-rocm-optimizer-v1:")
+    ):
+        return {
+            "passed": False,
+            "blocked_reasons": ["ROCm v1 reports lack qualified power/clock controls"],
+        }
+    eligibility = report.get("comparison_eligibility")
+    if eligibility is not None and (
+        not isinstance(eligibility, dict) or type(eligibility.get("passed")) is not bool
+    ):
+        raise ValueError("comparison_eligibility requires a boolean passed field")
+    return eligibility
+
+
+def _require_comparison_eligibility(report: dict[str, Any]) -> None:
+    eligibility = _comparison_eligibility(report)
+    if eligibility is not None and not eligibility["passed"]:
+        raise ValueError("cannot publish or compare a reference with unqualified controls")
+
+
 def _summarize_metric(
     metric: dict[str, Any], min_regression_percent: float
 ) -> tuple[str, dict[str, Any]]:
@@ -113,7 +137,7 @@ def _build_statistics(
         for name, metric in summaries.items()
         if metric["cv_percent"] > max_cv_percent
     ]
-    return {
+    result = {
         "schema_version": 1,
         "kind": "jyppx-repeated-benchmark-statistics",
         "environment_key": environment_key,
@@ -125,9 +149,14 @@ def _build_statistics(
         },
         "metrics": summaries,
     }
+    eligibility = _comparison_eligibility(report)
+    if eligibility is not None:
+        result["comparison_eligibility"] = eligibility
+    return result
 
 
 def _reference_from_statistics(statistics_report: dict[str, Any]) -> dict[str, Any]:
+    _require_comparison_eligibility(statistics_report)
     metrics = {
         name: {
             "direction": metric["direction"],
@@ -150,12 +179,14 @@ def _reference_from_statistics(statistics_report: dict[str, Any]) -> dict[str, A
 def _compare_reference(
     statistics_report: dict[str, Any], reference: dict[str, Any]
 ) -> dict[str, Any]:
+    _require_comparison_eligibility(statistics_report)
     if reference.get("schema_version") != 1:
         raise ValueError("reference schema_version must be 1")
     if reference.get("kind") != "jyppx-benchmark-reference":
         raise ValueError("reference kind must be jyppx-benchmark-reference")
     if reference.get("environment_key") != statistics_report["environment_key"]:
         raise ValueError("reference environment_key does not match the current run")
+    _require_comparison_eligibility(reference)
     reference_metrics = reference.get("metrics")
     if not isinstance(reference_metrics, dict) or not reference_metrics:
         raise ValueError("reference requires metrics")
@@ -216,6 +247,12 @@ def main() -> int:
     )
     statistics_report = _build_statistics(_read_object(args.input), max_cv, min_regression)
 
+    if args.reference or args.write_reference:
+        try:
+            _require_comparison_eligibility(statistics_report)
+        except ValueError:
+            _write_json(args.output, statistics_report)
+            raise
     if args.reference:
         statistics_report["comparison"] = _compare_reference(
             statistics_report, _read_object(args.reference)
