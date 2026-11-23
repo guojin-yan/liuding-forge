@@ -6,6 +6,7 @@
 
 ### 训练与数据
 
+- 增加默认关闭的 DINOv2 Giant CPU BF16 参数存储资源门禁，覆盖完整有限梯度、分类头及 patch 权重的实际 SGD 更新和 8 GiB RSS 上限；与原 FP32 反向门禁分别验证。
 - 增加默认关闭的原生 MIGraphX GPU 互操作测试，固定校验原生导出图、输入与参考 SHA、FP32 数值和实际 GPU 指令，保留完整输出及每次独立证据；不引入产品推理组件依赖。
 - MIGraphX 开发测试补充编译程序在独立进程中的重载，核对程序 SHA、实际 GPU 指令、原 FP32 参考及首次执行输出的逐字节一致性。
 - 增加默认关闭的原生 `migraphx_runtime` Preview 组件，显式选择 HIP 设备并编译固定形状 ONNX，支持有字节上限的同步主存 FP32 输入输出、串行 Session 调用及实际 GPU 路线检查；安装消费者显式提供外部 MIGraphX/HIP SDK。

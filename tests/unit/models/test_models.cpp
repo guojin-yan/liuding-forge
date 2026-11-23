@@ -1130,6 +1130,73 @@ TEST(Models, DinoV2GiantCpuBackwardResourceGate) {
             << " process_peak_rss_bytes=" << peak << '\n';
 }
 
+TEST(Models, DinoV2GiantCpuBfloat16StorageTrainingResourceGate) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV2_GIANT_CPU_BF16_STORAGE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV2_GIANT_CPU_BF16_STORAGE_GATE=1 "
+                    "for the serial CPU BF16-storage backward and SGD gate";
+  }
+  torch::manual_seed(20261027);
+  const auto start = std::chrono::steady_clock::now();
+  std::size_t gradient_tensors = 0;
+  {
+    auto model = dinov2_vit_giant14(DinoV2Options{.num_classes = 3});
+    ASSERT_TRUE(model);
+    model->to(torch::kBFloat16);
+    model->train();
+    torch::optim::SGD optimizer(model->parameters(),
+                                torch::optim::SGDOptions(0.1));
+    const auto named = model->named_parameters(true);
+    ASSERT_TRUE(named.contains("head.weight"));
+    ASSERT_TRUE(named.contains("patch_embed.proj.weight"));
+    const auto head_before = named["head.weight"].detach().clone();
+    const auto patch_before = named["patch_embed.proj.weight"].detach().clone();
+    const auto input = torch::randn({1, 3, 14, 14}, torch::kBFloat16);
+    const auto logits = model->forward(input);
+    ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+    ASSERT_EQ(logits.scalar_type(), torch::kBFloat16);
+    const auto loss = logits.to(torch::kFloat32).square().mean();
+    ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+    loss.backward();
+    for (const auto& entry : named) {
+      const auto& parameter = entry.value();
+      ASSERT_TRUE(parameter.device().is_cpu()) << entry.key();
+      ASSERT_EQ(parameter.scalar_type(), torch::kBFloat16) << entry.key();
+      ASSERT_TRUE(parameter.grad().defined()) << entry.key();
+      ASSERT_EQ(parameter.grad().scalar_type(), torch::kBFloat16)
+          << entry.key();
+      ASSERT_TRUE(torch::isfinite(parameter.grad()).all().item<bool>())
+          << entry.key();
+      ++gradient_tensors;
+    }
+    EXPECT_GT(named["head.weight"].grad().abs().max().item<double>(), 0.0);
+    EXPECT_GT(
+        named["patch_embed.proj.weight"].grad().abs().max().item<double>(),
+        0.0);
+    optimizer.step();
+    EXPECT_FALSE(torch::equal(named["head.weight"], head_before));
+    EXPECT_FALSE(torch::equal(named["patch_embed.proj.weight"], patch_before));
+    optimizer.zero_grad();
+    model->eval();
+    torch::NoGradGuard no_grad;
+    const auto features = model->forward_features(input);
+    EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 2, 1536}));
+    EXPECT_EQ(features.scalar_type(), torch::kBFloat16);
+    EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
+  }
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 8ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=vit_giant_patch14_dinov2"
+            << " operation=cpu-bf16-storage-backward-sgd applied_updates=1"
+            << " gradient_tensors=" << gradient_tensors << " elapsed_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - start)
+                   .count()
+            << " process_peak_rss_bytes=" << peak << '\n';
+}
+
 void PrepareDinoV2GiantCudaResourceGate() {
   torch::cuda::synchronize(0);
 #ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS

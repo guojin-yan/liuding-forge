@@ -84,6 +84,8 @@ ctest --test-dir out/build/windows-release -C Release --output-on-failure -j 1 -
 
 DINOv2 独立随机架构参考使用 `tests/unit/models/reference/generate_dinov2_reference.py --capacity small|base|large|giant --output-dir <空目录> --jyppx-commit <完整提交>`；默认 Small，Giant 另需 `--giant-gate` 并串行执行。Base/Large/Giant 保留原 Python 3.11.9、CPU Torch 2.14.1、torchvision 0.29.1、safetensors 0.6.2 和脚本锁定的 timm 源码身份、seed 与完整文件 SHA；生成器按张量写入大容量状态并用独立 safetensors reader 核对，拒绝覆盖已有产物。先检查可用物理内存、提交额度与磁盘空间，再运行对应原生门禁；此开发工具不进入安装依赖或产品运行流程。
 
+主存不足以执行 Giant CPU FP32 反向时，可单独启用 `JYPPX_LIUDING_DINOV2_GIANT_CPU_BF16_STORAGE_GATE=1` 并运行 `^Models[.]DinoV2GiantCpuBfloat16StorageTrainingResourceGate$`。该用例将参数和梯度存为 BF16，使用 `1×3×14×14` 输入、FP32 loss 与一次 SGD 更新，检查全部梯度有限以及分类头和 patch 权重实际改变，峰值 RSS 上限为 8 GiB；构造时仍先分配 FP32 权重。须串行运行并检查可用物理内存和提交额度；此独立用例不替代原 FP32 反向、独立数值参考或任务质量门禁。
+
 排查普通架构固定参考时，可将 `JYPPX_LIUDING_MODELS_REFERENCE_CAPTURE_DIR` 设为仓库外已存在的父目录，再单独运行对应 CPU 或 GPU 参考用例。测试仅在显式启用时将已计算的输出和适用中间特征写入 `<架构>-cpu/outputs.safetensors` 或 `<架构>-cuda0/outputs.safetensors`，打印完整文件 SHA；子目录必须不存在，编码文件上限为 64 MiB。采集保留原数值断言，超差用例仍失败；产物只用于开发诊断，不替换固定参考，也不进入安装包。
 
 ## 提交与交付
