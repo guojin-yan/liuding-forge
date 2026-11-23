@@ -34,11 +34,13 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <memory>
@@ -333,15 +335,38 @@ RecoveryDomain MakeDomain(const RecoveryCase &scenario,
 
 void ExpectEqualCheckpoint(const std::filesystem::path &expected_path,
                            const std::filesystem::path &actual_path) {
-  const training::FileCheckpointStore expected(expected_path);
-  const training::FileCheckpointStore actual(actual_path);
-  EXPECT_EQ(expected.descriptor().restore_level, RestoreLevel::exact);
-  EXPECT_EQ(actual.descriptor().restore_level, RestoreLevel::exact);
-  const auto &left = expected.descriptor().participants;
-  const auto &right = actual.descriptor().participants;
+  struct Summary {
+    training::CheckpointDescriptor descriptor;
+    std::uint64_t payload_bytes = 0;
+    std::size_t payload_fields = 0;
+  };
+  const auto inspect = [](const std::filesystem::path &path) {
+    const training::FileCheckpointStore checkpoint(path);
+    EXPECT_EQ(checkpoint.descriptor().restore_level, RestoreLevel::exact);
+    Summary summary{.descriptor = checkpoint.descriptor()};
+    for (const auto &manifest : summary.descriptor.participants) {
+      const auto &reader = checkpoint.reader_for(manifest.participant_id);
+      for (const auto &field : manifest.fields) {
+        EXPECT_TRUE(reader.contains(field.name));
+        if (!reader.contains(field.name)) continue;
+        summary.payload_bytes +=
+            reader.read_blob(field.name, field.max_bytes).size();
+        ++summary.payload_fields;
+      }
+    }
+    return summary;
+  };
+  // FileCheckpointStore owns the full immutable archive snapshot. Inspect the
+  // two archives sequentially so a large exact comparison never retains both
+  // multi-gigabyte snapshots alongside the training working set.
+  const auto expected = inspect(expected_path);
+  const auto actual = inspect(actual_path);
+  EXPECT_EQ(expected.descriptor.restore_level, actual.descriptor.restore_level);
+  EXPECT_EQ(expected.payload_bytes, actual.payload_bytes);
+  EXPECT_EQ(expected.payload_fields, actual.payload_fields);
+  const auto &left = expected.descriptor.participants;
+  const auto &right = actual.descriptor.participants;
   ASSERT_EQ(left.size(), right.size());
-  std::uint64_t compared_bytes = 0;
-  std::size_t compared_fields = 0;
   for (std::size_t index = 0; index < left.size(); ++index) {
     const auto &manifest = left[index];
     SCOPED_TRACE(manifest.participant_id);
@@ -350,8 +375,6 @@ void ExpectEqualCheckpoint(const std::filesystem::path &expected_path,
     EXPECT_EQ(manifest.restore_level, right[index].restore_level);
     EXPECT_EQ(manifest.degradation_reasons, right[index].degradation_reasons);
     ASSERT_EQ(manifest.fields.size(), right[index].fields.size());
-    const auto &expected_reader = expected.reader_for(manifest.participant_id);
-    const auto &actual_reader = actual.reader_for(manifest.participant_id);
     for (std::size_t field_index = 0; field_index < manifest.fields.size();
          ++field_index) {
       const auto &field = manifest.fields[field_index];
@@ -361,27 +384,41 @@ void ExpectEqualCheckpoint(const std::filesystem::path &expected_path,
       EXPECT_EQ(field.max_bytes, actual_field.max_bytes);
       EXPECT_EQ(field.required, actual_field.required);
       EXPECT_EQ(field.media_type, actual_field.media_type);
-      ASSERT_EQ(expected_reader.contains(field.name),
-                actual_reader.contains(field.name));
-      if (!expected_reader.contains(field.name)) continue;
-      const auto expected_blob =
-          expected_reader.read_blob(field.name, field.max_bytes);
-      const auto actual_blob =
-          actual_reader.read_blob(field.name, field.max_bytes);
-      ASSERT_EQ(expected_blob.size(), actual_blob.size());
-      EXPECT_TRUE(std::equal(expected_blob.begin(), expected_blob.end(),
-                             actual_blob.begin()));
-      compared_bytes += expected_blob.size();
-      ++compared_fields;
     }
   }
+  // Compare the entire validated artifacts byte for byte using bounded buffers.
+  // Exact file equality covers every participant field and payload, while
+  // keeping resident memory independent of the checkpoint size.
+  std::ifstream expected_file(expected_path, std::ios::binary);
+  std::ifstream actual_file(actual_path, std::ios::binary);
+  ASSERT_TRUE(expected_file.is_open());
+  ASSERT_TRUE(actual_file.is_open());
+  constexpr std::size_t kCompareChunkBytes = 1U << 20U;
+  std::array<char, kCompareChunkBytes> expected_chunk{};
+  std::array<char, kCompareChunkBytes> actual_chunk{};
+  std::uint64_t compared_artifact_bytes = 0;
+  while (true) {
+    expected_file.read(expected_chunk.data(), expected_chunk.size());
+    actual_file.read(actual_chunk.data(), actual_chunk.size());
+    const auto expected_count = expected_file.gcount();
+    const auto actual_count = actual_file.gcount();
+    ASSERT_EQ(expected_count, actual_count);
+    if (expected_count == 0) break;
+    ASSERT_TRUE(std::equal(expected_chunk.begin(),
+                           expected_chunk.begin() + expected_count,
+                           actual_chunk.begin()));
+    compared_artifact_bytes += static_cast<std::uint64_t>(expected_count);
+  }
+  EXPECT_TRUE(expected_file.eof());
+  EXPECT_TRUE(actual_file.eof());
   // All model tensors and nonempty SGD momentum must participate, rather than
   // only a small head, digest, or loop counter.
-  EXPECT_GT(compared_bytes, 100ULL << 20U);
-  EXPECT_GT(compared_fields, 100U);
+  EXPECT_GT(expected.payload_bytes, 100ULL << 20U);
+  EXPECT_GT(expected.payload_fields, 100U);
   std::cout << "CHECKPOINT_COMPARE participants=" << left.size()
-            << " fields=" << compared_fields << " bytes=" << compared_bytes
-            << '\n';
+            << " fields=" << expected.payload_fields
+            << " bytes=" << expected.payload_bytes
+            << " artifact_bytes=" << compared_artifact_bytes << '\n';
 }
 
 std::uint64_t PeakRssBytes() {
