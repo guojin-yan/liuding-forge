@@ -6,6 +6,7 @@
 
 ### 训练与数据
 
+- 补齐 Windows DINOv3 ViT-large/large-plus 的 CPU FP32、GPU FP16 autocast 及 DINOv2-large CPU FP32 完整文件检查点恢复范围，保留原逐字段载荷、loss、随机数及资源断言。
 - 补齐 WSL ROCm 分发的 DINOv2 Giant、DINOv3 Huge+ CPU FP32 反向与实际 SGD 更新，以及 Giant 固定 timm 架构数值验证；降低外层内存准入要求，保留原测试断言、RSS 上限及参考容差。
 - 补齐 Windows ROCm 分发的 DINOv2 Giant CPU FP32 反向、实际 SGD 更新及固定 timm 随机架构数值验证，保留原资源上限、参考身份和数值容差。
 - 增加默认关闭的 DINOv2 Giant CPU BF16 参数存储资源门禁，覆盖完整有限梯度、分类头及 patch 权重的实际 SGD 更新和 8 GiB RSS 上限；与原 FP32 反向门禁分别验证。

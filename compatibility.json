@@ -13,6 +13,31 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "windows-clangcl24-rocm101-gfx1100-fd710fb-dino-large-recovery",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "commit": "fd710fb0e9957fdbca1828be4b9792a036835bf0",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; native ROCm10.1.0 LibTorch2.14.0; CPU FP32 and GPU FP16 autocast with FP32 master weights",
+          "instrumentation": "干净fd710fb复用原Ninja Release及依赖，最多2编译，仅重建恢复测试目标；首增量构建保留旧foundation指纹，测试前显式离线配置后仅version.cpp/foundation及恢复程序重新链接，built provenance与源码精确一致。原18GiB物理/12GiB磁盘准入保持，另加20GiB提交及物理1GiB/提交768MiB监测预留；CPU/GPU串行，无下载、远端或已通过恢复用例重跑。",
+          "tests": "原先因物理内存准入不足未执行的5项原生文件恢复CTest全部通过，零失败/跳过：DINOv3 ViT-large/large-plus各CPU FP32及GPU FP16 autocast、DINOv2-large CPU FP32。原600秒CTest/630秒监督、12GiB RSS及GPU5GiB allocator上限保持；留存文件审计通过，无原生复验。",
+          "quality_evidence": {
+            "workload": "随机初始化、seed20261027、单compute线程、严格deterministic_algorithms；ViT-large/large-plus输入32x32，DINOv2-large为28x28。SGD lr0.001/momentum0.8，epoch StepLR gamma0.75；GPU使用FP32主参数、FP16 autocast与GradScaler init128/growth_interval3，不是FP16参数存储。",
+            "recovery_contract": "连续基线与中断恢复两条路线各完成2epoch/6次逻辑更新；第4次提交更新写入实际文件后销毁全部domain对象，再重新创建并从文件精确恢复至第6次。安全边界及完成态均按全部参与者元数据与逐字段完整payload比较，包含模型及非空SGD momentum、scheduler/scaler、采样游标、loss/样本顺序和下一CPU/GPU RNG；原native断言全部执行。",
+            "payload_comparisons": "[{\"model\":\"dinov3_vitl16\",\"precision\":\"fp32\",\"comparisons\":[{\"participants\":8,\"fields\":731,\"bytes\":2425630286},{\"participants\":8,\"fields\":731,\"bytes\":2425630286}]},{\"model\":\"dinov3_vitl16\",\"precision\":\"cuda-fp16\",\"comparisons\":[{\"participants\":9,\"fields\":734,\"bytes\":2425631465},{\"participants\":9,\"fields\":734,\"bytes\":2425631465}]},{\"model\":\"dinov3_vitl16plus\",\"precision\":\"fp32\",\"comparisons\":[{\"participants\":8,\"fields\":827,\"bytes\":3231733202},{\"participants\":8,\"fields\":827,\"bytes\":3231733202}]},{\"model\":\"dinov3_vitl16plus\",\"precision\":\"cuda-fp16\",\"comparisons\":[{\"participants\":9,\"fields\":830,\"bytes\":3231734525},{\"participants\":9,\"fields\":830,\"bytes\":3231734525}]},{\"model\":\"vit_large_patch14_dinov2\",\"precision\":\"fp32\",\"comparisons\":[{\"participants\":8,\"fields\":704,\"bytes\":2435044829},{\"participants\":8,\"fields\":704,\"bytes\":2435044829}]}]",
+            "resource_results": "[{\"model\":\"dinov3_vitl16\",\"precision\":\"fp32\",\"ctest_seconds\":219.063,\"metrics\":{\"model\":\"dinov3_vitl16\",\"precision\":\"fp32\",\"image_size\":32,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":9011060736,\"elapsed_ms\":217686}},{\"model\":\"dinov3_vitl16\",\"precision\":\"cuda-fp16\",\"ctest_seconds\":174.755,\"metrics\":{\"model\":\"dinov3_vitl16\",\"precision\":\"cuda-fp16\",\"image_size\":32,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":7772307456,\"elapsed_ms\":173469,\"peak_cuda_allocated_bytes\":3838483456,\"cuda_allocated_after_destroy_bytes\":167772672,\"cuda_allocated_after_workspace_clear_bytes\":512,\"cuda_reserved_after_empty_cache_bytes\":2097152}},{\"model\":\"dinov3_vitl16plus\",\"precision\":\"fp32\",\"ctest_seconds\":226.25,\"metrics\":{\"model\":\"dinov3_vitl16plus\",\"precision\":\"fp32\",\"image_size\":32,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":11742842880,\"elapsed_ms\":224738}},{\"model\":\"dinov3_vitl16plus\",\"precision\":\"cuda-fp16\",\"ctest_seconds\":224.664,\"metrics\":{\"model\":\"dinov3_vitl16plus\",\"precision\":\"cuda-fp16\",\"image_size\":32,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":9699618816,\"elapsed_ms\":223137,\"peak_cuda_allocated_bytes\":5048659456,\"cuda_allocated_after_destroy_bytes\":167772672,\"cuda_allocated_after_workspace_clear_bytes\":512,\"cuda_reserved_after_empty_cache_bytes\":2097152}},{\"model\":\"vit_large_patch14_dinov2\",\"precision\":\"fp32\",\"ctest_seconds\":213.33,\"metrics\":{\"model\":\"vit_large_patch14_dinov2\",\"precision\":\"fp32\",\"image_size\":28,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":8945287168,\"elapsed_ms\":212239}}]",
+            "resource_scope": "五项均自然完成，CPU8/GPU9参与者各比较安全边界及完成态；GPU清BLAS工作区后的活跃分配不超过32MiB、emptyCache后reserved不超过64MiB。RSS和耗时是单次原资源合同，不授统计稳定性、可比较性能或完整训练任务资格。",
+            "retained_history": "原749ce5f批次19项通过及这5项未准入的记录保留；既有Huge+ FP16存储与其他恢复结果直接复用，不重复运行或把历次结果拼为单次全绿。",
+            "scope": "仅所列精确Windows/W7900组合、随机模型/输入/精度的同进程对象销毁重建与完整文件恢复；不授新进程、强杀、跨后端逐位恢复、预训练/真实任务质量、其他优化器/形状/精度、WSL、多卡、其他硬件/系统或发布资格。",
+            "validation_receipt_sha256": "5d6161fb7904b928cda1f65c594bb353beab05a355970ddeef13c24e03127523",
+            "saved_file_audit_sha256": "badd5dd4543309fdf3f3bb46f0c42968f807ecff546a9ed6e27d7da739541abe",
+            "build_summary_sha256": "1e37fc979869cdeb6780f2249e2963119e20d6a894f0713e3d98b4a901dd985a",
+            "original_recovery_receipt_sha256": "067ffdd9418cb731a4d7724f2437dab0d73b9d684d961deec2f79297052d08fb"
+          }
+        },
+        {
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-0d3cbcd-capacity-cpu-fp32",
           "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
