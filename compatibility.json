@@ -4555,6 +4555,24 @@
             "test_source_sha256": "b905a6d87af915fb9ef0d66d0a86c12d72e1cc8e6f4d3ce8f3c8ef226d6fa95c",
             "scope": "仅本Windows/W7900精确组合的当前Huge+ GPU FP16参数存储同进程对象销毁重建恢复与原资源合同；不授FP32主权重、预训练/真实任务质量、新进程或强杀恢复、其他模型/精度/设备/系统、多卡或发布资格。既有WSL资格和原失败分别保留。"
           }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用原Windows ROCm Ninja Release构建与依赖，仅增量重建jyppx_test_optim_step_lr_scheduler，至多两个编译任务，CTest串行。",
+          "id": "windows-clangcl24-rocm101-gfx1100-9b40888-step-lr-startup-recovery",
+          "commit": "9b40888",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100 present; LibTorch2.14.0+rocm10.1.0 native distribution; these scheduler/checkpoint tests use CPU optimizer parameters",
+          "tests": "原七项与新增两项StepLR单元/检查点合同共9/9通过、零失败跳过，五仓库门禁另5/5通过；不重跑已完成GPU训练/优化器精度矩阵。",
+          "quality_evidence": {
+            "source_identity": "9b40888新增测试及公开StepLR文档；验证在c83158e基线加相同测试源码上进行，产品实现维持f62d693的显式skip_initial_decay选项。无提交后重复GPU验证。",
+            "continuation": "step_size2、gamma0.5、双参数组初始率0.2/0.05，分别在事件0/1/2/3保存，覆盖首次事件前后及首次衰减边界；目标计数和学习率先扰动后恢复，逐事件核对固定学习率序列、完整topology/control字段字节及连续路线相等。",
+            "incompatible_mode": "false到true及true到false两种启动模式不匹配均抛CompatibilityError；目标优化器组率、scheduler计数、完整检查点字段字节保持不变，模式对应描述符指纹不同。",
+            "scope": "仅该Windows ROCm分发的CPU StepLR控制与当前schema3检查点合同，补齐显式PyTorch启动选项的恢复边界；不授GPU计算/其他精度数值、其他调度器、完整训练任务质量、性能、其他设备/系统或发布资格。既有FP32 Fashion同后端parity和独立质量失败分别保留。"
+          }
         }
       ],
       "pending_lanes": []
