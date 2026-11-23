@@ -13,6 +13,28 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-0d3cbcd-dinov2-real-first-step-parity",
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
+          "commit": "0d3cbcdf82327551868f943a181564ca4cfb753b",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; native Linux ROCm10.1.0 LibTorch2.14.0; FP32 full backward and grouped SGD, original 8x3x224x224 real first batch",
+          "instrumentation": "干净0d3cbcd复用原WSL Release树，最多2编译，仅增量构建受影响测试及构建指纹；GPU串行。独立官方HF4.56.2固定输入训练图由原Facebook权重生成，CPU载体logits与留存官方eager输出逐字节一致；WSL执行关闭graph optimizer及deterministic-algorithm限制，完整重新导入225份官方状态。框架保持原严格确定性。",
+          "tests": "原ModelsPretrainedBackward.DinoV2SmallRealFirstBatchCudaGradientsAndSgd完整反向及一次SGD完成，原固定参考仍仅patch梯度83/225792元素超差，保留CTest失败；独立官方完整反向及一次分组SGD自然完成，同WSL后端14/14完整张量逐字节一致。文件审计核对完整payload、全部174份主干及2份头初态映射、实际Torch/C10模块SHA；未重跑CPU、Windows、原设备或通用矩阵。",
+          "quality_evidence": {
+            "parity": "指定logits/loss、六梯度和六更新参数共14份张量、2524517个FP32值逐字节相同，最大绝对差0；框架原176份参数梯度有限检查通过，官方224份使用参数梯度全部GPU FP32且有限，唯一未用mask token无梯度。按同后端PyTorch一致性准则接受指定14份张量范围。",
+            "official_carrier": "原HF4.56.2源码SHA256 81116a0fddfd3d96f9d175cc56a22ded11382eb21bc78748e79b29d34660f862，原Facebook权重SHA256 ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1；固定图SHA256 96966eb696adcc6c570ca3130e57c970f3e01f3072ef6193fd50e60612768f63。独立C++执行器只复用3dab113安装core/interop进行运行时初始化与文件IO，不链接本库模型实现。",
+            "scope": "仅WSL/W7900精确FP32首批次及指定14份张量；不授所有176份梯度/状态、位置嵌入导数数值等价、严格确定性官方backward、完整训练准确率、其他shape/精度/硬件资格。原固定参考失败及官方严格bicubic反向拒绝保留。",
+            "native_receipt_sha256": "85c28e04d1b3d2f9e5e12fd4cabb6f834a19bd9b2b7443ae853a7656ff8df5bc",
+            "official_full_backward_receipt_sha256": "bcbe2db389a26442a94c41a3ca1c052cb2ca24e986938c9e2d394ffaeb110e64",
+            "official_carrier_receipt_sha256": "8b7b09b31f9934652c2958e679ddf086533b181b3f4a88194141a9868cf356b4",
+            "complete_capture_sha256": "a6049b2a284083f42c2d06b7e3cd7d889a003699733902ceb3f8af1d7fdc323a",
+            "parity_analysis_sha256": "da66d0a1040f1fc64180d4fb32a57d46f9f4baf8cfe3f45c546be46e4ba278fc"
+          }
+        },
+        {
           "id": "windows-clangcl24-rocm101-gfx1100-0d3cbcd-dinov2-real-first-step-parity",
           "distribution": "amd-rocm10.1.0",
           "os": "windows-11",
@@ -47,9 +69,10 @@
           "quality_evidence": {
             "contract": "Giant完整模型参数和梯度存储为CPU BF16；原seed20261027、1x3x14x14输入、FP32平方均值loss、SGD0.1。全部568份参数及梯度的CPU/BF16/有限值检查通过，head及patch投影梯度非零且实际更新后权重改变；更新后eval tokens形状1x2x1536且全部有限。",
             "resources": "自然完成约26.7秒，峰值RSS5123940352字节，低于8GiB；此为单次资源合同，不授统计性能或BF16/FP32准确率等价。构造仍先分配FP32权重。",
-            "retained_fp32": "原FP32反向只降低外部准入至10GiB后实际入场，约33秒提交余量降至715206656字节，被预声明监测器终止；未完成原CTest，不记为通过或跳过。原FP32反向与Giant独立FP32参考仍待更多提交内存。",
+            "retained_fp32": "原FP32反向降低外部准入至10GiB后实际入场，约33秒提交余量降至715206656字节，被预声明监测器终止。另复用同一原FP32二进制，仅将子进程OMP/MKL/OpenBLAS线程环境限制为1，14.531秒提交余量降至756842496字节，同样低于768MiB预留而终止；两次均未完成原CTest，不记为通过或跳过，不据此归因内存原因。原FP32反向与Giant独立FP32参考仍待更多提交内存。",
             "scope": "仅当前Windows ROCm分发CPU、精确BF16存储单步训练与所列资源合同；无原FP32反向、独立参考、完整任务准确率、其他输入/优化器/硬件/OS资格。",
-            "validation_receipt_sha256": "40050d62b6cdee1bdb72019cff700bdf09ace50e0410c7011095bdbc4ef1489a"
+            "validation_receipt_sha256": "40050d62b6cdee1bdb72019cff700bdf09ace50e0410c7011095bdbc4ef1489a",
+            "single_thread_fp32_receipt_sha256": "30b6ab5e28b2a715c9f787fdc2c5eafb30fd27367b8b5a0b7fb8070106441c22"
           }
         },
         {

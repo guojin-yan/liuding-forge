@@ -94,7 +94,7 @@ ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 
 
 [图像读取到训练更新](../benchmarks/README.md#图像读取到训练更新)入口同样支持 HIP 身份、同步与独立显存指标，可选择文件读取、解码缓存或预缩放缓存；`cuda-fp16` 与 `cuda-fp16-storage` 分别使用 FP32 主权重和 FP16 参数存储。每种模型、数据、精度与加载配置须独立采样，训练完成不代表统计稳定或任务准确率。
 
-Windows ROCm LibTorch 分发的 CPU 可单独验证 Giant BF16 参数存储资源门禁，覆盖全部 568 份有限梯度及分类头、patch 权重的实际 SGD 更新，峰值 RSS 约 4.77 GiB；启用方式见[贡献指南](../../CONTRIBUTING.md)。原 Giant CPU FP32 反向在降低准入后仍触及提交内存预留边界，尚未完成。
+Windows ROCm LibTorch 分发的 CPU 可单独验证 Giant BF16 参数存储资源门禁，覆盖全部 568 份有限梯度及分类头、patch 权重的实际 SGD 更新，峰值 RSS 约 4.77 GiB；启用方式见[贡献指南](../../CONTRIBUTING.md)。原 Giant CPU FP32 反向在降低准入、另行限制子进程线程数后均仍触及提交内存预留边界，尚未完成。
 
 ## 与 PyTorch 的精度对照
 
@@ -106,7 +106,7 @@ AMD 适配按相同设备、后端、状态、输入和训练配方与官方 PyT
 | EfficientNetV2-S 固定前向 | Windows 官方 timm eager 的 CPU/GPU 各六份完整输出，以及 WSL 同后端官方固定形状图的六份 GPU 输出，分别与本库逐字节一致；接受对应 FP32 前向，原固定参考的 `blocks5` 和 `output` 超差仍保留。 |
 | DINOv2-small 真实首批次，Windows CPU FP32 | 默认与关闭 oneDNN 两种模式，各 14 份完整 logits/loss、梯度及更新参数均与官方 HF/PyTorch eager 逐字节一致。 |
 | DINOv2-small 真实首批次，Windows GPU FP32 | 本库严格确定性完整反向及 SGD 后的 14 份完整 logits/loss、六梯度和六更新参数，均与同 W7900/AMD PyTorch 官方 HF 完整反向逐字节一致；官方进程关闭确定性算法限制以执行 bicubic 反向。本项仅确认这 14 份张量，未对照位置嵌入导数或其余全部参数。 |
-| DINOv2-small 真实首批次，WSL GPU FP32 | 原唯一超差的完整 patch 投影梯度与同 W7900 的 Windows AMD PyTorch 官方 HF 查询逐字节一致；接受这个张量的差异，未扩大为 WSL 全部 14 份张量或同后端完整反向对照。 |
+| DINOv2-small 真实首批次，WSL GPU FP32 | 与同 WSL 后端官方 HF 固定训练图的 logits、loss、六份完整梯度和六份更新参数共 14 份张量逐字节一致。官方执行关闭图优化及确定性算法限制，完成完整反向与分组 SGD；框架保留严格确定性及原参考断言。本项仅确认这 14 份张量，未对照位置嵌入导数或其余全部参数。 |
 
 这些对照仅确认所列配方和张量的同后端一致性，其他数据、形状、精度和硬件须分别验证。
 
