@@ -13,6 +13,31 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-0d3cbcd-dino-large-recovery",
+          "commit": "0d3cbcdf82327551868f943a181564ca4cfb753b",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; native Linux ROCm10.1.0 LibTorch2.14.0; CPU FP32 and GPU FP16 autocast with FP32 master weights",
+          "instrumentation": "复用干净0d3cbcd原生Ninja Release树和依赖，仅重建恢复测试目标、最多2编译任务，核对源码/built provenance与二进制身份。外层准入为10GiB有效主存及14GiB主存加空闲交换、12GiB磁盘、适用的16GiB空闲显存；运行中保留768MiB有效主存/2GiB合计余量并观察cgroup。CPU/GPU串行，保留全部原生断言，不修改全局WSL/交换空间或重跑已通过合同。",
+          "tests": "六项不同原生恢复CTest中5通过、1失败、零跳过。DINOv3 ViT-large/large-plus各CPU FP32及GPU FP16 autocast、DINOv2-large CPU FP32通过；Huge+ GPU FP16参数存储仅原10GiB RSS上限失败。首批两项通过后第三项中断，续批只补四项缺失结果，不合称单次全绿。原600秒CTest/630秒监督、输入、精度、完整状态与资源断言保持；文件审计通过，已通过合同零重跑。",
+          "quality_evidence": {
+            "workload": "随机初始化、seed20261027、单compute线程及严格deterministic_algorithms。ViT-large/large-plus输入32x32，DINOv2-large为28x28；SGD lr0.001/momentum0.8、epoch StepLR gamma0.75。GPU含GradScaler init128/growth_interval3，两容量保留FP32主参数和FP16 autocast。",
+            "recovery_contract": "连续基线与中断恢复路线各完成2epoch/6次逻辑更新；第4次更新保存文件，销毁全部domain对象，再重建并从文件精确恢复至第6次。安全边界和完成态均核对全部CPU8/GPU9参与者元数据及逐字段完整payload，覆盖模型、非空SGD momentum、scheduler/scaler、采样游标、loss、样本顺序和下一CPU/GPU RNG；原native断言全部执行。范围为同进程对象重建。",
+            "payload_comparisons": "[{\"model\":\"dinov3_vitl16\",\"precision\":\"fp32\",\"comparisons\":[{\"participants\":8,\"fields\":731,\"bytes\":2425630286},{\"participants\":8,\"fields\":731,\"bytes\":2425630286}]},{\"model\":\"dinov3_vitl16\",\"precision\":\"cuda-fp16\",\"comparisons\":[{\"participants\":9,\"fields\":734,\"bytes\":2425631465},{\"participants\":9,\"fields\":734,\"bytes\":2425631465}]},{\"model\":\"dinov3_vitl16plus\",\"precision\":\"fp32\",\"comparisons\":[{\"participants\":8,\"fields\":827,\"bytes\":3231733202},{\"participants\":8,\"fields\":827,\"bytes\":3231733202}]},{\"model\":\"dinov3_vitl16plus\",\"precision\":\"cuda-fp16\",\"comparisons\":[{\"participants\":9,\"fields\":830,\"bytes\":3231734525},{\"participants\":9,\"fields\":830,\"bytes\":3231734525}]},{\"model\":\"vit_large_patch14_dinov2\",\"precision\":\"fp32\",\"comparisons\":[{\"participants\":8,\"fields\":704,\"bytes\":2435044829},{\"participants\":8,\"fields\":704,\"bytes\":2435044829}]}]",
+            "resource_results": "[{\"model\":\"dinov3_vitl16\",\"precision\":\"fp32\",\"ctest_seconds\":182.007,\"metrics\":{\"model\":\"dinov3_vitl16\",\"precision\":\"fp32\",\"image_size\":32,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":7928479744,\"elapsed_ms\":180991}},{\"model\":\"dinov3_vitl16\",\"precision\":\"cuda-fp16\",\"ctest_seconds\":177.4,\"metrics\":{\"model\":\"dinov3_vitl16\",\"precision\":\"cuda-fp16\",\"image_size\":32,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":9552506880,\"elapsed_ms\":175987,\"peak_cuda_allocated_bytes\":3838483456,\"cuda_allocated_after_destroy_bytes\":167772672,\"cuda_allocated_after_workspace_clear_bytes\":512,\"cuda_reserved_after_empty_cache_bytes\":2097152}},{\"model\":\"dinov3_vitl16plus\",\"precision\":\"fp32\",\"ctest_seconds\":249.093,\"metrics\":{\"model\":\"dinov3_vitl16plus\",\"precision\":\"fp32\",\"image_size\":32,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":10178199552,\"elapsed_ms\":244774}},{\"model\":\"dinov3_vitl16plus\",\"precision\":\"cuda-fp16\",\"ctest_seconds\":250.139,\"metrics\":{\"model\":\"dinov3_vitl16plus\",\"precision\":\"cuda-fp16\",\"image_size\":32,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":11260514304,\"elapsed_ms\":242547,\"peak_cuda_allocated_bytes\":5048659456,\"cuda_allocated_after_destroy_bytes\":167772672,\"cuda_allocated_after_workspace_clear_bytes\":512,\"cuda_reserved_after_empty_cache_bytes\":2097152}},{\"model\":\"vit_large_patch14_dinov2\",\"precision\":\"fp32\",\"ctest_seconds\":219.604,\"metrics\":{\"model\":\"vit_large_patch14_dinov2\",\"precision\":\"fp32\",\"image_size\":28,\"compute_threads\":1,\"deterministic_algorithms\":1,\"process_peak_rss_bytes\":9259560960,\"elapsed_ms\":217983}}]",
+            "resource_scope": "通过的五项保留12GiB原生进程峰值RSS；GPU保留5GiB peak allocated、清BLAS工作区后allocated<=32MiB、emptyCache后reserved<=64MiB。六项均自然完成，监测cgroup OOM计数无增加；外层准入降低不改变任何native资源、精度或数值门槛。单次资源结果不授统计稳定性或可比较性能。",
+            "huge_half_storage_failure": "DINOv3 Huge+原224x224、840637443参数实际FP16存储完成全部基线/中断重建与第6更新，两次9参与者1094字段各3362913777字节完整比较、loss/顺序/下一CPU及GPU RNG与显存断言通过；仅峰值RSS11675049984字节超过原10737418240字节，保留原CTest失败、不给该资源合同通过资格。CTest312.174秒、GPU peak allocated5288796672字节，原600秒/5GiB上限保持。",
+            "validation_scope": "同一源码及二进制分两批取得2项和4项完成结果，一次中断没有完成结果且不计通过或跳过；只重启该未完成条目，已通过合同不重跑，不合称单次全绿。既有Windows与WSL其他恢复范围分别保留。",
+            "scope": "仅所列精确WSL/Ubuntu/GCC/ROCm/W7900随机模型、输入和精度的同进程对象重建及完整文件恢复。不授新进程、强杀、跨后端逐位恢复、预训练/真实任务质量、其他优化器/形状/精度、多卡、其他硬件/系统或发布资格。",
+            "validation_receipt_sha256": "e380b4f7ba6dc55b13d9b2cb122ef3c395a4d0aa229fdeed36370a95998e2c21",
+            "reused_two_passes_receipt_sha256": "98a07a8db315a5bef1ca3e697614ebd2eb64416801b01c237b3e82fd0c6213c6",
+            "saved_file_audit_sha256": "7406fd67fc4afc9d5ffc7659fded821c16be516fb05a5b67bde58fee7dc7ade0"
+          }
+        },
+        {
           "id": "windows-clangcl24-rocm101-gfx1100-fd710fb-dino-large-recovery",
           "distribution": "amd-rocm10.1.0",
           "os": "windows-11",

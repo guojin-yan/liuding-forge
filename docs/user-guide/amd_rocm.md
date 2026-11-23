@@ -135,6 +135,8 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 随机初始化 DINOv2 ViT-small/base、DINOv3 ViT-small/small-plus/base 与 ConvNeXt-tiny/small/base/large 另通过 CPU FP32、GPU FP16 autocast 的文件检查点恢复。验证在第 4 次更新保存文件，销毁并重建训练对象后完成至第 6 次更新，核对安全边界和完成态的全部参与者状态、loss、数据顺序及下一 CPU/GPU 随机数；各例保留原 RSS、allocator 与超时门槛，其中 ConvNeXt-large 为 8 GiB RSS、GPU 5 GiB allocator 和 360 秒，精确对应关系见兼容矩阵。此范围为同进程对象重建，不包含进程强杀或其他模型容量。
 
+WSL 另通过 DINOv3 ViT-large/large-plus 的 CPU FP32、GPU FP16 autocast，以及 DINOv2-large CPU FP32 完整文件恢复。输入分别为 `32×32`、`28×28`，在第 4 次更新保存并销毁对象，重建后恢复至第 6 次；两次比较覆盖全部参与者元数据与完整载荷、loss、样本顺序及下一 CPU/GPU 随机数，保留 12 GiB RSS、适用的 5 GiB GPU allocator 和各例 600 秒上限。可在核对有效主存、交换空间及 cgroup 余量后降低外层准入，具体要求见兼容矩阵。Huge+ GPU FP16 参数存储的 `224×224` 合同虽通过完整状态、loss、随机数及显存检查，但峰值 RSS 约 10.87 GiB，超过原 10 GiB，整项仍失败。上述范围为同进程对象重建，真实任务质量、新进程或强杀恢复须独立验证。
+
 固定 Penn-Fudan 空间任务的两份既有权重另通过 CPU/GPU 留出集质量、拆批统计与文件评估恢复。原随机初始化 TinyUNet 的 FP32 配方也通过连续 1200 次更新、第 601 次更新暂停、新进程恢复完成及完成态重放，完整参与者状态、最终模型、loss 和下一 CPU/GPU 随机数与同次 WSL 基线相同。质量范围限于原固定 25 图及各自权重，数据与协议见[空间任务 fixture](../../tests/fixtures/metrics/penn_fudan/README.md)；本次训练恢复不授予其新产物的留出集质量或历史权重 SHA 复现资格。
 
 原生[行人检测](../../examples/evaluation/README.md)与[TinyUNet 分割](../../examples/evaluation/segmentation/README.md)示例另在该 WSL2 CPU/AMD GPU 组合分别完成各自原 80 轮、1200 次 FP32 更新及固定 25 图留出集质量验证。两例均通过第 137 步暂停、新进程恢复与真实强杀后的恢复，同次同构建三条完成路线的最终模型和完整检查点逐字节一致；GPU 训练后的检测权重另经 CPU 评估，分割核对全部 170 份原始样本身份。各例保留原质量、RSS、适用的 HIP allocator 与超时门槛，精确范围和独立 checker 身份见兼容矩阵。
