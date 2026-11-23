@@ -170,9 +170,15 @@ TEST(StepLrSchedulerTest, CanMatchPytorchInitialStepSemantics) {
   EXPECT_EQ(scheduler.learning_rates(), (std::vector<double>{0.2, 0.05}));
   scheduler.step();
   EXPECT_EQ(scheduler.completed_steps(), 2U);
-  EXPECT_EQ(scheduler.learning_rates(), (std::vector<double>{0.18, 0.045}));
+  const auto second_rates = scheduler.learning_rates();
+  ASSERT_EQ(second_rates.size(), 2U);
+  EXPECT_DOUBLE_EQ(second_rates[0], 0.18);
+  EXPECT_DOUBLE_EQ(second_rates[1], 0.045);
   scheduler.step();
-  EXPECT_EQ(scheduler.learning_rates(), (std::vector<double>{0.162, 0.0405}));
+  const auto third_rates = scheduler.learning_rates();
+  ASSERT_EQ(third_rates.size(), 2U);
+  EXPECT_DOUBLE_EQ(third_rates[0], 0.162);
+  EXPECT_DOUBLE_EQ(third_rates[1], 0.0405);
 }
 
 TEST(StepLrSchedulerTest, RejectsInvalidConstructionBeforeMutation) {
