@@ -94,6 +94,21 @@ ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 
 
 [图像读取到训练更新](../benchmarks/README.md#图像读取到训练更新)入口同样支持 HIP 身份、同步与独立显存指标，可选择文件读取、解码缓存或预缩放缓存；`cuda-fp16` 与 `cuda-fp16-storage` 分别使用 FP32 主权重和 FP16 参数存储。每种模型、数据、精度与加载配置须独立采样，训练完成不代表统计稳定或任务准确率。
 
+Windows ROCm LibTorch 分发的 CPU 可单独验证 Giant BF16 参数存储资源门禁，覆盖全部 568 份有限梯度及分类头、patch 权重的实际 SGD 更新，峰值 RSS 约 4.77 GiB；启用方式见[贡献指南](../../CONTRIBUTING.md)。原 Giant CPU FP32 反向在降低准入后仍触及提交内存预留边界，尚未完成。
+
+## 与 PyTorch 的精度对照
+
+AMD 适配按相同设备、后端、状态、输入和训练配方与官方 PyTorch 实现对照；达到同后端一致性的结果可以接受。原跨后端固定参考及独立任务质量门槛的结果仍分别保留，具体范围见兼容矩阵。
+
+| 用例 | 已确认的同后端一致性 |
+| --- | --- |
+| ResNet18 小样本训练，WSL GPU FP32 | 官方 torchvision 训练图的 48 次 SGD 更新，每步 logits、全部 62 份梯度和 122 份更新后状态均逐字节一致，最终准确率同为 0.5；接受此配方与 PyTorch 的一致性，原 0.875 任务门槛仍未达到。 |
+| EfficientNetV2-S 固定前向 | Windows 官方 timm eager 的 CPU/GPU 各六份完整输出，以及 WSL 同后端官方固定形状图的六份 GPU 输出，分别与本库逐字节一致；接受对应 FP32 前向，原固定参考的 `blocks5` 和 `output` 超差仍保留。 |
+| DINOv2-small 真实首批次，Windows CPU FP32 | 默认与关闭 oneDNN 两种模式，各 14 份完整 logits/loss、梯度及更新参数均与官方 HF/PyTorch eager 逐字节一致。 |
+| DINOv2-small 真实首批次，GPU FP32 | 原唯一超差的完整 patch 投影梯度与同 W7900/AMD PyTorch 官方 HF 查询逐字节一致，Windows 与 WSL 捕获均匹配；接受这个张量的差异。官方查询未请求位置嵌入导数，此项不表示完整反向或全部张量等价。 |
+
+这些对照仅确认所列配方和张量的同后端一致性，其他数据、形状、精度和硬件须分别验证。
+
 ## WSL2 原生核心与训练
 
 W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的原生 Linux C++11 ABI=1 组合。范围包括设备与数据管线、八类优化器与十五类调度器的 FP32/FP16/BF16 组合、AMP、Trainer、检查点，以及独立安装应用的 GPU 前向、反向和 HIP 物理设备身份检查。八算法适配器、对应调度器及极端参数的原单元合同也已验证；精确 LibTorch 2.5.1 历史检查点和八份原适配器 canonical 迁移 fixture 仍条件跳过；原生版本查询应报告 `rocm:available:1`。

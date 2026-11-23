@@ -13,6 +13,25 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "windows-clangcl24-rocm101-gfx1100-0e218f0-giant-cpu-bf16-storage",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "commit": "0e218f0506f8b539f15b486e0a48b0acc9b5025f",
+          "accelerator": "AMD Radeon PRO W7900 host; native ROCm10.1.0 LibTorch2.14.0 distribution; CPU BF16 parameter and gradient storage with GPUs hidden",
+          "instrumentation": "复用原Ninja Release构建、离线配置、最多2编译、单项串行；新增显式BF16存储测试与原FP32门禁独立。开发运行器按用户授权降为10GiB可用物理及10GiB提交额度准入，每0.5秒采样，低于768MiB提交/1GiB物理预留终止；未修改全局内存、pagefile或WSL配置。",
+          "tests": "干净0e218f0新增Models.DinoV2GiantCpuBfloat16StorageTrainingResourceGate单项通过，0失败/跳过；保留600秒CTest/630秒监督及8GiB RSS上限。先前脏树同项通过独立留存，不重复原GPU/Huge+矩阵。",
+          "quality_evidence": {
+            "contract": "Giant完整模型参数和梯度存储为CPU BF16；原seed20261027、1x3x14x14输入、FP32平方均值loss、SGD0.1。全部568份参数及梯度的CPU/BF16/有限值检查通过，head及patch投影梯度非零且实际更新后权重改变；更新后eval tokens形状1x2x1536且全部有限。",
+            "resources": "自然完成约26.7秒，峰值RSS5123940352字节，低于8GiB；此为单次资源合同，不授统计性能或BF16/FP32准确率等价。构造仍先分配FP32权重。",
+            "retained_fp32": "原FP32反向只降低外部准入至10GiB后实际入场，约33秒提交余量降至715206656字节，被预声明监测器终止；未完成原CTest，不记为通过或跳过。原FP32反向与Giant独立FP32参考仍待更多提交内存。",
+            "scope": "仅当前Windows ROCm分发CPU、精确BF16存储单步训练与所列资源合同；无原FP32反向、独立参考、完整任务准确率、其他输入/优化器/硬件/OS资格。",
+            "validation_receipt_sha256": "40050d62b6cdee1bdb72019cff700bdf09ace50e0410c7011095bdbc4ef1489a"
+          }
+        },
+        {
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-65a210f-migraphx-no-mlir-reload",
           "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
@@ -1601,7 +1620,9 @@
             "validation_receipt_sha256": "95c6ecfc8bd12095b9252a166fa8c587d0067f2b632c2e09473dc0cac406a417",
             "qualification_analysis_sha256": "6ebbb4c7bde331fc2e14f7fcfb1bb34ab198f6b697a1983f8243febe613ea243",
             "original_native_failure_receipt_sha256": "b1b6f7c9bc6bbe0039bfae67d6c7066003c92cb6ed47e3228af6c3d134a18131",
-            "windows_upstream_receipt_sha256": "f00492aafb6b409ac55efb747dbd6fd60bd353a33af8fb52116cc673e5f2878f"
+            "windows_upstream_receipt_sha256": "f00492aafb6b409ac55efb747dbd6fd60bd353a33af8fb52116cc673e5f2878f",
+            "pytorch_parity_acceptance": "按同设备/后端PyTorch一致性准则接受本固定输入、状态和FP32前向：本库CPU/GPU各六份完整张量与官方timm eager逐字节相同；只读重审全部12份payload。原跨后端固定参考的output/blocks5失败保留，与同后端一致性分别报告。",
+            "pytorch_parity_audit_sha256": "ccdf84e7e7d560c5f976f8b84921773d9b1d8eb50b8d7ccaa85022ad76f27d87"
           }
         },
         {
@@ -1625,7 +1646,10 @@
             "validation_receipt_sha256": "6ad5ebbf5368f014032cf2916431d9c05dd2db938273a3a8d12bed962f32b3c9",
             "qualification_analysis_sha256": "eb346b08c7590c5e918d61d70ad005678486d264a370d9a7f2231a71628dea06",
             "original_native_failure_receipt_sha256": "d883b67b52d48c0bf56a6e7d895c4a49f94d2f90e4dc793061915608c1ce1828",
-            "windows_upstream_receipt_sha256": "f00492aafb6b409ac55efb747dbd6fd60bd353a33af8fb52116cc673e5f2878f"
+            "windows_upstream_receipt_sha256": "f00492aafb6b409ac55efb747dbd6fd60bd353a33af8fb52116cc673e5f2878f",
+            "pytorch_parity_acceptance": "补齐同一WSL原生AMD后端官方timm固定形状图对照，明确关闭JIT graph optimizer，重新严格导入原完整状态，原1x3x65x67输入；output及blocks0/1/2/4/5全部逐字节等于原C++捕获，六份共53288个FP32值零差异。载体由锁定timm生成并先核对其六CPU输出与既有eager封存值逐字节一致；实际运行Torch/C10完整SHA与原WSL捕获相同。按PyTorch一致性准则接受此FP32固定前向，原跨后端固定参考失败继续保留；无CPU同后端、动态形状、反向、预训练或任务质量推定。",
+            "pytorch_parity_receipt_sha256": "3e6b916eb920858acfc0b77ac13f9dae9c6207b44506a16da53180092685f74e",
+            "pytorch_parity_output_sha256": "619092775aff130e90374de0d1c8bed24e13d182945a48a952c5d7a71fe565d5"
           }
         },
         {
@@ -2605,7 +2629,8 @@
             "real_first_batch_gpu_clean_analysis_sha256": "db7de227e4b0ca4d199a94e5af5d788b54ec1931ecec8c5e9f15921050db1abe",
             "upstream_gpu_selected_leaf_diagnostic": "同一W7900的Windows离线独立HF4.56.2 eager诊断，原Facebook权重、18固定capture/reference文件与全部原容差保持，PythonTorch2.14.0+rocm10.1.0的五份Torch/C10 DLL与原生SDK逐文件SHA一致。完整严格确定性HF backward先因upsample_bicubic2d_backward_out_cuda无确定性实现而失败，原失败保留。另行受限叶子查询保留原forward/requires_grad/严格确定性，仅不请求未在六份完整参考中的位置嵌入叶子梯度；该位置参数无梯度且不更新，不称完整backward或完整模型SGD通过。显式SGD foreach=False，原分组学习率/momentum/weight_decay不变。14项原参考比较13通过、1失败；patch投影梯度仍83/225792元素超差、max_abs0.000209808349609375，其完整SHA8f503bcd853db1fb302d46d95366253f191ba78af2dc7818b550a9f25597e308与两系统原生失败张量逐字节相同。不将此单张量一致扩展为原生14张量完整等价、确定上游或框架原因、GPU数值资格或真实质量资格；原生门禁未重跑。",
             "upstream_gpu_selected_leaf_analysis_sha256": "a265cf7f986800902cddbb9fa4a8fe9cdeed8df756716bc987a83adef7dca737",
-            "upstream_gpu_full_backward_failure_receipt_sha256": "282f8e78a7182a433d52e78a4bd3debe15b03819ae6346010b30a6229f47eb8f"
+            "upstream_gpu_full_backward_failure_receipt_sha256": "282f8e78a7182a433d52e78a4bd3debe15b03819ae6346010b30a6229f47eb8f",
+            "real_first_batch_pytorch_patch_acceptance": "按PyTorch一致性准则接受原GPU首批次唯一超差张量：完整225792元素patch投影梯度与同W7900/同AMD DLL的官方HF eager受限叶子查询SHA一致，Windows/WSL两原生失败捕获SHA均匹配。仅接受此张量，保留位置嵌入导数未查询及完整严格HF backward拒绝的限制；不声称14张量完整等价，原固定参考门禁失败不改判。"
           }
         },
         {
@@ -2986,7 +3011,11 @@
             "fixed_convolution_diagnostic_receipt_sha256": "c563904bf60c936c0cd167aa20f098722ac7d88b7d2c27742b5930076b0b425c",
             "fixed_convolution_diagnostic_analysis_sha256": "7b48d12a2d9c603cbfafa795be23f9526f6a18dd54739af4d322dd09f705e0d9",
             "fixed_primitive_capture_diagnostic": "仅独立NumPy读取同一原第2批四组完整捕获，零新增模型/LibTorch/GPU调用和零optimizer更新。四组MaxPool3/stride2/pad1均逐字节符合首个最大值前向及FP32累加反向；共32个残差相加前向及主分支/存在的下采样分支adjoint逐字节符合；四组最终1x1空间均值前向/反向逐字节符合。分类头完整仿射前向及dinput/dweight/dbias相对独立FP64公式的最大relativeL2=2.5373518251049605e-07；softmax交叉熵logits梯度相对稳定FP64公式的最大relativeL2=3.6581233834369262e-08。引用既有4x17个ReLU边界逐字节审计，不重复模型执行。原15份输入SHA前后不变；描述范围仅该批算术/局部导数，无新质量、数值等价、错误算子或完整质量失败原因结论，两原质量失败与原门槛保持。",
-            "fixed_primitive_capture_diagnostic_analysis_sha256": "0ae45e9f1eb220a00adee62b1954af36ab10f1e468172756462e057645dc318a"
+            "fixed_primitive_capture_diagnostic_analysis_sha256": "0ae45e9f1eb220a00adee62b1954af36ab10f1e468172756462e057645dc318a",
+            "official_resnet18_full_trajectory_pytorch_acceptance": "独立官方torchvision训练图在原WSL AMD后端关闭JIT graph optimizer，严格导入原122项初始状态、复用全部48个已捕获原批次；按原SGD lr0.01/momentum0.9/weight_decay0.0001及每4批epoch gamma0.9完成48次更新。每步logits、62份完整梯度及122份更新后状态均逐字节等于原生产轨迹，最终完整模型状态相同，准确率同为0.5；故按同后端PyTorch一致性准则接受本精确配方。原0.875质量门槛和两套历史失败继续保留；未重新运行框架训练、改变数据/初始化/轮数或选择更好结果。实际原生Torch/C10路径及完整SHA与原观测相同，独立安装core/interop仍明确绑定3dab113。",
+            "official_resnet18_full_parity_receipt_sha256": "8bbececdc45fc88f4872507e1e0146477db735435ebda71d5910613385d9236f",
+            "official_resnet18_full_parity_report_sha256": "9a9e68bb1825dfd50b7af9d1e533ee01627a6e0b8e32bb38537c98c46ee2707a",
+            "official_resnet18_full_parity_final_state_sha256": "3eecc5abfce5336e5dd680cfe5f58db57c6462a52008b583aa3da8b41e5c1697"
           }
         },
         {
@@ -3679,7 +3708,9 @@
             "real_first_batch_gpu_clean_analysis_sha256": "f6246b3b4b4924cfe7ca7ac2b281adab032f80f8bf4f3d72f546876fce4963ea",
             "upstream_gpu_selected_leaf_diagnostic": "同一W7900的Windows离线独立HF4.56.2 eager诊断，原Facebook权重、18固定capture/reference文件与全部原容差保持，PythonTorch2.14.0+rocm10.1.0的五份Torch/C10 DLL与原生SDK逐文件SHA一致。完整严格确定性HF backward先因upsample_bicubic2d_backward_out_cuda无确定性实现而失败，原失败保留。另行受限叶子查询保留原forward/requires_grad/严格确定性，仅不请求未在六份完整参考中的位置嵌入叶子梯度；该位置参数无梯度且不更新，不称完整backward或完整模型SGD通过。显式SGD foreach=False，原分组学习率/momentum/weight_decay不变。14项原参考比较13通过、1失败；patch投影梯度仍83/225792元素超差、max_abs0.000209808349609375，其完整SHA8f503bcd853db1fb302d46d95366253f191ba78af2dc7818b550a9f25597e308与两系统原生失败张量逐字节相同。不将此单张量一致扩展为原生14张量完整等价、确定上游或框架原因、GPU数值资格或真实质量资格；原生门禁未重跑。",
             "upstream_gpu_selected_leaf_analysis_sha256": "a265cf7f986800902cddbb9fa4a8fe9cdeed8df756716bc987a83adef7dca737",
-            "upstream_gpu_full_backward_failure_receipt_sha256": "282f8e78a7182a433d52e78a4bd3debe15b03819ae6346010b30a6229f47eb8f"
+            "upstream_gpu_full_backward_failure_receipt_sha256": "282f8e78a7182a433d52e78a4bd3debe15b03819ae6346010b30a6229f47eb8f",
+            "real_first_batch_pytorch_cpu_acceptance": "按本机同后端PyTorch一致性准则接受Windows ROCm分发CPU的该首批次：原default及no-oneDNN各14份完整logits/loss、六梯度和六更新参数重新只读核验与官方HF eager逐字节相同。原固定Windows参考patch梯度失败保留；未扩大为其他后端或完整训练质量。",
+            "real_first_batch_pytorch_patch_acceptance": "按PyTorch一致性准则接受原GPU首批次唯一超差张量：完整225792元素patch投影梯度与同W7900/同AMD DLL的官方HF eager受限叶子查询SHA一致，Windows/WSL两原生失败捕获SHA均匹配。仅接受此张量，保留位置嵌入导数未查询及完整严格HF backward拒绝的限制；不声称14张量完整等价，原固定参考门禁失败不改判。"
           }
         },
         {
