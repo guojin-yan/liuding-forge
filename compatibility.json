@@ -4513,6 +4513,26 @@
             "private_evidence": "workspace/records/amd-parity-20261124/windows-fashion-resnet18-parity-2",
             "scope": "仅Windows 11/W7900 gfx1100、ROCm10.1.0/LibTorch2.14.0、Clang-cl24、FP32、固定Fashion-MNIST配方；不外推其他AMD硬件/OS、多卡、其他数据/精度/模型或质量门槛。"
           }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；FETCHCONTENT_FULLY_DISCONNECTED=ON，最多两个编译任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-3775666-runtime-stage",
+          "commit": "3775666",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK10.1.0/HIP7.16.26385; native LibTorch2.14.0+rocm10.1.0; Windows WDDM HIP runtime",
+          "tests": "13/13合成运行库暂存契约测试通过；Windows ROCm构建的jyppx_cli目标链接成功；仅含Windows System32的进程PATH下，CLI真实HIP设备查询成功；RepositoryHygiene与组件依赖门禁4/4通过。",
+          "quality_evidence": {
+            "source_identity": "干净提交3775666；构建树配置显式启用JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS，默认关闭。",
+            "runtime_closure": "CMake PE import dependency scan从torch_hip.dll和导入的HIP runtime DLL解析出16个匹配SDK bin目录的HIP DLL；构建输出inventory核验36个LibTorch、AOTriton与HIP文件，共1458704439字节。未解析依赖和SDK外非系统依赖均导致配置失败；文件所有权索引管理添加、替换、冲突和安全移除。",
+            "native_device_probe": "liuding-forge local rocm-devices --format json在环境PATH仅含Windows System32、ROCM_PATH/HIP_PATH/HIP_DEVICE_LIB_PATH及Tensile变量未设置时，返回status=ok、真实HIP来源、W7900 gfx1100与HIP WDDM内存观测。",
+            "idempotency": "相同依赖闭包重新配置不改动manifest时间戳；后续jyppx_cli构建报告无工作，避免重复暂存约1.4GB运行目录。",
+            "validation": "tests/scripts/test_torch_runtime_staging.py 13/13通过，覆盖新增SDK DLL清单、更新、移除、名称冲突及源/目标重叠；CTest RepositoryHygieneToolUnitTests、ComponentDependencyGraph、ComponentDependencyGraphToolUnitTests和RepositoryHygiene 4/4通过。",
+            "scope": "仅Windows 11/W7900 gfx1100、ROCm10.1.0/LibTorch2.14.0/AMD Clang 24的可选构建树导入DLL暂存和CLI设备枚举。未验证安装消费者、DLL延迟或运行时动态加载的其他模块/数据文件、完整训练、其他AMD设备或操作系统，也不构成可再分发ROCm包。"
+          }
         }
       ],
       "pending_lanes": []
