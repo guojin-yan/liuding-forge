@@ -26,6 +26,9 @@ class TorchRuntimeStagingTests(unittest.TestCase):
         self.sdk = self.root / "SDK with spaces"
         self.sdk.mkdir()
         self.output = self.root / "runtime"
+        self.extra_source = self.root / "HIP SDK" / "bin"
+        self.extra_source.mkdir(parents=True)
+        self.extra_manifest = self.root / "hip-runtime.files"
         self.cmake = os.environ.get("CMAKE_COMMAND") or shutil.which("cmake")
         self.assertTrue(self.cmake, "CMake is required by this build-tool contract")
         (self.sdk / "torch.dll").write_bytes(b"synthetic torch runtime\0")
@@ -41,9 +44,16 @@ class TorchRuntimeStagingTests(unittest.TestCase):
         return result
 
     def stage(self, success: bool = True) -> subprocess.CompletedProcess:
-        return self.invoke(f"-DJYPPX_RUNTIME_SOURCE_DIR={self.sdk}",
-                           f"-DJYPPX_RUNTIME_OUTPUT_DIR={self.output}",
-                           "-P", ROOT / "cmake/StageTorchRuntime.cmake", success=success)
+        arguments = [f"-DJYPPX_RUNTIME_SOURCE_DIR={self.sdk}",
+                     f"-DJYPPX_RUNTIME_OUTPUT_DIR={self.output}"]
+        if self.extra_manifest.exists():
+            arguments.extend((f"-DJYPPX_RUNTIME_EXTRA_DLL_LIST={self.extra_manifest}",
+                              f"-DJYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR={self.extra_source}"))
+        return self.invoke(*arguments, "-P", ROOT / "cmake/StageTorchRuntime.cmake",
+                           success=success)
+
+    def write_extra_manifest(self, *files: Path) -> None:
+        self.extra_manifest.write_text("".join(f"{path}\n" for path in files), encoding="utf-8")
 
     def inventory(self) -> dict:
         return json.loads((self.output / "liuding-forge-torch-runtime.json").read_bytes())
@@ -87,6 +97,49 @@ class TorchRuntimeStagingTests(unittest.TestCase):
         self.stage()
         self.assertFalse((self.output / image.relative_to(self.sdk)).exists())
         self.assertTrue((self.output / signature.relative_to(self.sdk)).exists())
+
+    def test_additional_sdk_dlls_are_owned_updated_and_removed(self) -> None:
+        hip = self.extra_source / "amdhip64_7.dll"
+        hip.write_bytes(b"synthetic HIP runtime")
+        self.write_extra_manifest(hip)
+        self.stage()
+        first = hip.read_bytes()
+        report = self.inventory()
+        self.assertEqual(report["scope"], "staged-torch-runtime-sdk-closure")
+        self.assertEqual([row["name"] for row in report["files"]],
+                         ["amdhip64_7.dll", "torch.dll"])
+        self.assertEqual((self.output / hip.name).read_bytes(), first)
+
+        hip.write_bytes(b"updated synthetic HIP runtime")
+        self.stage()
+        self.assertEqual((self.output / hip.name).read_bytes(), hip.read_bytes())
+        self.assertNotEqual((self.output / hip.name).read_bytes(), first)
+
+        self.write_extra_manifest()
+        self.stage()
+        self.assertFalse((self.output / hip.name).exists())
+        self.assertEqual([row["name"] for row in self.inventory()["files"]], ["torch.dll"])
+
+    def test_additional_sdk_dll_collision_is_rejected_before_mutation(self) -> None:
+        self.stage()
+        old_report = (self.output / "liuding-forge-torch-runtime.json").read_bytes()
+        collision = self.extra_source / "TORCH.dll"
+        collision.write_bytes(b"conflicting runtime")
+        self.write_extra_manifest(collision)
+        self.assertIn(b"Duplicate runtime DLL name", self.stage(success=False).stdout)
+        self.assertEqual((self.output / "torch.dll").read_bytes(),
+                         (self.sdk / "torch.dll").read_bytes())
+        self.assertEqual((self.output / "liuding-forge-torch-runtime.json").read_bytes(),
+                         old_report)
+
+    def test_additional_source_overlap_is_rejected_before_output_creation(self) -> None:
+        hip = self.extra_source / "amdhip64_7.dll"
+        hip.write_bytes(b"synthetic HIP runtime")
+        self.write_extra_manifest(hip)
+        self.output = self.extra_source / "nested-runtime"
+        self.assertIn(b"must not overlap", self.stage(success=False).stdout)
+        self.assertFalse(self.output.exists())
+        self.assertEqual(hip.read_bytes(), b"synthetic HIP runtime")
 
     def test_rocm_device_archives_keep_dll_parent_layout(self) -> None:
         self.sdk = self.sdk / "lib"

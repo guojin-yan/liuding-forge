@@ -14,6 +14,8 @@ cmake --build out/build/rocm --parallel 2
 
 先按[贡献指南](../../CONTRIBUTING.md)准备所需的锁定依赖，配置阶段不下载。视觉组件按[视觉套件](../api/vision/index.md)选择。Windows 继续使用 Release CRT 和 `_ITERATOR_DEBUG_LEVEL=0`；clang-cl 和 MSVC 编译器身份分别记录。
 
+Windows 开发构建可选用 `-DJYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS=ON`，按 `torch_hip.dll` 和导入的 HIP runtime DLL 的 PE 导入表推导运行依赖，并将匹配 HIP SDK `bin` 中的 DLL 暂存到各构建输出目录。该选项默认关闭，因为完整闭包可能显著增加构建树占用；它只管理构建目录，不构成可再分发的 ROCm 包，也不覆盖 DLL 延迟/动态加载及数据文件。安装后的应用仍须提供匹配 HIP SDK 运行环境。
+
 ## 设备与训练
 
 ROCm LibTorch 沿用 `torch::kCUDA`、`torch::cuda` 和 `cuda:<index>`。C++ 使用 `parse_device("cuda:0")`、`SingleDeviceStrategy`、既有 Trainer 与优化器；视觉配方同样设置 `"device": "cuda:0"`。`hip:0`、`rocm:0` 不作为新设备别名。`cuda_is_available()` 在 ROCm 包中检查 AMD GPU；构建指纹以 `rocm-` 和 `rocm:available:` 标识真实后端。
