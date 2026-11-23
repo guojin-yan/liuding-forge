@@ -12,8 +12,11 @@ namespace e = jyppx::liuding::experiment;
 
 TEST(LocalDeviceIdentity, DistinguishesCanonicalPhysicalCudaAndRocmIds) {
   const std::string amd = "AMD-0000-0a-00-0-0123456789abcdef0123456789abcdef";
+  const std::string amd_pci_upper_bounds =
+      "AMD-ffff-ff-1f-7-fedcba9876543210fedcba9876543210";
   const std::string cuda = "GPU-01234567-89ab-cdef-0123-456789abcdef";
   EXPECT_TRUE(e::local_rocm_id_is_valid(amd));
+  EXPECT_TRUE(e::local_rocm_id_is_valid(amd_pci_upper_bounds));
   EXPECT_FALSE(e::local_cuda_uuid_is_valid(amd));
   EXPECT_TRUE(e::local_cuda_uuid_is_valid(cuda));
   EXPECT_FALSE(e::local_rocm_id_is_valid(cuda));
