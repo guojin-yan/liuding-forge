@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/nn/loss/contrastive_loss.hpp>
 #include <jyppx/liuding/nn/loss/dice_loss.hpp>
 #include <jyppx/liuding/nn/loss/focal_loss.hpp>
@@ -115,6 +116,7 @@ void run_case(std::string_view name, Measure&& measure_case) {
 }  // namespace
 
 int main() {
+  jyppx::liuding::initialize_runtime();
   torch::set_num_threads(1);
   torch::set_num_interop_threads(1);
   std::cout << "loss,sample,steps,elapsed_ns,ns_per_step\n";

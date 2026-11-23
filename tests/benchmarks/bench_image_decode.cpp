@@ -5,6 +5,7 @@
 
 #include "resource_support.hpp"
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 
 #include <cmath>
@@ -56,6 +57,7 @@ void VerifyPixels(const jyppx::liuding::Tensor& tensor, bool chw,
 
 int main(int argc, char** argv) {
   try {
+    jyppx::liuding::initialize_runtime();
     const auto args = bench::arguments(argc, argv);
     bench::require(args.device == "cpu", "decoded Tensor output must be CPU");
     const bool chw = args.profile != "image-decode-hwc-u8";

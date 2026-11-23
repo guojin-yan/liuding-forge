@@ -128,6 +128,7 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
 }  // namespace
 
 int main() {
+  jyppx::liuding::initialize_runtime();
   constexpr std::size_t kSamples = 50'000;
   constexpr std::uint64_t kEpochs = 1;
   std::cout << "batch_size,samples,epochs,samples_per_second\n";

@@ -404,6 +404,7 @@ void print_help() {
 }  // namespace
 
 int main(int argc, char** argv) {
+  jyppx::liuding::initialize_runtime();
   double work_ms = 2.0;
   int batches = 64;
   int batch_size = 16;

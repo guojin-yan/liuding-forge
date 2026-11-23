@@ -8,6 +8,7 @@
 // Optimizer convergence benchmark. Output is CSV for comparison with an
 // equivalent PyTorch script using the same seed and generated tensors.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/optim/adadelta_adapter.hpp>
 #include <jyppx/liuding/optim/adagrad_adapter.hpp>
 #include <jyppx/liuding/optim/adam_adapter.hpp>
@@ -244,6 +245,7 @@ void benchmark_sgd() {
 }  // namespace
 
 int main() {
+  jyppx::liuding::initialize_runtime();
   benchmark_sgd();
   benchmark_adadelta();
   benchmark_adagrad();

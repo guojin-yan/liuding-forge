@@ -93,6 +93,7 @@ class MemoryDataset final
 }  // namespace
 
 int main(int argc, char** argv) {
+  jyppx::liuding::initialize_runtime();
   constexpr int samples = 4096;
   std::vector<std::size_t> worker_counts{0U, 1U, 4U, 8U};
   if (argc == 3 && std::string(argv[1]) == "--workers") {

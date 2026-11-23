@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/optim/nadam_adapter.hpp>
 
 #include <algorithm>
@@ -53,6 +54,7 @@ double median(std::vector<std::int64_t> values) {
 }  // namespace
 
 int main() {
+  jyppx::liuding::initialize_runtime();
   for (std::size_t warmup = 0; warmup < kWarmups; ++warmup) {
     static_cast<void>(measure_native_adapter());
   }

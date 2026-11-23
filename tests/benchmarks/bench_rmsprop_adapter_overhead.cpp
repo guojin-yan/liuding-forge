@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/optim/rmsprop_adapter.hpp>
 
 #include <torch/optim/rmsprop.h>
@@ -90,6 +91,7 @@ void print_sample(std::string_view implementation, std::size_t sample,
 }  // namespace
 
 int main() {
+  jyppx::liuding::initialize_runtime();
   for (std::size_t warmup = 0; warmup < kWarmups; ++warmup) {
     static_cast<void>(measure_native());
     static_cast<void>(measure_adapter());
