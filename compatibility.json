@@ -13,6 +13,32 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-0d3cbcd-capacity-cpu-fp32",
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
+          "commit": "0d3cbcdf82327551868f943a181564ca4cfb753b",
+          "accelerator": "AMD Radeon PRO W7900 host; native Linux ROCm10.1.0 LibTorch2.14.0 distribution; CPU FP32 with GPUs hidden",
+          "instrumentation": "当前主力源码上下文900ef82，复用WSL干净0d3cbcd原二进制及built provenance，src/include和模型测试未变；零构建/fetch/checkout。用户授权将原16/18GiB物理准入改为10GiB有效主存及14GiB主存加空闲交换空间准入，观察cgroup约束，低于768MiB有效主存或2GiB合计预留终止。保留原测试与600秒CTest上限，CPU串行；未修改全局WSL/交换空间或重跑已通过矩阵。",
+          "tests": "此前未执行的Models.DinoV2GiantCpuBackwardResourceGate、Models.DinoV3HugePlusCpuResourceGate及缺少资产的ModelsPythonInterop.OfficialTimmDinoV2GiantReferenceReallyRuns共3项通过，零失败/跳过。原固定参考仅本机复制至WSL原生文件系统并逐份核对完整大小/SHA，没有重新生成；留存文件审计通过，零原生重跑。",
+          "quality_evidence": {
+            "giant_backward": "原1x3x14x14 FP32、seed20261027、三分类平方均值loss与SGD lr0.001，完整反向及更新执行；原patch/head梯度FP32有限、head非零及实际更新、eval tokens1x2x1536有限断言通过。CTest29.0962秒，原生报告峰值RSS10223226880字节约9.52GiB，低于原14GiB。",
+            "huge_backward": "原DINOv3 Huge+模型、1x3x224x224输入及输入梯度、替换三分类头、cross_entropy与SGD lr0.01；全部520份使用参数梯度及输入梯度有限，未用mask token无梯度，patch/head非零且head实际更新。CTest38.7573秒，原生报告峰值RSS8645017600字节约8.05GiB，低于原12GiB。",
+            "giant_reference": "复用原Python3.11.9/CPU Torch2.14.1锁定timm随机参考，seed20261025、1136479232参数、全部566状态；输入2x3x224x280，完整tokens2x321x1536及CLS2x1536共989184值按原归一化tokens/CLS rtol2e-4/atol2e-5通过。CTest90.9065秒，外层time记录峰值RSS14622781440字节；不新增参考RSS合格阈值。",
+            "resources_and_identity": "原生文件、SDK模块及ldd解析身份、源码和built provenance均留存核对。三进程采样最小可用物理均至少6198095872字节，物理加空闲交换均至少10493063168字节；全部采样和前后空闲交换空间为4294967296字节，所观察cgroup的OOM/oom_kill计数无增加。此为单次原资源合同，不授性能基准或全局OOM恢复。",
+            "state_sha256": "b40769853a079205711aab6ecb7867ad45d9c3e35d5856e189cb321d21a55027",
+            "input_sha256": "2839e43d3b6f84207e66b08628e65a9b05e5d84c0be27f50a87f20ce691de698",
+            "output_sha256": "7c9b742fe3556340c81a4f43437a2a971ca0fc53bb64d6d8e3e1bbb3d3ef1cd4",
+            "scope": "仅精确WSL/W7900组合的原CPU FP32 Giant/Huge+单步反向资源及Giant固定随机架构前向数值；不授全部梯度数值、预训练/任务质量、恢复、GPU/其他精度/形状/硬件、性能或发布资格。先前原准入不足的未执行记录保留，不改判过去批次全绿；非当前HEAD重建或整库验收。",
+            "validation_receipt_sha256": "541042877d676372eea2d010a560c967d58c500ebca574421c61bec8b46bff4c",
+            "saved_file_audit_sha256": "fc64fcace0bcb912c140e0b9a39b80e7ff958af8f3f5a446f64a3f39f6847a14",
+            "prior_not_executed_receipt_sha256": "a8e1f3f62b0ae47588de570d8ff316cf0b7b1d6f4398f2e76b2e1ba86cc38cf8",
+            "reference_generator_evidence_sha256": "3d8408d2b40514501b85f7043f8b49a59b54cb9465d3de352c5a1c74eb791bfb"
+          }
+        },
+        {
           "id": "windows-clangcl24-rocm101-gfx1100-0e218f0-giant-cpu-fp32",
           "distribution": "amd-rocm10.1.0",
           "os": "windows-11",

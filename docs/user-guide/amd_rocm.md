@@ -137,9 +137,9 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 原生[行人检测](../../examples/evaluation/README.md)与[TinyUNet 分割](../../examples/evaluation/segmentation/README.md)示例另在该 WSL2 CPU/AMD GPU 组合分别完成各自原 80 轮、1200 次 FP32 更新及固定 25 图留出集质量验证。两例均通过第 137 步暂停、新进程恢复与真实强杀后的恢复，同次同构建三条完成路线的最终模型和完整检查点逐字节一致；GPU 训练后的检测权重另经 CPU 评估，分割核对全部 170 份原始样本身份。各例保留原质量、RSS、适用的 HIP allocator 与超时门槛，精确范围和独立 checker 身份见兼容矩阵。
 
-原生模型另通过 43 个 CPU、19 个 GPU 合同，覆盖架构/输入边界、前后向、实际 SGD 更新和位置插值数值。GPU 容量合同包含 DINOv3 ViT-large/large-plus、ConvNeXt-base/large 的 FP16 autocast，以及 DINOv2 Giant、DINOv3 Huge+ 的 FP16 参数存储；具体输入、精度和资源门槛见兼容矩阵。此 WSL 组合的 Huge+ CPU、Giant CPU 反向仍未满足原主存准入，未计入通过范围。
+原生模型另通过 43 个 CPU、19 个 GPU 合同，覆盖架构/输入边界、前后向、实际 SGD 更新和位置插值数值。GPU 容量合同包含 DINOv3 ViT-large/large-plus、ConvNeXt-base/large 的 FP16 autocast，以及 DINOv2 Giant、DINOv3 Huge+ 的 FP16 参数存储。此前因物理内存准入不足未执行的两个 CPU FP32 反向门禁也已补齐：Giant 使用 `1×3×14×14` 输入，峰值 RSS 约 9.52 GiB；Huge+ 使用 `1×3×224×224`，峰值约 8.05 GiB。两项保留原梯度、实际 SGD 更新与各自 RSS 上限；执行前需检查有效主存、交换空间及 cgroup 余量，精确准入和资源边界见兼容矩阵。
 
-ROCm 分发的 CPU 路径另通过 28 项独立随机架构参考、DINOv2-small/base/large 固定参考及 DINOv3 Huge+ 独立 Meta 参考，覆盖完整状态、tokens/CLS、中间层及原资源门禁。固定输入、参考文件、容差和每例 600 秒上限不变；DINOv2 Base/Large 输入为 `2×3×224×280`。Huge+ 输入为 `1×3×35×50`，核对全部 552 份状态、完整 tokens/CLS 与第 0/15/31 层输出，并保留原 12 GiB RSS 上限。该结果只表示 CPU FP32 架构数值和所列资源合同，不授予 GPU 独立数值、预训练权重或任务质量资格。
+ROCm 分发的 CPU 路径另通过 28 项独立随机架构参考、DINOv2-small/base/large/giant 固定参考及 DINOv3 Huge+ 独立 Meta 参考，覆盖完整状态、tokens/CLS、中间层及原资源门禁。固定输入、参考文件、容差和每例 600 秒上限不变；DINOv2 Base/Large/Giant 输入为 `2×3×224×280`，Giant 严格导入全部 566 份状态。Huge+ 输入为 `1×3×35×50`，核对全部 552 份状态、完整 tokens/CLS 与第 0/15/31 层输出，并保留原 12 GiB RSS 上限。该结果只表示 CPU FP32 架构数值和所列资源合同，不授予 GPU 独立数值、预训练权重或任务质量资格。
 
 视觉训练另已验证 14 个代表任务的 FP32、FP16、BF16 共 42 个 GPU 组合及 14 个 CPU 对照，覆盖分类、检测、分割、姿态、旋转框、深度、SimMIM 与 ReID 入口；其余 208 个原目录入口另通过 CPU FP32 单步合同，包含 YOLO 变体、分类/多标签和扩展视觉任务。目录选择扩展另执行这 208 个入口的 GPU 单步合同：FP32 中 208 通过、0 失败、0 跳过、0 未准入；FP16 中 198 通过、10 失败、0 跳过、0 未准入；BF16 中 208 通过、0 失败、0 跳过、0 未准入。仅登记通过子集；扩展复用原训练函数，不增加公共 CTest 条目。视觉契约和独立安装消费者也已通过，各批源码身份见兼容矩阵。范围限于原随机初始化模型、合成输入的单步前向、loss、反向、实际更新及冻结参数保持，不推导未列 GPU 精度、预训练权重、收敛、恢复或真实数据质量。
 
