@@ -14,6 +14,32 @@
       "verified_lanes": [
         {
           "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "id": "windows-clangcl24-rocm101-gfx1100-3387712-migraphx-instruction-names-continuity",
+          "commit": "338771272b65d489e3b5bfc20c3dc77a445d8296",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100;ROCm10.1.0 HIP;native MIGraphX2.18.0 with Liuding instruction-name extension v1;CPU FP32 I/O,actual GPU arithmetic",
+          "instrumentation": "干净提交复用原Release树、max2编译、GPU/JIT串行；仓库补丁在独立SDK构建，原SDK/构建不改。使用新环境锁和临时Ed25519可信包，独立安装C++消费者；无训练、重导出、下载、全局配置或原失败记录覆盖。",
+          "tests": "原生Pack16、Sign16及原Continuity共3项CTest全部通过、零失败跳过；原四生产者各1200请求、250ms节拍、300秒负载窗口、600秒CTest及630秒监督不变。另提交前旧SDK4项、扩展SDK5项直接受影响Session/环境合同和5仓库门禁通过，原生不重复执行。",
+          "quality_evidence": {
+            "source_identity": "实际适配器/安装库/消费者绑定干净3387712及完整源码/链接/二进制摘要；可选MIT补丁SHA256 b7a2d871a6afb0f2158958c68179199380f019dc10e93b1a4c6a6b674f8e27af。旧C API168/核心1206导出全部保留，仅各新增1入口；C API模板离线生成与补丁应用检查通过。",
+            "unchanged_contract": "消费者main/CMake及三个规范来源文件逐份SHA等于原超时批次；4800请求及768000完整logits逐份保留。模型b42a16f9...和参考51b0d072...保持原完整SHA，原rtol1e-4/atol1e-5不变，独立文件复算0违规。实际指令逐请求检查，禁止CPU/reference，保留同步主存输出、输入不变与close后输出所有权。",
+            "actual_results": "{\"accepted\":4800,\"active\":0,\"actual_load_seconds\":300.0161762,\"batch\":16,\"completed\":4800,\"failed\":0,\"input_unchanged\":true,\"load_window_seconds\":300,\"manifest_sha256\":\"989d162267d939de8338c5a2a93735795ba77ffbf09d05531f62d9435f9f8f5c\",\"memory_observational_only\":true,\"model_version\":\"cifar10-resnet18-migraphx-fixed-16\",\"outputs_sha256\":\"668e05c99234c58eaea5244e793280ee21c5d90a99a7bf7e68801c54ac6a960a\",\"pace_ms\":250,\"policy_sha256\":\"03c96c4ddbc799a0a2f94ad757f5a1e90a6dd9fbe74426ea1435bea112cd6573\",\"producer_iterations\":1200,\"producer_threads\":4,\"producers\":4,\"provider\":\"migraphx.gpu\",\"resource_samples\":23,\"response_ownership_after_close\":true,\"retained_output_bytes\":3072000,\"saved_responses\":4800,\"signature_status\":\"trusted\",\"training_updates\":0}",
+            "trace_semantics": "仅在已加载C API模块提供migraphx_program_run_instruction_names_v1时选择扩展；同一evaluator记录实际指令，最终完成所有context并延后报告回调错误，不拷贝中间张量。未扩展SDK保持原trace；错误不回退重放，MIGRAPHX_TRACE_EVAL保留原路径。独立原型11份成功输出/103条相同执行序列与回调错误恢复通过，属于诊断而非性能资格。",
+            "trust_and_environment": "模型、参考及原CPU导出来源包不变；原生重新pack/sign明确绑定扩展SDK的C API文件摘要，临时私钥不持久化。旧包环境锁不放宽；原签名包和旧SDK超时分别保留。实际C API和核心模块来自独立扩展SDK，GPU插件/HIP实际文件另留完整SHA。",
+            "scope": "仅此Windows/W7900精确扩展SDK的固定batch16、相同输入、四线程300秒连续调用与完整输出合同。23个RSS/HIP样本仅观察；不授旧SDK持续负载、可比较性能/延迟SLO、泄漏/物理显存耗尽、全数据质量、WSL扩展SDK、其他设备/系统、多卡或发布。WSL逐位差异及所有原数值/质量失败保持。",
+            "validation_receipt_sha256": "41eb5703b31ac0cdcf14e42dbf60025248aabf69b09cc8f5f0c2d3fec401ae44",
+            "independent_file_audit_sha256": "a7e404d3a4780035ed8362abe25e4d75747e3eec0d15f0fe0688d4dcbb5567b8",
+            "precommit_receipt_sha256": "60c1343b642a37af8527407bcf6b0116894cfa762e7b1fc1fb55bd151e96fd09",
+            "sdk_candidate_receipt_sha256": "e097c713b1fbf7a61c43525ed4b6242db16c46892d3ba9937b09926ffa2cbaa1",
+            "prototype_diagnostic_receipt_sha256": "542a97a760e419eaa7337d146337255ba8bb02325e28a294a4f068e95399b5b1",
+            "original_old_sdk_timeout_receipt_sha256": "6a3b1a61d4a26da0751c2e2c7ed7584b5111063661556db6280cea12d962033a"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
           "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
