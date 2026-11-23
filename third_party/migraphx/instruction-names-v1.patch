@@ -1,0 +1,125 @@
+From: Liuding Forge contributors
+Subject: [PATCH] Add optional synchronized instruction-name C API v1
+
+Base: AMDMIGraphX rocm-10.1 / 2.18.0. Original MIT notice is preserved
+in each source file and third_party/licenses/migraphx-2.18.0-LICENSE.MIT.
+The added code is provided under that same MIT license.
+
+Add a method and C symbol without changing object layouts or existing APIs.
+The same evaluator records actual inspectable instructions without copying
+their intermediate tensors, finishes every context, and defers callback
+errors until work completes. Existing tensor trace semantics are unchanged.
+
+diff --git a/src/program.cpp b/src/program.cpp
+--- a/src/program.cpp
++++ b/src/program.cpp
+@@ -24,6 +24,7 @@
+ #include <migraphx/version.h>
+ #include <migraphx/compile_options.hpp>
+ #include <migraphx/program.hpp>
++#include <exception>
+ #include <migraphx/stringutils.hpp>
+ #include <migraphx/instruction.hpp>
+ #include <migraphx/scope_guard.hpp>
+@@ -753,6 +754,32 @@
+     }
+ 
+     return ret;
++}
++
++std::vector<argument> program::eval_instruction_names(
++    const parameter_map& params,
++    const std::function<void(instruction_ref)>& callback) const
++{
++    if(not callback)
++        MIGRAPHX_THROW("Instruction-name callback is required");
++    auto& contexts = this->impl->contexts;
++    std::exception_ptr callback_error;
++    auto outputs = generic_eval(*this, contexts, params, [&](instruction_ref ins, auto f) {
++        auto result = f();
++        // Callback errors are deferred until all queued work has completed.
++        // This also keeps intermediates alive through the ordinary evaluation.
++        if(not callback_error and is_inspectable(ins->name()) and not result.empty())
++        {
++            try { callback(ins); }
++            catch(...) { callback_error = std::current_exception(); }
++        }
++        return result;
++    });
++    for(auto& ctx : contexts)
++        ctx.finish();
++    if(callback_error)
++        std::rethrow_exception(callback_error);
++    return outputs;
+ }
+ 
+ void program::finish() const
+diff --git a/src/include/migraphx/program.hpp b/src/include/migraphx/program.hpp
+--- a/src/include/migraphx/program.hpp
++++ b/src/include/migraphx/program.hpp
+@@ -89,6 +89,12 @@
+ 
+     std::vector<argument> eval_with_context(std::vector<context>& ctx,
+                                             const parameter_map& params) const;
++
++    // Additive experiment: callback observes executed nonempty inspectable instructions.
++    // No execution_environment or program object layout changes.
++    std::vector<argument> eval_instruction_names(
++        const parameter_map& params,
++        const std::function<void(instruction_ref)>& callback) const;
+ 
+     void finish() const;
+ 
+diff --git a/tools/api/api.cpp b/tools/api/api.cpp
+--- a/tools/api/api.cpp
++++ b/tools/api/api.cpp
+@@ -510,3 +510,30 @@
+ } // namespace migraphx
+ 
+ <% generate_c_api_body() %>
++
++// Liuding optional SDK extension v1; output ownership follows program_run.
++// Name storage is borrowed only for the duration of the callback.
++extern "C" MIGRAPHX_C_EXPORT migraphx_status migraphx_program_run_instruction_names_v1(
++    migraphx_arguments_t* out,
++    migraphx_program_t program,
++    migraphx_program_parameters_t params,
++    migraphx_status (*callback)(const char*, void*),
++    void* data)
++{
++    if(out == nullptr)
++        return migraphx_status_bad_param;
++    *out = nullptr;
++    return migraphx::try_([&] {
++        if(program == nullptr or params == nullptr or callback == nullptr)
++            MIGRAPHX_THROW(migraphx_status_bad_param, "Null instruction-name run parameter");
++        *out = allocate<migraphx_arguments_t>(program->object.eval_instruction_names(
++            params->object, [callback, data](migraphx::instruction_ref ins) {
++                std::ostringstream text;
++                text << ins->get_operator();
++                const auto name = text.str();
++                const auto status = callback(name.c_str(), data);
++                if(status != migraphx_status_success)
++                    MIGRAPHX_THROW(status, "Instruction-name callback returned an error");
++            }));
++    });
++}
+diff --git a/tools/api/migraphx.h b/tools/api/migraphx.h
+--- a/tools/api/migraphx.h
++++ b/tools/api/migraphx.h
+@@ -89,6 +89,15 @@
+     generate_c_header()
+ %>
+ 
++// Liuding optional SDK extension v1. Name storage is callback-scoped.
++// Callback errors are reported after completion; *out is null on failure.
++MIGRAPHX_C_EXPORT migraphx_status migraphx_program_run_instruction_names_v1(
++    migraphx_arguments_t* out,
++    migraphx_program_t program,
++    migraphx_program_parameters_t params,
++    migraphx_status (*callback)(const char*, void*),
++    void* data);
++
+ #ifdef __cplusplus
+ }
+ #endif

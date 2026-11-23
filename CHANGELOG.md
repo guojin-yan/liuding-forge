@@ -10,6 +10,7 @@
 - MIGraphX 开发测试补充编译程序在独立进程中的重载，核对程序 SHA、实际 GPU 指令、原 FP32 参考及首次执行输出的逐字节一致性。
 - 增加默认关闭的原生 `migraphx_runtime` Preview 组件，显式选择 HIP 设备并编译固定形状 ONNX，支持有字节上限的同步主存 FP32 输入输出、串行 Session 调用及实际 GPU 路线检查；安装消费者显式提供外部 MIGraphX/HIP SDK。
 - 原生 MIGraphX Session 增加有界环境锁接口，分别核对编译头文件版本、实际 C API/HIP 模块文件摘要、HIP runtime/driver、设备身份与固定输入输出形状；严格拒绝环境漂移，纯解析无需设备查询。
+- 原生 MIGraphX Session 可使用外部 SDK 的可选指令名扩展，省去路线追踪的中间张量回拷及逐指令同步，保留每请求实际 GPU 路线校验、最终同步与错误清理；未扩展 SDK 保持原 trace 路径，另提供可复现的 MIT SDK 补丁。
 - 增加默认关闭的 `migraphx_serving` Preview，将固定形状原生 AMD GPU Session 接入已验证 bundle、可信 pipeline、独立已知向量预热、请求生命周期与同 runtime 版本切换；公共输入输出为 CPU FP32，显式外部 SDK 和环境锁固定实际 GPU。
 - 增加独立原生 CIFAR-10 MIGraphX 示例，复用已有 ONNX 图与 checkpoint 参考，分别打包固定 batch 128/16、临时 Ed25519 签名，并在新进程通过可信 Serving 评估全部验证图片；与原 ONNX 示例共用图片 codec。
 - 注册 MIGraphX 图像示例的参数测试时，将其可执行程序纳入默认测试构建，避免默认构建后 CTest 缺少程序。

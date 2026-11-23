@@ -92,6 +92,8 @@ Provider 查询或显式选择接口不代表 GPU 执行资格；CUDA、DirectML
 
 `JYPPX_LIUDING_BUILD_MIGRAPHX_RUNTIME` 提供默认关闭的原生 GPU 推理 Preview；`JYPPX_LIUDING_TEST_MIGRAPHX` 独立启用固定图的数值、路线和重载开发测试。两者使用外部 MIGraphX 2.18.0 C API 与所选 HIP SDK。上游为 <https://github.com/ROCm/AMDMIGraphX>，`rocm-10.1` 源码归档 SHA-256 为 `7cd07fa948ac6bce4a19a86aa7b5445cb25791cf11a609273cbdef6eb6c387cd`，原项目 MIT 许可逐字节留存在 `third_party/licenses/migraphx-2.18.0-LICENSE.MIT`。实际 SDK、运行库、构建补丁与精确验证范围独立绑定；安装适配器仅保留接口、配置和许可，不复制外部 SDK 的二进制、依赖或本地补丁，其传递依赖和再分发条件仍由实际 SDK 决定。
 
+源码另附 [`third_party/migraphx/instruction-names-v1.patch`](third_party/migraphx/instruction-names-v1.patch)，在上述版本的 evaluator、程序声明及 C API 模板增加可选指令名回调，保留已有 API 和对象布局。补丁沿用上游 MIT 许可，来源、修改范围和独立 SDK 构建方法见[补丁说明](third_party/migraphx/README.md)；它不随适配器安装，也不表示原 SDK 或补丁组合取得正式发布资格。
+
 ## Test Dependency
 
 ### GoogleTest

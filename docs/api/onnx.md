@@ -269,7 +269,7 @@ auto result = session.run(input_values);
 
 Session 只接受单输入、单输出、dense FP32、rank 1..8，每个 Session 的 batch 和完整形状在编译时固定。不同 batch/形状使用独立 Session；设备编号不从 LibTorch tensor 或 ORT Provider 推断。默认模型/输入/输出上限为 256/64/64 MiB、batch 上限 1024，均可显式设置正值；输入、输出大小和有限值在相应操作前后核对，输出上限在图编译前检查。编译使用显式 GPU target、同步主存拷贝、关闭 fast math 和 exhaustive tuning；运行还要求实际轨迹包含 GPU 算术及同步主存输出，并拒绝 CPU/reference 指令。
 
-逐次路线校验使用 `migraphx_program_run_trace()`；当前 SDK 的 trace 执行包含指令同步及可检查中间结果的主存拷贝，预热后仍有这些成本。规划请求速率与延迟预算时须计入这部分开销；增加同一 Session 的调用线程仍受串行约束。当前 Preview 不提供吞吐、延迟或持续负载的性能资格。
+逐次路线校验默认使用 `migraphx_program_run_trace()`；其执行包含指令同步及可检查中间结果的主存拷贝，预热后仍有这些成本。外部 SDK 若提供项目的[可选指令名扩展](../../third_party/migraphx/README.md)，Session 会从已加载的 C API 模块选择该入口，逐请求记录实际执行指令并保留最终同步，省去中间结果拷贝；旧 SDK 继续使用原 trace 路径，错误不触发请求重放。增加同一 Session 的调用线程仍受串行约束。SDK 切换须重新核对环境锁和可信包；当前 Preview 不提供吞吐、延迟或持续负载的性能资格。
 
 同一 Session 的调用串行，不同 Session 各自拥有程序；调用期间输入必须保持有效和不变。调用绑定所选 HIP 设备并恢复线程先前的设备，输出可在 Session 销毁后继续使用。销毁不得与调用并发。运行错误时先作设备级同步再释放借用输入，其他同设备工作可能延迟清理。解析、编译、等待和执行均为同步阻塞接口，尚无取消或硬超时；字节上限不限制图中间分配、后端缓存、RSS 或总显存。关闭 fast math 不保证同一已加载程序重复执行逐字节相同，要求逐位输出的模型须独立验收。当前不提供序列化程序加载或 ORT MIGraphX EP。已验证 bundle 与版本切换由独立可选的 [`migraphx_serving`](serving.md#加载与请求) 桥接提供。
 

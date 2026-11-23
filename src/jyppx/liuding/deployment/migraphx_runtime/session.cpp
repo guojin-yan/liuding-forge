@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <hip/hip_runtime_api.h>
 #include <limits>
@@ -20,6 +21,14 @@
 #include <new>
 #include <string_view>
 #include <utility>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 namespace jyppx::liuding::migraphx_runtime {
 namespace {
@@ -131,6 +140,36 @@ struct Trace {
   std::vector<std::string> names;
   bool failed = false;
 };
+using InstructionRun = migraphx_status (*)(
+    migraphx_arguments_t*, migraphx_program_t, migraphx_program_parameters_t,
+    migraphx_status (*)(const char*, void*), void*);
+InstructionRun InstructionNamesRun() {
+  // Query only the C API already selected by the application. The extension
+  // is additive; an unpatched SDK continues to use its original trace API.
+  if (std::getenv("MIGRAPHX_TRACE_EVAL") != nullptr) return nullptr;
+  constexpr auto symbol = "migraphx_program_run_instruction_names_v1";
+#ifdef _WIN32
+  const auto module = GetModuleHandleW(L"migraphx_c.dll");
+  return module
+             ? reinterpret_cast<InstructionRun>(GetProcAddress(module, symbol))
+             : nullptr;
+#else
+  Dl_info owner{};
+  if (!dladdr(reinterpret_cast<const void*>(&migraphx_program_run_trace),
+              &owner) ||
+      owner.dli_fname == nullptr)
+    return nullptr;
+  const auto module = dlopen(owner.dli_fname, RTLD_LAZY | RTLD_NOLOAD);
+  if (!module) return nullptr;
+  auto* address = dlsym(module, symbol);
+  Dl_info extension{};
+  if (address &&
+      (!dladdr(address, &extension) || extension.dli_fbase != owner.dli_fbase))
+    address = nullptr;
+  (void)dlclose(module);
+  return reinterpret_cast<InstructionRun>(address);
+#endif
+}
 struct Finish {
   bool completed = false;
   ~Finish() {
@@ -140,11 +179,9 @@ struct Finish {
     if (!completed) (void)hipDeviceSynchronize();
   }
 };
-migraphx_status Record(migraphx_trace_info_t info, void* data) noexcept {
+migraphx_status RecordName(const char* name, void* data) noexcept {
   auto& trace = *static_cast<Trace*>(data);
   try {
-    const char* name = nullptr;
-    Check(migraphx_trace_info_get_name(&name, info), "trace_name");
     if (name == nullptr || trace.names.size() >= 10000U) {
       trace.failed = true;
       return migraphx_status_unknown_error;
@@ -155,6 +192,15 @@ migraphx_status Record(migraphx_trace_info_t info, void* data) noexcept {
     trace.failed = true;
     return migraphx_status_unknown_error;
   }
+}
+migraphx_status Record(migraphx_trace_info_t info, void* data) noexcept {
+  const char* name = nullptr;
+  const auto status = migraphx_trace_info_get_name(&name, info);
+  if (status != migraphx_status_success) {
+    static_cast<Trace*>(data)->failed = true;
+    return status;
+  }
+  return RecordName(name, data);
 }
 bool Any(const Trace& trace, std::string_view prefix) {
   return std::any_of(trace.names.begin(), trace.names.end(),
@@ -220,6 +266,7 @@ class Session::Impl {
       throw CompatibilityError("Compiled MIGraphX output signature changed",
                                Details("compile"));
     program_ = std::exchange(program.value, nullptr);
+    instruction_run_ = InstructionNamesRun();
   }
   ~Impl() {
     int previous = 0;
@@ -258,8 +305,12 @@ class Session::Impl {
     Trace trace;
     Owner<migraphx_arguments_t, migraphx_arguments_destroy> results;
     Finish finish;
-    const auto status = migraphx_program_run_trace(
-        &results.value, program_, parameters.value, Record, &trace);
+    const auto status =
+        instruction_run_
+            ? instruction_run_(&results.value, program_, parameters.value,
+                               RecordName, &trace)
+            : migraphx_program_run_trace(&results.value, program_,
+                                         parameters.value, Record, &trace);
     if (trace.failed)
       throw ResourceExhausted("MIGraphX trace storage failed", Details("run"));
     Check(status, "run_gpu");
@@ -340,6 +391,7 @@ class Session::Impl {
   }
   std::size_t input_elements_ = 0;
   migraphx_program_t program_ = nullptr;
+  InstructionRun instruction_run_ = nullptr;
   mutable std::mutex mutex_;
 };
 
