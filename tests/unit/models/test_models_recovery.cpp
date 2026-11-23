@@ -544,11 +544,16 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
     EXPECT_FALSE(torch::equal(
         saved_head,
         resumed.model->state().named_parameters()["head.weight"].cpu()));
-    const training::FileCheckpointStore reopened(checkpoint_path);
-    stage("restore");
-    const auto restored = resumed.trainer->restore_checkpoint(reopened);
-    stage("restored");
-    EXPECT_EQ(restored.restore_level, RestoreLevel::exact);
+    {
+      // The reopened source owns the complete file snapshot. Release it as
+      // soon as restore is done, before allocating the resumed training
+      // working set and the final checkpoint.
+      const training::FileCheckpointStore reopened(checkpoint_path);
+      stage("restore");
+      const auto restored = resumed.trainer->restore_checkpoint(reopened);
+      stage("restored");
+      EXPECT_EQ(restored.restore_level, RestoreLevel::exact);
+    }
     EXPECT_EQ(resumed.trainer->global_step(), kInterruptStep);
     EXPECT_EQ(resumed.optimizer->completed_steps(), 4U);
     EXPECT_EQ(resumed.scheduler->completed_steps(), 1U);
