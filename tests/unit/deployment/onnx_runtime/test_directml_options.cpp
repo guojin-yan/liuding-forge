@@ -34,6 +34,11 @@ TEST(OnnxRuntimeDirectMlOptions, TypedSelectionAndInvalidRawOptions) {
             "7");
   EXPECT_THROW(runtime::directml_execution_provider({.device_id = -1}),
                InvalidArgument);
+  // Native MIGraphX and ORT ROCm providers are separate integrations. The
+  // default ORT adapter must not advertise either one without a wired API.
+  EXPECT_FALSE(runtime::provider_append_supported("ROCMExecutionProvider"));
+  EXPECT_FALSE(
+      runtime::provider_append_supported("MIGraphXExecutionProvider"));
   // Option validation must precede provider discovery and model parsing.
   const std::array bytes{std::byte{0}};
   const ArtifactDigest digest{.hex = sha256_hex(bytes)};

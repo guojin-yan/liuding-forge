@@ -95,6 +95,8 @@ Runtime 接收一个或多个具名 FP32 稠密输入，返回独立持有数据
 
 `available_providers()` 查询实际加载的 ORT 库，`provider_append_supported(name)` 查询 adapter 是否接入对应的追加 API。CPU、CUDA、DirectML、TensorRT、OpenVINO 及通用 Provider 均显式指定名称和参数；实际可用性取决于 ORT 构建、驱动与 SDK。列出 Provider 或创建 session 成功，均不代表已验证模型实际使用该后端执行。
 
+当前默认 adapter 没有接入 `ROCMExecutionProvider` 或 `MIGraphXExecutionProvider` 的追加 API；在 AMD 上，原生 MIGraphX Preview 和 Windows DirectML 是独立路线，不能据此推导 ORT ROCm/MIGraphX EP 支持。请求未接入或未加载的 Provider 会明确失败，不会静默替换为 CPU。
+
 非 CPU 请求默认 `allow_cpu_fallback=false`，缺失后端或不支持的图明确失败；调用方显式允许后才接受 CPU 分区回退。`profile_prefix` 启用 ORT profiling，`end_profiling()` 返回可核对实际 Provider 与算子的文件。各后端的数值、kernel 与资源资格分别验证，CPU 结果不代表 GPU 结果。
 
 CUDA 可使用带类型的配置入口，随后按上面的方式创建 `Session`：
