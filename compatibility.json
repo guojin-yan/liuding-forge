@@ -13,6 +13,26 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "windows-clangcl24-rocm101-gfx1100-d338d4d-cpu-benchmark-runtime",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0 clang-cl with MSVC Release CRT, _ITERATOR_DEBUG_LEVEL=0",
+          "build_type": "Release",
+          "commit": "d338d4d725c403b776518b50925efce4d9c88c8e",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; native ROCm10.1.0 LibTorch2.14.0; CPU benchmark workloads and HIP-backed pinned image allocation",
+          "instrumentation": "d338d4d对应提交前实现，原Windows Release树离线增量编译14个受影响入口，最多两编译、原生进程串行。提交diff与已测补丁逐字节相同；复用foundation仍报告3387712指纹，明确不作为新cleanHEAD整库验收。",
+          "tests": "14个受影响原生基准进程正常退出、零超时/失败；另RepositoryHygiene一项CTest通过。仅改动行格式检查及留存输出独立复核，不重跑通用训练、GPU矩阵或原开发设备测试。",
+          "quality_evidence": {
+            "startup_contract": "仅新增公共runtime头与main中的initialize_runtime调用，早于LibTorch线程配置、张量/模型和worker；14文件原负载、步数、预算及输出格式与父提交保持。三个修复前基线均成功，未宣称新崩溃已复现或修复。",
+            "outputs": "八类优化器收敛各100步共800有限loss，八适配/原生吞吐入口全部原样本完整；四损失各五样本/200步。Trainer batch16/32/64/128各50000样本1轮完整；内存与双worker管线计数通过。固定2048x2048三通道图像八次pinned解码，完整首图像素检查、内容SHA及预算释放通过，输出SHA与修复前相同。",
+            "scope": "仅该精确SDK组合的开发CPU基准启动、原输出契约及正常退出；保留提交前源文件/补丁与二进制身份。不授性能比较、统计稳定、reference、一般退出故障根因、其他设备/系统或发布资格；既有数值/质量/资源失败不变。",
+            "validation_receipt_sha256": "05713b725467bb5398871ba7945470a73da9d422b362f5952ffea0e2b6f46ef2",
+            "saved_output_audit_sha256": "741d21534eb00d356dad53808de4af52b0172eeb2e6e2989386b0332899aa96d",
+            "validated_patch_sha256": "6b6f059e8133f987ba2bbddb811f327d9e957bfdc2cf219d03b92124668beb06"
+          }
+        },
+        {
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-a84af9a-migraphx-instruction-names-continuity",
           "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
