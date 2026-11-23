@@ -13,6 +13,30 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-a84af9a-migraphx-instruction-names-continuity",
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 for Forge; AMD Clang 24.0.0git d6f6cb691863e9258034ab48c1dfce21689d5606 for isolated MIGraphX core/C API",
+          "build_type": "Release",
+          "commit": "a84af9a929f8f780c5a3be8ce9e89fe8906c1a66",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100;ROCm10.1.0 HIP;native Linux MIGraphX2.18.0 core/C API with instruction-name extension v1 and retained Linux GPU/device/ONNX/TF plugins",
+          "instrumentation": "原Forge Release树与新隔离SDK；完整SHA匹配上游原始源码zip及仓库补丁，原安装SDK不改。最多2编译、GPU/JIT串行、既有依赖离线复用；新原生Pack16/Sign16绑定新环境锁，无训练或重导出。",
+          "tests": "新扩展SDK的原Session四项、环境漂移一项及原生Pack16/Sign16/Continuity三项共8项CTest通过，零失败跳过。另一个原生进程验证同一程序trace/names、回调拒绝及恢复，共3份成功完整输出。旧SDK四项和Windows结果直接复用，不重跑通用矩阵。",
+          "quality_evidence": {
+            "source_and_abi": "原始源码归档SHA256 7cd07fa948ac6bce4a19a86aa7b5445cb25791cf11a609273cbdef6eb6c387cd；补丁SHA256 b7a2d871a6afb0f2158958c68179199380f019dc10e93b1a4c6a6b674f8e27af。与安装SDK可比头文件仅新增方法的program.hpp不同。原C API178/核心890强导出全部保留，各仅新增1入口；新C API和保留四类插件的全部动态重定位检查通过。",
+            "sdk_composition": "仅核心与完整C API新编译；核心关闭可选前端源码构建，完整ONNX/TF C API由原模板生成并显式链接保留Linux插件；保留原C API测试宏私有导出。匹配上游rocm-cmake、私有SQLite3.50.4及既有SDK JSON；此混合SDK组合单独绑定，不从Windows二进制推导Linux ABI。",
+            "direct_contract": "原训练ResNet18 batch16同一编译程序的trace/names完整输出均符原容差、实际指令序列相同；回调拒绝后输出为null，随后执行恢复。五项Session/环境合同实际加载新核心/C API，保留GPU算术/copy/sync、CPU/ref拒绝、输入不变、设备恢复与释放后输出所有权。",
+            "retained_binding_failure": "初次五项因原测试程序DT_RPATH而加载旧C API与新核心，保留其原始通过和核验失败记录，不计入扩展资格。显式切换两个SDK根并最小重链接后先以ldd核对，再首次运行正确扩展组合；已完成的直接入口三份结果复用，未重跑。",
+            "continuity": "消费者main/CMake与三个规范来源文件SHA逐份等于原4800合同；4生产者各1200请求、250ms节拍、300秒负载和600秒CTest/630秒监督保持。4800请求全部完成，768000完整logits按原atol1e-5/rtol1e-4独立复算0违规，关闭后所有权保持。原模型、参考、CPU导出来源包不变；新环境锁使用临时可信签名包。",
+            "actual_results": "{\"accepted\":4800,\"active\":0,\"actual_load_seconds\":300.000442041,\"batch\":16,\"completed\":4800,\"failed\":0,\"input_unchanged\":true,\"load_window_seconds\":300,\"manifest_sha256\":\"cfb1a27e13f6c2091fb929e3ebd4a71bbf8b507dd2cf7cf5a82d03840424196a\",\"memory_observational_only\":true,\"model_version\":\"cifar10-resnet18-migraphx-fixed-16\",\"outputs_sha256\":\"22f95dd1b41e629ae67aae2159442d6633e947fcd43e7cc07aacdbe28362a737\",\"pace_ms\":250,\"policy_sha256\":\"4f14c946583b053fab1abd0e330d5f7ae5a3889bede70deb0e9c51abf53e0838\",\"producer_iterations\":1200,\"producer_threads\":4,\"producers\":4,\"provider\":\"migraphx.gpu\",\"resource_samples\":23,\"response_ownership_after_close\":true,\"retained_output_bytes\":3072000,\"saved_responses\":4800,\"signature_status\":\"trusted\",\"training_updates\":0}",
+            "scope": "仅此WSL/W7900精确隔离核心/C API与保留Linux插件组合、固定batch16/相同输入/四线程300秒合同。23资源样本仅观察，不授可比较性能、SLO、泄漏、物理显存耗尽、全数据质量、其他设备/系统、多卡或发布。原逐位reload、数值/质量和资源失败保持；旧SDK及所有失败记录保留。",
+            "validation_receipt_sha256": "33442e27c2f672395e809a129937984277594758d1fd7616e2c3b6a2959418eb",
+            "affected_contracts_receipt_sha256": "af8cddd8a4f4e6fa1efd730a9db8f2912498ad9d6b1562965fa71625821490d1",
+            "sdk_candidate_receipt_sha256": "3e6198ffea9336568cd988c1691a0251466e86f93370f530576566e4f08c4cf5"
+          }
+        },
+        {
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-a84af9a-migraphx-instruction-names-legacy",
           "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",

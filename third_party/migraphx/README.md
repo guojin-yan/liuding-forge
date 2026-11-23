@@ -8,4 +8,6 @@
 
 Forge 从已加载的 C API 模块查询这一版本化入口；存在时逐请求使用它，不存在时使用原 `migraphx_program_run_trace()`。设置 `MIGRAPHX_TRACE_EVAL` 时保持原 trace 路径。两条路径均核对实际 GPU 算术、同步主存输出及 CPU/reference 指令拒绝，不以编译图清单代替执行记录，也不在失败后重放请求。
 
+切换 SDK 时显式更新 `JYPPX_LIUDING_MIGRAPHX_ROOT`；启用原生 SDK 测试的开发构建还需更新 `JYPPX_LIUDING_MIGRAPHX_TEST_ROOT`，并重新链接受影响的程序。Linux 程序已有的 `DT_RPATH` 可能优先选择旧 C API，仅设置 `LD_LIBRARY_PATH` 不足以完成切换；运行前核对 `ldd`，运行后核对实际加载的核心与 C API 模块均来自目标 SDK。
+
 切换 SDK 会改变环境锁记录的实际 C API 模块摘要。部署时应重新观察环境、核对原模型与已知向量并生成对应可信包；旧包的锁不匹配时继续拒绝加载。具体验证组合以 [`compatibility.json`](../../compatibility.json) 为准，接口可用不表示持续负载、性能、其他设备或操作系统已通过验收。
