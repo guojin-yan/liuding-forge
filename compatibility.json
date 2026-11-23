@@ -13,6 +13,28 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-65a210f-migraphx-no-mlir-reload",
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
+          "commit": "65a210ff94c2a96a66f93cae4a67f299a705b830",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100;ROCm10.1.0 HIP;unmodified native Linux MIGraphX2.18.0;process-scoped MIGRAPHX_DISABLE_MLIR=1",
+          "instrumentation": "复用原65a210f原生测试二进制，完整SHA与原默认路线收据相同；当前主力源码上下文449ca2a，测试源码逐字节未变。仅在独立子进程环境关闭MLIR、JIT并行1、GPU串行，零C++构建/SDK修改/默认路线重跑。",
+          "tests": "原ResNet18 batch2/5各首次替代编译及独立严格重载，共4个原生进程自然通过，合计70.038818048秒；编译600秒、重载60秒和4GiB物理/cgroup/磁盘准入保持。两对完整输出逐字节一致，98个FP32值独立文件复核零超差。直接执行原CTest子命令，不冒充新CTest矩阵。",
+          "quality_evidence": {
+            "source_identity": "原二进制SHA256 a1b489889b8619d8a59ba8e0489117130f2eb079e6cd522f5937830c4fc68856，原生源码SHA256 d344fdfecaa92144901774a366972987507885e9dab2e2e609c977f2ed2c4978。图/两输入/原参考SHA不变；实际加载原核心/C API及GPU插件，各模块身份留存，未使用指令名扩展。",
+            "numerical_and_route": "保持offload_copy=true、fast_math=false、exhaustive_tune=false；两形状各14/35个值，原atol1e-5/rtol1e-4，四输出最大绝对误差均2.384185791015625e-6。实际69条指令包含gpu::convolution、gpu::hip_gemm、主存回拷与流同步，无MLIR/CPU/ref指令；同对保存程序SHA和首次/重载输出字节相同。",
+            "mechanism_boundary": "源码与原环境排除重复设置默认未启用的MIGRAPHX_MLIR_ENABLE_SPLITK。gfx11架构默认可能优先于逐程序MLIR排除项；本批使用在首次调用前设置的进程级总开关。替代路线同时改变多处内核，不能据此证明某个FP32原子内核为原因或一般确定性。",
+            "retained_collector_failure": "首个私有文件审计把实际版本化库名误作未版本化路径，发生于batch2编译成功后。原失败保留；后继核对实际模块文件摘要并复用同一已保存程序，只执行未完成重载与batch5合同，没有重复编译或执行已完成阶段。",
+            "scope": "仅精确WSL/W7900原SDK、原固定图/两形状的关闭MLIR测试路线；不授产品Session、Serving、扩展SDK、其他图/形状、跨设备/SDK程序移植、性能或发布资格。默认MLIR严格重载及其他历史数值/质量/资源失败保持，所有原设备已过结果直接复用。",
+            "initial_receipt_sha256": "81e56136975bc8127290c677c4ffdfd1867d68a7f17dab61b60a2e2804a90e91",
+            "validation_receipt_sha256": "0f739649294355023c21dbe69c452279fc8ca3a49e09ad4674c456c7035ec43e",
+            "saved_file_audit_sha256": "7843c15655344e2048657620f2e9b72876429caa1472d650091d0b166ac8e5a4"
+          }
+        },
+        {
           "id": "windows-clangcl24-rocm101-gfx1100-d338d4d-cpu-benchmark-runtime",
           "distribution": "amd-rocm10.1.0",
           "os": "windows-11",

@@ -45,6 +45,14 @@ Linux 原生 HTTP 的 `NativeOtlpHttpTrustedTls` 与 `NativeOtlpHttpTrustedDns` 
 
 同一配置下运行 `ctest --test-dir <构建目录> -C Release --output-on-failure -j 1 -R "^MIGraphXReload[.]"`，另四项测试先在原生进程中编译并执行，再将程序和完整输出的 SHA 传给独立重载进程。重载分支不调用 ONNX 解析或程序编译 API，核验后从证据目录的私有副本加载，保持原 shape、数值和 GPU 路线检查，并要求输出逐字节等于首次执行。编译子进程最多 600 秒，重载子进程最多 60 秒，每项 CTest 最多 700 秒；两次执行的日志、程序、输出、路线及模块留在 `evidence/migraphx-reload/` 新目录。此契约仅适用于同一设备和精确 SDK，不推导编译程序可跨设备、SDK 或操作系统移植。
 
+已登记的 WSL2/W7900 原生 SDK 组合另通过关闭 MLIR 后的 ResNet18 batch 2/5 编译与独立进程严格重载，保留相同输入、原 FP32 容差及 GPU 算术/拷贝/同步要求。可在启动测试进程时选择该路线：
+
+```sh
+MIGRAPHX_DISABLE_MLIR=1 ctest --test-dir <构建目录> -C Release --output-on-failure -j 1 -R '^MIGraphXReload[.]resnet18_[01]$'
+```
+
+此变量由 MIGraphX 在首次使用时读取并缓存，影响进程内后续编译；不能改变已编译程序。该范围仅覆盖上述原生测试及精确 SDK，默认 MLIR 路线的严格重载失败继续保留；不保证其他模型、形状、产品 Session、Serving 或扩展 SDK 的逐位确定性。编译时保持同一进程环境，并在需要逐位输出时独立验收。
+
 将示例中的 target 和测试选择替换为实际受影响的范围。公共头、CMake target 或组件依赖变化还需运行以下检查，并验证安装后消费者及相关组件关闭组合：
 
 ```sh
