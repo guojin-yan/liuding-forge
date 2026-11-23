@@ -34,7 +34,6 @@
 #endif
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -394,8 +393,10 @@ void ExpectEqualCheckpoint(const std::filesystem::path &expected_path,
   ASSERT_TRUE(expected_file.is_open());
   ASSERT_TRUE(actual_file.is_open());
   constexpr std::size_t kCompareChunkBytes = 1U << 20U;
-  std::array<char, kCompareChunkBytes> expected_chunk{};
-  std::array<char, kCompareChunkBytes> actual_chunk{};
+  // Keep these bounded comparison buffers off the default 1 MiB Windows
+  // executable stack; the checkpoint size does not affect their heap budget.
+  std::vector<char> expected_chunk(kCompareChunkBytes);
+  std::vector<char> actual_chunk(kCompareChunkBytes);
   std::uint64_t compared_artifact_bytes = 0;
   while (true) {
     expected_file.read(expected_chunk.data(), expected_chunk.size());
