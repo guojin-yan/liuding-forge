@@ -13,6 +13,25 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-a84af9a-migraphx-instruction-names-legacy",
+          "distribution": "amd-rocm10.1.0",
+          "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
+          "architecture": "x86_64",
+          "compiler": "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
+          "build_type": "Release",
+          "commit": "a84af9a929f8f780c5a3be8ce9e89fe8906c1a66",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100;ROCm10.1.0 HIP;unmodified native Linux MIGraphX2.18.0",
+          "instrumentation": "干净提交复用原Ninja树、最多2编译、GPU/JIT串行；本机file源同步，未下载或改动原SDK。仅验证新Linux动态入口查询直接影响的原Session合同。",
+          "tests": "原MIGraphXSessionGpu.fixed_0..3共4项通过，零失败跳过；固定Linear/ResNet18各batch2/5，原600秒CTest上限不变。不重复通用矩阵、Windows持续负载或原严格reload。",
+          "quality_evidence": {
+            "source_identity": "适配器及测试源码逐份SHA绑定干净a84af9a；只增量编译受影响目标及构建指纹。",
+            "actual_route": "实际Linux C API导出包含原trace、缺少可选v1入口，走旧SDK路径；每请求GPU算术/copy/sync及CPU/ref拒绝保持。原FP32 atol1e-5/rtol1e-4完整输出、并发串行、设备恢复、输入不变和Session释放后所有权均通过。",
+            "evidence_integrity": "四份完整输出、执行指令和模块记录独立核对；实际加载原C API文件，原核心与C API文件摘要、测试二进制和源码在批次前后保持。",
+            "scope": "仅此WSL精确组合中未扩展SDK与新适配器的四个原合同兼容；不授Linux扩展SDK、持续负载、性能、逐位reload、其他模型/设备或发布。原数值/质量/资源失败保持。",
+            "validation_receipt_sha256": "b3a9aea233a8de01e940883ccc42c748041a895766e048877d5359552e1c7869"
+          }
+        },
+        {
           "distribution": "amd-rocm10.1.0",
           "os": "windows-11",
           "architecture": "x86_64",
