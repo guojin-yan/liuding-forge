@@ -14,6 +14,7 @@ from pathlib import Path
 import queue
 import socket
 from socketserver import BaseRequestHandler, ThreadingTCPServer
+import ssl
 import subprocess
 import threading
 import time
@@ -25,11 +26,12 @@ def require(condition, message):
 
 
 class Fixture:
-    def __init__(self, phase):
+    def __init__(self, phase, tls_directory=None):
         self.phase = phase
         self.requests, self.errors, self.closed = [], [], []
         self.stalled = queue.Queue()
         self.lock = threading.Lock()
+        self.tls_connections, self.tls_closed = [], []
         owner = self
 
         def await_close(connection, index):
@@ -58,12 +60,20 @@ class Fixture:
                     require(0 < size <= 16 * 1024 * 1024, "Invalid request bound")
                     require(self.path == "/v1/logs", "Unexpected OTLP path")
                     require(self.headers.get("Content-Type") == "application/x-protobuf", "Invalid media type")
+                    if tls_directory:
+                        require(self.headers.get("Host") == "localhost:" + str(self.server.server_port),
+                                "Trusted TLS request lost its HTTP Host")
+                        require(self.connection.version() == "TLSv1.2", "Trusted TLS request lost its protocol")
                     payload = self.rfile.read(size)
                     require(len(payload) == size, "Request did not finish uploading")
                     with owner.lock:
                         index = len(owner.requests)
                         owner.requests.append({"index": index, "body_sha256": hashlib.sha256(payload).hexdigest(),
                                                "body_bytes": len(payload), "path": self.path})
+                        if tls_directory:
+                            wire = tls_directory / ("request-" + str(index) + ".protobuf")
+                            wire.write_bytes(payload)
+                            owner.requests[-1]["body_file"] = str(wire)
                     if index % 2 == 0:
                         if phase == "body":
                             self.send_response(200)
@@ -101,7 +111,37 @@ class Fixture:
         class TlsServer(ThreadingTCPServer):
             allow_reuse_address = True
 
-        self.server = (TlsServer if phase == "tls" else ThreadingHTTPServer)(
+        class TrustedServer(ThreadingHTTPServer):
+            def get_request(self):
+                connection, address = super().get_request()
+                connection.settimeout(5)
+                try:
+                    secured = context.wrap_socket(connection, server_side=True)
+                    require(secured.version() == "TLSv1.2", "Unexpected trusted TLS version")
+                    require(getattr(secured, "fixture_sni", None) == "localhost", "Missing native TLS SNI")
+                    owner.tls_connections.append({"version": secured.version(), "sni": secured.fixture_sni})
+                    return secured, address
+                except BaseException:
+                    owner.errors.append("Trusted TLS handshake failed")
+                    connection.close()
+                    raise
+
+            def close_request(self, request):
+                super().close_request(request)
+                owner.tls_closed.append(True)
+
+            def handle_error(self, request, client_address):
+                owner.errors.append("Trusted TLS fixture request failed")
+
+        if tls_directory:
+            require(phase != "tls", "Trusted response fixture cannot replace an unfinished handshake")
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.maximum_version = ssl.TLSVersion.TLSv1_2
+            context.load_cert_chain(tls_directory.parent / "valid.pem", tls_directory.parent / "server.key")
+            context.set_servername_callback(lambda connection, name, _: setattr(connection, "fixture_sni", name))
+        server_type = TlsServer if phase == "tls" else TrustedServer if tls_directory else ThreadingHTTPServer
+        self.server = server_type(
             ("127.0.0.1", 0), TlsHandler if phase == "tls" else HttpHandler)
         self.server.daemon_threads = False
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.02})
@@ -117,14 +157,20 @@ class Fixture:
         require(not self.thread.is_alive(), "Stalled-peer fixture did not stop")
 
 
-def run(executable, mode):
+def run(executable, mode, tls_directory=None):
     phase = mode.split("-", 1)[1]
     stop = mode.startswith("stop-")
     measured_rounds = 8 if stop else 2
     max_rounds = 32 + measured_rounds
     rows = []
-    with Fixture(phase) as fixture:
-        process = subprocess.Popen([str(executable), str(fixture.server.server_address[1]), mode],
+    if tls_directory:
+        tls_directory = tls_directory / mode
+        tls_directory.mkdir()
+    with Fixture(phase, tls_directory) as fixture:
+        command = [str(executable), str(fixture.server.server_address[1]), mode]
+        if tls_directory:
+            command.append("localhost")
+        process = subprocess.Popen(command,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         native_lines = []
@@ -150,6 +196,9 @@ def run(executable, mode):
             reader.join(5)
             require(not reader.is_alive(), "Native output reader did not stop")
             collected = b"".join(native_lines), process.stderr.read(65537)
+            if tls_directory:
+                (tls_directory / "native.stdout").write_bytes(collected[0])
+                (tls_directory / "native.stderr").write_bytes(collected[1])
             return collected
 
         try:
@@ -229,23 +278,34 @@ def run(executable, mode):
         for index in range(rounds):
             left, right = fixture.requests[index * 2:index * 2 + 2]
             require(left["body_sha256"] == right["body_sha256"], "Retry changed the immutable event")
+    if tls_directory:
+        require(len(fixture.tls_connections) == len(fixture.tls_closed) == 2 * rounds,
+                "Trusted TLS connections were not all closed")
     return {"mode": mode, "passed": True, "rounds": rows,
             "requests": fixture.requests, "stalled_connections_closed": fixture.closed,
             "native_request_timeout_ms": 30000, "cancel_after_stalled_peer": stop,
-            "tls_trust_qualified": False, "process_tree_termination_qualified": False}
+            "tls_trust_qualified": bool(tls_directory), "tls_connections": fixture.tls_connections,
+            "tls_connections_closed": len(fixture.tls_closed), "native_pid": process.pid,
+            "native_returncode": process.returncode, "native_reaped": process.poll() is not None,
+            "process_tree_termination_qualified": False}
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--harness", required=True, type=Path)
+    parser.add_argument("--tls-directory", type=Path, help="Prepared private trusted-TLS fixture")
     args = parser.parse_args()
+    if args.tls_directory:
+        args.tls_directory = args.tls_directory.resolve(strict=True)
     evidence = {"passed": False, "cases": [], "failures": []}
-    for mode in ("stop-headers", "stop-body", "stop-tls", "deadline-headers", "deadline-body", "deadline-tls"):
+    modes = ("stop-headers", "stop-body", "deadline-headers", "deadline-body") if args.tls_directory else (
+        "stop-headers", "stop-body", "stop-tls", "deadline-headers", "deadline-body", "deadline-tls")
+    for mode in modes:
         try:
-            evidence["cases"].append(run(args.harness.resolve(strict=True), mode))
+            evidence["cases"].append(run(args.harness.resolve(strict=True), mode, args.tls_directory))
         except BaseException as error:
             evidence["failures"].append({"mode": mode, "error": repr(error)})
-    evidence["passed"] = not evidence["failures"] and len(evidence["cases"]) == 6
+    evidence["passed"] = not evidence["failures"] and len(evidence["cases"]) == len(modes)
     target = os.environ.get("JYPPX_LIUDING_HTTP_CANCELLATION_EVIDENCE_DIR")
     if target:
         path = Path(target)

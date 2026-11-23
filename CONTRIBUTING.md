@@ -33,6 +33,8 @@ ONNX 独立验证可显式设置 `JYPPX_LIUDING_ONNX_REFERENCE_PYTHON`，使用�
 
 Linux 原生 HTTP 的 `NativeOtlpHttpTrustedTls` 与 `NativeOtlpHttpTrustedDns` 使用独立 user/mount namespace 验证可信 TLS、过期和 IP/DNS 名称拒绝。`JYPPX_LIUDING_TELEMETRY_HTTP_TEST_CA_BUNDLE` 必须指向所选 curl SDK 实际使用的默认 CA 文件，默认是 `/etc/ssl/certs/ca-certificates.crt`；可用该 SDK 的 `curl-config --ca` 核对。此选项仅选择测试的私有信任视图，不设置产品 CA、关闭证书验证或修改宿主信任库；缺少 namespace 能力时测试失败。
 
+`NativeOtlpHttpTrustedTlsCancellation` 使用同一私有信任方式，将原响应头、响应体停滞时的取消与截止合同分别运行在已建立的 TLS 1.2 `localhost` 连接上。它保留原八轮取消、两轮截止测量、有限预热、严格文件描述符恢复、未确认事件原字节重试及进程内重复检查，原六场景 `NativeOtlpHttpCancellation` 独立保留；两项各保持 180 秒 CTest 上限。
+
 启用 `JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR` 并指定锁定的 `JYPPX_OTELCOL_EXECUTABLE`、`JYPPX_TELEMETRY_PYTHON` 后，Linux 的 `NativeOtlpCollectorTrustedTls` 使用同一私有信任方式，将原 C++ API、SQLite/CLI 与 worker 的三组事件发送到官方 Collector 的 TLS 1.2 `localhost` 接收器，并由官方 protobuf reader 核对完整信号。测试保留证书、Collector 配置与日志、原始输出和读回报告；原明文互通测试独立保留。HTTPS 互通不授予证书吊销、持久 ACK 或 HTTPS 崩溃恢复资格。
 
 同一配置的 `NativeOtlpCollectorTrustedTlsDurableQueue` 独立验证 HTTPS 接收器与原 `fsync` 队列的组合，保留三信号各一次持久队列强杀恢复和易失队列丢失对照、原 90 秒 CTest 及进程/内容断言。每次 Collector 启动核对 TLS 版本与证书；下游仍使用 HTTP 回环，不能推导下游 HTTPS、通用持久 ACK 或断电恢复。

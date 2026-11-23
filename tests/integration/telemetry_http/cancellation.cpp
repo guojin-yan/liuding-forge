@@ -126,7 +126,7 @@ std::size_t settled_handles(std::optional<std::size_t> expected) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 3) return 2;
+    if (argc != 3 && argc != 4) return 2;
 #ifdef _WIN32
     const forge::test::WindowsHttpRuntime runtime;
 #endif
@@ -143,6 +143,9 @@ int main(int argc, char** argv) {
     const bool tls = mode.ends_with("tls");
     require(tls || mode.ends_with("headers") || mode.ends_with("body"),
             "Invalid stalled response phase");
+    const bool trusted_tls = argc == 4;
+    require(!trusted_tls || (std::string_view(argv[3]) == "localhost" && !tls),
+            "Trusted TLS requires a localhost response-phase fixture");
     const unsigned measured_rounds = cancelled ? 8U : 2U;
     constexpr unsigned max_warmup_rounds = 32U;
     unsigned warmup_rounds = 0U, measured = 0U, stable_warmups = 0U;
@@ -150,9 +153,9 @@ int main(int argc, char** argv) {
     std::optional<std::size_t> baseline;
     for (unsigned round = 0U; measured < measured_rounds; ++round) {
       ex::OtlpHttpOptions options;
-      options.endpoint = {.host = "127.0.0.1",
+      options.endpoint = {.host = trusted_tls ? "localhost" : "127.0.0.1",
                           .port = static_cast<std::uint16_t>(port),
-                          .tls = tls};
+                          .tls = tls || trusted_tls};
       options.mapping.resource_instance_id = "http.cancellation.instance";
       options.request_timeout = Ms(30000);
       ex::OtlpHttpTelemetrySink sink(std::move(options));
