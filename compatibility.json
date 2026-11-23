@@ -4491,6 +4491,27 @@
             "nvidia_regression": "共享改动的独立回归：Windows/RTX3060在4e07368上219项通过（218项首轮通过，安装GPU消费者精简进程PATH后重试通过），0095a66另11项拷贝流通过；Ubuntu/RTX2060在0095a66上216项通过。均零CTest跳过；Linux原profile不含视觉CLI。",
             "validation_receipt_sha256": "4f95f5600a4036709a25bdda23ab63bc47c6d9cee073764fc440b0457bacee11"
           }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用Ninja 1.13.2、CMake 4.3.1-msvc1、Release /MD、iterator debug level 0；离线配置、至多两个编译任务、CTest单任务。",
+          "id": "windows-clangcl24-rocm101-gfx1100-f62d693-fashion-step-lr-parity",
+          "commit": "f3b59cb",
+          "accelerator": "AMD Radeon PRO W7900 48GB gfx1100; ROCm SDK10.1.0/HIP7.16.26385; display driver32.0.21030.2001; native real-image recipe recovery; fixed StepLR PyTorch parity rerun",
+          "tests": "同一冻结Fashion-MNIST ResNet18真实ImageFolder配方在StepLR启动语义修复后完成32次FP32 GPU更新；Forge与独立官方torchvision/AMD LibTorch参考的122份状态逐元素一致，准确率同为0.360。",
+          "quality_evidence": {
+            "source_identity": "f3b59cb干净主分支；修复提交f62d693新增显式StepLrScheduler skip_initial_decay，并仅为image epoch_step recipe启用PyTorch兼容启动语义。StepLR单元7/7通过，recipe gate增量构建成功。",
+            "frozen_workload": "复用原始initial-state.safetensors、1000/1000 Fashion-MNIST first100-per-class ImageFolder、seed20261028、batch64、2 epochs/32 updates、SGD momentum0.9/lr0.01/weight_decay0.0001、clip1.0、epoch StepLR gamma0.9及原确定性设置；未调参、未改变数据或阈值。",
+            "pytorch_parity": "独立官方torchvision/LibTorch参考与Forge最终122份状态共11191262元素逐元素相同，mismatches=0、最大绝对/相对差=0；两者validation accuracy均360/1000=0.360，Forge最终学习率0.009。",
+            "quality_gate": "原minimum_accuracy=0.5保持不变，0.360未通过任务质量门槛；因此本项授予固定配方PyTorch parity，不授予任务质量通过。",
+            "runtime_boundary": "运行使用本机ROCm HIP/LibTorch完整临时DLL闭包及同卷kpack硬链接；不修改源码、版本、发布或依赖，不触发网络下载。",
+            "private_evidence": "workspace/records/amd-parity-20261124/windows-fashion-resnet18-parity-2",
+            "scope": "仅Windows 11/W7900 gfx1100、ROCm10.1.0/LibTorch2.14.0、Clang-cl24、FP32、固定Fashion-MNIST配方；不外推其他AMD硬件/OS、多卡、其他数据/精度/模型或质量门槛。"
+          }
         }
       ],
       "pending_lanes": []

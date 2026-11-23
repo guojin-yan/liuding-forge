@@ -110,9 +110,9 @@ AMD 适配按相同设备、后端、状态、输入和训练配方与官方 PyT
 | DINOv2-small 真实首批次，Windows CPU FP32 | 默认与关闭 oneDNN 两种模式，各 14 份完整 logits/loss、梯度及更新参数均与官方 HF/PyTorch eager 逐字节一致。 |
 | DINOv2-small 真实首批次，Windows GPU FP32 | 本库严格确定性完整反向及 SGD 后的 14 份完整 logits/loss、六梯度和六更新参数，均与同 W7900/AMD PyTorch 官方 HF 完整反向逐字节一致；官方进程关闭确定性算法限制以执行 bicubic 反向。本项仅确认这 14 份张量，未对照位置嵌入导数或其余全部参数。 |
 | DINOv2-small 真实首批次，WSL GPU FP32 | 与同 WSL 后端官方 HF 固定训练图的 logits、loss、六份完整梯度和六份更新参数共 14 份张量逐字节一致。官方执行关闭图优化及确定性算法限制，完成完整反向与分组 SGD；框架保留严格确定性及原参考断言。本项仅确认这 14 份张量，未对照位置嵌入导数或其余全部参数。 |
-| 固定 Fashion-MNIST ResNet18 32 次更新，Windows W7900 ROCm FP32 | 独立官方 torchvision/LibTorch 训练完成但为 0.360，原 Forge 训练为 0.321；122 个状态张量和 10000 个验证 logits 均未逐元素匹配，因此保留为负结果，不授予该任务的 PyTorch parity 或 0.5 质量门槛资格。 |
+| 固定 Fashion-MNIST ResNet18 32 次更新，Windows W7900 ROCm FP32 | 在 StepLR 首次 epoch 事件采用 PyTorch `last_epoch=-1` 启动语义后，Forge 与同一 AMD LibTorch 官方 torchvision 图的 122 个状态张量逐元素一致，最终准确率同为 0.360；最终学习率为 0.009。该固定配方达到同后端 PyTorch parity，但原冻结任务质量门槛 0.5 仍未达到。 |
 
-该 Fashion 配方另以同一 W7900 batch、完整 122 张初始状态、交叉熵、梯度裁剪和 `torch::optim::SGD` 做首步诊断：官方 TorchScript 与 Forge 原生 ResNet18 的 640 个 logits、loss、62 份梯度和一步更新后的 122 份状态均逐字节一致。该结果排除了模型前向/反向及单步 Torch 优化器作为首要差异来源，但不改变 32 次更新的负结果；多步数据游标、Trainer 编排、调度器或框架路径仍需独立调查。
+该 Fashion 配方的修复前首步诊断仍保留：官方 TorchScript 与 Forge 原生 ResNet18 的 640 个 logits、loss、62 份梯度和一步更新后的 122 份状态均逐字节一致；差异来自 epoch 级 StepLR 启动事件，而非模型前向/反向或单步 Torch 优化器。该结论只覆盖固定数据、状态、32 次更新、Windows W7900 ROCm FP32 配方。
 
 这些对照仅确认所列配方和张量的同后端一致性，其他数据、形状、精度和硬件须分别验证。
 
