@@ -271,7 +271,7 @@ Session 只接受单输入、单输出、dense FP32、rank 1..8，每个 Session
 
 逐次路线校验使用 `migraphx_program_run_trace()`；当前 SDK 的 trace 执行包含指令同步及可检查中间结果的主存拷贝，预热后仍有这些成本。规划请求速率与延迟预算时须计入这部分开销；增加同一 Session 的调用线程仍受串行约束。当前 Preview 不提供吞吐、延迟或持续负载的性能资格。
 
-同一 Session 的调用串行，不同 Session 各自拥有程序；调用期间输入必须保持有效和不变。调用绑定所选 HIP 设备并恢复线程先前的设备，输出可在 Session 销毁后继续使用。销毁不得与调用并发。运行错误时先作设备级同步再释放借用输入，其他同设备工作可能延迟清理。解析、编译、等待和执行均为同步阻塞接口，尚无取消或硬超时；字节上限不限制图中间分配、后端缓存、RSS 或总显存。不承诺重复执行逐字节确定性，也不提供序列化程序加载或 ORT MIGraphX EP。已验证 bundle 与版本切换由独立可选的 [`migraphx_serving`](serving.md#加载与请求) 桥接提供。
+同一 Session 的调用串行，不同 Session 各自拥有程序；调用期间输入必须保持有效和不变。调用绑定所选 HIP 设备并恢复线程先前的设备，输出可在 Session 销毁后继续使用。销毁不得与调用并发。运行错误时先作设备级同步再释放借用输入，其他同设备工作可能延迟清理。解析、编译、等待和执行均为同步阻塞接口，尚无取消或硬超时；字节上限不限制图中间分配、后端缓存、RSS 或总显存。关闭 fast math 不保证同一已加载程序重复执行逐字节相同，要求逐位输出的模型须独立验收。当前不提供序列化程序加载或 ORT MIGraphX EP。已验证 bundle 与版本切换由独立可选的 [`migraphx_serving`](serving.md#加载与请求) 桥接提供。
 
 `<jyppx/liuding/deployment/migraphx_runtime/environment.hpp>` 提供 `observe_environment(session)`、`serialize_environment_lock`、`parse_environment_lock` 与 `verify_environment_lock(session, encoded, trusted_digest)`。独立部署时先核对锁文件的完整 SHA，再将解析结果与实际 Session 的构建版本、HIP runtime/driver 数值、设备 UUID/PCI/架构、输入名及完整固定输入输出形状逐字段比较。文本字段要求非空可打印 ASCII，设备 UUID 为非零 16 字节的 32 位小写十六进制编码。编译选项固定为上述 GPU/FP32 配置；schema、类型、重复字段、未知字段和资源越界均明确拒绝，锁文件最多 16 KiB，纯解析不查询设备。
 
