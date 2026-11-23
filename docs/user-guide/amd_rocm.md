@@ -132,7 +132,7 @@ FP16 的 YOLOv8 m/l/x Ghost P6、YOLO26 n/s/m/l/x P6 和 YOLOv5 l/x P6 检测在
 
 原生 TensorBoard 示例、CLI 和 worker 另通过独立官方 reader/writer 检查，OTLP 示例通过官方 protobuf 解码与固定映射对照；默认空环境 worker 与安装版 worker 的原契约也已验证。
 
-原生 OTLP HTTP 另在显式共享 curl `8.23.0` SDK 下通过本机回环发送、HTTP 分帧、取消与截止后恢复、原生 CLI worker 和安装消费合同；Linux 消费者须用 `JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT` 明确选择自己的 SDK。HTTPS 已在该 SDK 默认 CA 配置下验证 TLS 1.2 的 IP 与 `localhost` DNS 可信连接、过期和错名拒绝，以及未知 CA/自签名拒绝；证书吊销仍需独立验收；配置见[原生 OTLP HTTP](../tutorials/native-otlp-http.md)。
+原生 OTLP HTTP 另在显式共享 curl `8.23.0` SDK 下通过本机回环发送、HTTP 分帧、取消与截止后恢复、原生 CLI worker 和安装消费合同；Linux 消费者须用 `JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT` 明确选择自己的 SDK。HTTPS 已在该 SDK 默认 CA 配置下验证 TLS 1.2 的 IP 与 `localhost` DNS 可信连接、过期和错名拒绝，以及未知 CA/自签名拒绝；已建立的 TLS 1.2 `localhost` 连接另通过响应头/响应体停滞后的取消、截止、未确认事件原字节重试与文件描述符恢复。证书吊销仍需独立验收；配置见[原生 OTLP HTTP](../tutorials/native-otlp-http.md)。
 
 锁定官方 Collector Contrib `0.135.0` 的 Linux 原生程序另通过明文回环互通、明确 `fsync` 文件队列的进程崩溃恢复与易失队列丢失对照、队列满后保留确认前缀及原字节重试、成功响应丢失后的外部重复验证。范围覆盖 logs、metrics 及其审计日志、traces；确认边界属于所验证的 Collector 配置。原 C++ API、SQLite/CLI 和 worker 三条路径另通过该 Collector 的 TLS 1.2 `localhost` 接收器与官方信号读回；测试采用私有 CA 视图，不修改宿主信任库。该 HTTPS 接收器另通过原三信号的 `fsync` 持久队列强杀恢复及易失队列丢失对照；TLS 1.2 记录端点还验证原队列满和丢回复合同，保留确认前缀、原字节重试及预期外部重复，下游限定为 HTTP 回环。客户端继续保持至少一次语义，不提供通用持久 ACK、跨进程去重或 exactly-once，也不将进程崩溃结果推广到断电或磁盘故障。
 
