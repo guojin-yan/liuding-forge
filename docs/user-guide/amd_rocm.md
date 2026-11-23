@@ -105,7 +105,8 @@ AMD 适配按相同设备、后端、状态、输入和训练配方与官方 PyT
 | ResNet18 小样本训练，WSL GPU FP32 | 官方 torchvision 训练图的 48 次 SGD 更新，每步 logits、全部 62 份梯度和 122 份更新后状态均逐字节一致，最终准确率同为 0.5；接受此配方与 PyTorch 的一致性，原 0.875 任务门槛仍未达到。 |
 | EfficientNetV2-S 固定前向 | Windows 官方 timm eager 的 CPU/GPU 各六份完整输出，以及 WSL 同后端官方固定形状图的六份 GPU 输出，分别与本库逐字节一致；接受对应 FP32 前向，原固定参考的 `blocks5` 和 `output` 超差仍保留。 |
 | DINOv2-small 真实首批次，Windows CPU FP32 | 默认与关闭 oneDNN 两种模式，各 14 份完整 logits/loss、梯度及更新参数均与官方 HF/PyTorch eager 逐字节一致。 |
-| DINOv2-small 真实首批次，GPU FP32 | 原唯一超差的完整 patch 投影梯度与同 W7900/AMD PyTorch 官方 HF 查询逐字节一致，Windows 与 WSL 捕获均匹配；接受这个张量的差异。官方查询未请求位置嵌入导数，此项不表示完整反向或全部张量等价。 |
+| DINOv2-small 真实首批次，Windows GPU FP32 | 本库严格确定性完整反向及 SGD 后的 14 份完整 logits/loss、六梯度和六更新参数，均与同 W7900/AMD PyTorch 官方 HF 完整反向逐字节一致；官方进程关闭确定性算法限制以执行 bicubic 反向。本项仅确认这 14 份张量，未对照位置嵌入导数或其余全部参数。 |
+| DINOv2-small 真实首批次，WSL GPU FP32 | 原唯一超差的完整 patch 投影梯度与同 W7900 的 Windows AMD PyTorch 官方 HF 查询逐字节一致；接受这个张量的差异，未扩大为 WSL 全部 14 份张量或同后端完整反向对照。 |
 
 这些对照仅确认所列配方和张量的同后端一致性，其他数据、形状、精度和硬件须分别验证。
 

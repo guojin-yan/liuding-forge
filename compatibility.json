@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "windows-clangcl24-rocm101-gfx1100-0d3cbcd-dinov2-real-first-step-parity",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "commit": "0d3cbcdf82327551868f943a181564ca4cfb753b",
+          "accelerator": "AMD Radeon PRO W7900; native ROCm10.1.0 LibTorch2.14.0; FP32 full backward and grouped SGD, original 8x3x224x224 real first batch",
+          "instrumentation": "fb793a6基础上仅新增显式完整张量采集的提交前实现验证，复用既有Ninja Release及产品库、最多2编译、仅一项GPU原生合同；采集实现随0d3cbcd提交，不冒充干净提交整库复验。独立官方HF4.56.2 eager进程保留原权重/输入/优化器，仅关闭deterministic-algorithm拒绝并执行完整loss.backward()，不排除位置嵌入叶子；框架保持原严格确定性。",
+          "tests": "原ModelsPretrainedBackward.DinoV2SmallRealFirstBatchCudaGradientsAndSgd执行完整反向与一次SGD，原固定参考仍仅patch梯度83/225792元素超差，保留CTest失败；补齐14份完整输出后与同设备、逐文件相同Torch/C10 DLL的官方完整反向结果独立比较，14/14逐字节一致。RepositoryHygiene及改动行格式检查通过；未重跑CPU、WSL、原设备或通用矩阵。",
+          "quality_evidence": {
+            "parity": "指定14份完整logits/loss、六梯度和六更新参数的2524517个FP32值全部逐字节相同；官方本次14输出也逐字节等于既有受限叶子查询输出。框架原176份参数/梯度设备、FP32与有限检查及一次SGD通过，按同后端PyTorch一致性准则接受此指定张量范围。",
+            "scope": "仅Windows/W7900精确FP32首批次及所列14份张量；不授所有176份梯度/状态或位置嵌入导数数值等价、严格确定性官方backward、WSL完整14份对照、完整训练准确率、其他shape/精度/硬件资格。原固定参考失败与官方严格bicubic反向拒绝保留。",
+            "native_receipt_sha256": "fe9cf59d32eb2eaf589fe7a0cb4c3fe62d271dea05a51b30facc5bcab2a45f77",
+            "official_full_backward_receipt_sha256": "37c6c29cbf3a2a73478d670344eb6312b15491cb6d4f85b89e69bf4c80980d10",
+            "official_driver_receipt_sha256": "17ba6ec07f70c4ce35300eee8890d643f1b4cc8a896e190b558024a5c54dcef6",
+            "complete_capture_sha256": "a6049b2a284083f42c2d06b7e3cd7d889a003699733902ceb3f8af1d7fdc323a",
+            "parity_analysis_sha256": "11fab6282d497c88669bb4c366df7a9cb2822ac451007e731cd15c19812d8416"
+          }
+        },
+        {
           "id": "windows-clangcl24-rocm101-gfx1100-0e218f0-giant-cpu-bf16-storage",
           "distribution": "amd-rocm10.1.0",
           "os": "windows-11",
