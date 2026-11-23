@@ -231,6 +231,95 @@ TEST(StepLrSchedulerCheckpointTest,
 }
 
 TEST(StepLrSchedulerCheckpointTest,
+     PytorchStartupRestoresBeforeAndAcrossFirstDecay) {
+  using jyppx::liuding::optim::LrSchedulerCheckpointParticipant;
+  using jyppx::liuding::optim::StepLrScheduler;
+  using jyppx::liuding::optim::StepLrSchedulerOptions;
+  // Fixed event sequence: the constructor and first event retain the initial
+  // rates; the first step_size=2 decay occurs on event three.
+  const std::vector<std::vector<double>> expected_rates{
+      {0.2, 0.05},
+      {0.2, 0.05},
+      {0.2, 0.05},
+      {0.1, 0.025},
+      {0.1, 0.025},
+      {0.05, 0.0125},
+      {0.05, 0.0125}};
+  const StepLrSchedulerOptions options{
+      .step_size = 2, .gamma = 0.5, .skip_initial_decay = true};
+  for (std::size_t saved_events = 0; saved_events <= 3; ++saved_events) {
+    SCOPED_TRACE(saved_events);
+    auto source = std::make_shared<StepLrScheduler>(make_optimizer(), options);
+    EXPECT_TRUE(std::get<bool>(source->descriptor().config.at(
+        "skip_initial_decay")));
+    LrSchedulerCheckpointParticipant source_participant(source);
+    for (std::size_t event = 0; event < saved_events; ++event) source->step();
+    ASSERT_EQ(source->learning_rates(), expected_rates[saved_events]);
+    const auto store = save_participant(source_participant);
+
+    auto resumed_optimizer = make_optimizer();
+    auto resumed = std::make_shared<StepLrScheduler>(resumed_optimizer, options);
+    resumed_optimizer->set_learning_rates({0.9, 0.8});
+    for (int event = 0; event < 4; ++event) resumed->step();
+    LrSchedulerCheckpointParticipant resumed_participant(resumed);
+    resumed_participant.load_state(
+        store, jyppx::liuding::RestorePolicy::exact_only);
+    EXPECT_EQ(resumed->completed_steps(), saved_events);
+    EXPECT_EQ(save_participant(resumed_participant).blobs(), store.blobs());
+    for (std::size_t event = saved_events + 1; event < expected_rates.size();
+         ++event) {
+      source->step();
+      resumed->step();
+      EXPECT_EQ(resumed->learning_rates(), expected_rates[event]);
+      EXPECT_EQ(resumed->completed_steps(), source->completed_steps());
+      EXPECT_EQ(save_participant(resumed_participant).blobs(),
+                save_participant(source_participant).blobs());
+    }
+  }
+}
+
+TEST(StepLrSchedulerCheckpointTest,
+     RejectsChangedStartupModeWithoutMutatingRatesOrCounter) {
+  using jyppx::liuding::optim::LrSchedulerCheckpointParticipant;
+  using jyppx::liuding::optim::StepLrScheduler;
+  using jyppx::liuding::optim::StepLrSchedulerOptions;
+  for (const bool source_skips_initial_decay : {false, true}) {
+    SCOPED_TRACE(source_skips_initial_decay);
+    auto source = std::make_shared<StepLrScheduler>(
+        make_optimizer(),
+        StepLrSchedulerOptions{
+            .step_size = 2,
+            .gamma = 0.5,
+            .skip_initial_decay = source_skips_initial_decay});
+    source->step();
+    LrSchedulerCheckpointParticipant source_participant(source);
+    const auto store = save_participant(source_participant);
+    auto destination_optimizer = make_optimizer();
+    auto destination = std::make_shared<StepLrScheduler>(
+        destination_optimizer,
+        StepLrSchedulerOptions{
+            .step_size = 2,
+            .gamma = 0.5,
+            .skip_initial_decay = !source_skips_initial_decay});
+    destination_optimizer->set_learning_rates({0.7, 0.6});
+    destination->step();
+    destination->step();
+    LrSchedulerCheckpointParticipant destination_participant(destination);
+    const auto before = save_participant(destination_participant);
+    const auto rates_before = destination_optimizer->learning_rates();
+    const auto events_before = destination->completed_steps();
+    EXPECT_NE(destination->descriptor().fingerprint,
+              source->descriptor().fingerprint);
+    EXPECT_THROW(destination_participant.load_state(
+                     store, jyppx::liuding::RestorePolicy::exact_only),
+                 jyppx::liuding::CompatibilityError);
+    EXPECT_EQ(destination_optimizer->learning_rates(), rates_before);
+    EXPECT_EQ(destination->completed_steps(), events_before);
+    EXPECT_EQ(save_participant(destination_participant).blobs(), before.blobs());
+  }
+}
+
+TEST(StepLrSchedulerCheckpointTest,
      RejectsTopologyAndMalformedControlWithoutMutation) {
   auto source_optimizer = make_optimizer();
   auto source = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
