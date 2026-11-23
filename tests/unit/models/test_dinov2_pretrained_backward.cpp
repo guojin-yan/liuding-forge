@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <map>
@@ -66,6 +67,43 @@ void Compare(const Tensor& actual, const Tensor& expected,
       << sha256_hex(std::span<const std::byte>(
              static_cast<const std::byte*>(cpu.contiguous().const_data_ptr()),
              cpu.nbytes()));
+}
+
+void WriteRealFirstBatchCapture(
+    const std::filesystem::path& root, bool cuda,
+    const std::vector<std::pair<std::string, Tensor>>& tensors) {
+  std::vector<interop::SafeTensorSource> sources;
+  sources.reserve(tensors.size());
+  for (const auto& [name, tensor] : tensors) {
+    if (!tensor.device().is_cpu() || tensor.scalar_type() != torch::kFloat32 ||
+        !tensor.is_contiguous())
+      throw std::runtime_error("first-batch capture requires packed CPU FP32");
+    sources.push_back({.name = name,
+                       .dtype = interop::SafeTensorDtype::f32,
+                       .shape = std::vector<std::uint64_t>(
+                           tensor.sizes().begin(), tensor.sizes().end()),
+                       .data = std::as_bytes(std::span(
+                           tensor.const_data_ptr<float>(),
+                           static_cast<std::size_t>(tensor.numel())))});
+  }
+  interop::SafeTensorsLimits limits;
+  limits.max_file_bytes = 64ULL << 20U;
+  limits.max_payload_bytes = 64ULL << 20U;
+  limits.max_tensor_bytes = 64ULL << 20U;
+  const auto encoded = interop::serialize_safetensors(sources, {}, limits);
+  const auto directory =
+      root / (cuda ? "dinov2-small-cuda0" : "dinov2-small-cpu");
+  if (!std::filesystem::is_directory(root) ||
+      !std::filesystem::create_directory(directory))
+    throw std::runtime_error("first-batch capture directory must be new");
+  std::ofstream stream(directory / "outputs.safetensors", std::ios::binary);
+  stream.exceptions(std::ios::badbit | std::ios::failbit);
+  stream.write(reinterpret_cast<const char*>(encoded.data()),
+               static_cast<std::streamsize>(encoded.size()));
+  stream.close();
+  std::cout << "REAL_FIRST_STEP_CAPTURE device=" << (cuda ? "cuda:0" : "cpu")
+            << " tensors=" << tensors.size()
+            << " sha256=" << sha256_hex(encoded) << '\n';
 }
 
 void CheckBackward(bool cuda) {
@@ -229,6 +267,15 @@ Tensor RealBatchTensor(const std::filesystem::path& path,
 // separate matmul/bias path. References remain the original independent HF
 // eager results; neither their values nor the numerical tolerances change.
 void CheckRealFirstBatch(bool cuda) {
+  const auto* capture_root =
+      std::getenv("JYPPX_LIUDING_DINOV2_REAL_FIRST_STEP_CAPTURE_DIR");
+  std::vector<std::pair<std::string, Tensor>> captured;
+  const auto capture_tensor = [&](const std::string& name,
+                                  const Tensor& value) {
+    if (capture_root && *capture_root)
+      captured.emplace_back(
+          name, value.detach().to(torch::kCPU).contiguous().clone());
+  };
   const auto* fixture = std::getenv("JYPPX_LIUDING_DINOV2_REAL_FIRST_STEP_DIR");
   const auto* weight_root =
       std::getenv("JYPPX_LIUDING_PRETRAINED_REFERENCE_DIR");
@@ -316,6 +363,8 @@ void CheckRealFirstBatch(bool cuda) {
   optimizer.zero_grad();
   const auto logits = head->forward(backbone->forward(input));
   const auto loss = torch::nn::functional::cross_entropy(logits, labels);
+  capture_tensor("logits", logits);
+  capture_tensor("loss", loss.reshape({1}));
   Compare(
       logits,
       RealBatchTensor(
@@ -380,6 +429,7 @@ void CheckRealFirstBatch(bool cuda) {
   for (const auto& check : checks) {
     const auto gradient = parameters.at(check.name).grad();
     ASSERT_TRUE(gradient.defined()) << check.name;
+    capture_tensor(std::string("gradient.") + check.name, gradient);
     Compare(gradient,
             RealBatchTensor(
                 reference / "gradient" / (std::string(check.index) + ".f32"),
@@ -388,12 +438,17 @@ void CheckRealFirstBatch(bool cuda) {
   }
   optimizer.step();
   EXPECT_EQ(optimizer.completed_steps(), 1U);
-  for (const auto& check : checks)
+  for (const auto& check : checks) {
+    capture_tensor(std::string("updated.") + check.name,
+                   parameters.at(check.name));
     Compare(parameters.at(check.name),
             RealBatchTensor(
                 reference / "updated" / (std::string(check.index) + ".f32"),
                 check.shape, check.updated_digest),
             std::string("real-first-step.updated.") + check.name, 3e-4, 3e-5);
+  }
+  if (capture_root && *capture_root)
+    WriteRealFirstBatchCapture(capture_root, cuda, captured);
   std::cout << "REAL_FIRST_STEP device=" << device
             << " gradient_parameters=" << parameters.size()
             << " full_gradients=" << checks.size()

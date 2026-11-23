@@ -88,6 +88,8 @@ DINOv2 独立随机架构参考使用 `tests/unit/models/reference/generate_dino
 
 排查普通架构固定参考时，可将 `JYPPX_LIUDING_MODELS_REFERENCE_CAPTURE_DIR` 设为仓库外已存在的父目录，再单独运行对应 CPU 或 GPU 参考用例。测试仅在显式启用时将已计算的输出和适用中间特征写入 `<架构>-cpu/outputs.safetensors` 或 `<架构>-cuda0/outputs.safetensors`，打印完整文件 SHA；子目录必须不存在，编码文件上限为 64 MiB。采集保留原数值断言，超差用例仍失败；产物只用于开发诊断，不替换固定参考，也不进入安装包。
 
+DINOv2-small 真实首批次对照可显式设置 `JYPPX_LIUDING_DINOV2_REAL_FIRST_STEP_CAPTURE_DIR`，再单独运行 `ModelsPretrainedBackward.DinoV2SmallRealFirstBatchCpuGradientsAndSgd` 或对应的 `CudaGradientsAndSgd`。父目录须已存在，测试将 logits、loss、六份完整梯度及六份更新参数保存到新建的 `dinov2-small-cpu/outputs.safetensors` 或 `dinov2-small-cuda0/outputs.safetensors`，打印完整 SHA，编码文件上限为 64 MiB；原固定权重、输入、容差及失败结果保持。与官方同后端输出比较时，分别记录双方的确定性设置，不能将指定张量一致推导为所有参数梯度或任务质量一致。
+
 ## 提交与交付
 
 当前主线为 `main`。提交前检查差异，只包含当前任务的文件，并补齐必要验证和用户可见变更的 [CHANGELOG.md](CHANGELOG.md)。提交消息采用 `feat(scope): ...`、`fix(scope): ...`、`docs(scope): ...` 等明确形式；交付说明先写解决的问题与结果，再写验证和限制。
