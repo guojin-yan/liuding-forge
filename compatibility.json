@@ -13,6 +13,31 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "windows-clangcl24-rocm101-gfx1100-0e218f0-giant-cpu-fp32",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "commit": "0e218f0506f8b539f15b486e0a48b0acc9b5025f",
+          "accelerator": "AMD Radeon PRO W7900 host; native ROCm10.1.0 LibTorch2.14.0 distribution; CPU FP32 with GPUs hidden",
+          "instrumentation": "当前干净源码上下文9cd4c77，复用0e218f0原二进制与built provenance；src/include及模型测试逐字节未变，完整binary及Torch/C10 SHA独立核对，零构建。实际提交额度改善后首次完成原FP32反向及独立参考，CPU串行，保留原600秒CTest、1800秒参考生成及预声明资源预留；未重跑BF16、GPU、WSL、原设备或通用矩阵。",
+          "tests": "原Models.DinoV2GiantCpuBackwardResourceGate及ModelsPythonInterop.OfficialTimmDinoV2GiantReferenceReallyRuns共2项CTest通过，零失败/跳过。独立官方timm随机参考首次本机生成完成，三个文件大小及完整SHA精确匹配原固定身份；文件审计通过，零原生重跑。",
+          "quality_evidence": {
+            "backward": "原seed20261027、1x3x14x14 FP32输入、三分类平方均值loss及SGD lr0.001。完整反向执行，patch/head梯度存在且FP32有限、head梯度非零及实际更新改变权重，更新后eval tokens形状1x2x1536且有限；没有扩写为所有参数梯度数值对照。",
+            "resources": "反向原生正文46.522秒、CTest53.50秒，峰值RSS9582194688字节约8.92GiB，低于原14GiB。参考生成68.125秒，原生参考正文163.510秒、CTest164.30秒；均自然退出0，全部观测物理/提交余量高于1GiB/768MiB预留。单次资源合同不授统计性能。",
+            "independent_reference": "原Python3.11.9、CPU Torch2.14.1、torchvision0.29.1、safetensors0.6.2与锁定timm af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c，seed20261025、1136479232参数。全部566份原状态严格导入，输入2x3x224x280，完整tokens2x321x1536及CLS2x1536共989184值按原归一化tokens与CLS rtol2e-4/atol2e-5对照通过。",
+            "state_sha256": "b40769853a079205711aab6ecb7867ad45d9c3e35d5856e189cb321d21a55027",
+            "input_sha256": "2839e43d3b6f84207e66b08628e65a9b05e5d84c0be27f50a87f20ce691de698",
+            "output_sha256": "7c9b742fe3556340c81a4f43437a2a971ca0fc53bb64d6d8e3e1bbb3d3ef1cd4",
+            "retained_failures": "先前降低准入和单线程运行的提交内存预留终止记录保留，均非通过/跳过；本次实际资源条件变化后完成原合同，不修改原断言、参考身份或容差。",
+            "scope": "仅精确Windows ROCm分发CPU的原FP32单步反向/SGD资源及固定随机架构前向参考；不授预训练权重、完整任务准确率、其他输入/优化器、全部梯度数值、GPU/WSL、其他硬件或发布资格。非当前HEAD重建或整库验收。",
+            "validation_receipt_sha256": "15326fbe02598c79771f0eae0238fa00f13872fc0233a77d4af41392f525f56b",
+            "reference_evidence_sha256": "3d8408d2b40514501b85f7043f8b49a59b54cb9465d3de352c5a1c74eb791bfb",
+            "saved_file_audit_sha256": "038e9a6266a6508e4b40e2d6662427bf345c97136990fb699bf1f4c841c83693"
+          }
+        },
+        {
           "id": "wsl2-ubuntu2404-gcc133-rocm101-gfx1100-0d3cbcd-dinov2-real-first-step-parity",
           "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
@@ -69,7 +94,7 @@
           "quality_evidence": {
             "contract": "Giant完整模型参数和梯度存储为CPU BF16；原seed20261027、1x3x14x14输入、FP32平方均值loss、SGD0.1。全部568份参数及梯度的CPU/BF16/有限值检查通过，head及patch投影梯度非零且实际更新后权重改变；更新后eval tokens形状1x2x1536且全部有限。",
             "resources": "自然完成约26.7秒，峰值RSS5123940352字节，低于8GiB；此为单次资源合同，不授统计性能或BF16/FP32准确率等价。构造仍先分配FP32权重。",
-            "retained_fp32": "原FP32反向降低外部准入至10GiB后实际入场，约33秒提交余量降至715206656字节，被预声明监测器终止。另复用同一原FP32二进制，仅将子进程OMP/MKL/OpenBLAS线程环境限制为1，14.531秒提交余量降至756842496字节，同样低于768MiB预留而终止；两次均未完成原CTest，不记为通过或跳过，不据此归因内存原因。原FP32反向与Giant独立FP32参考仍待更多提交内存。",
+            "retained_fp32": "原FP32反向降低外部准入至10GiB后实际入场，约33秒提交余量降至715206656字节，被预声明监测器终止。另复用同一原FP32二进制，仅将子进程OMP/MKL/OpenBLAS线程环境限制为1，14.531秒提交余量降至756842496字节，同样低于768MiB预留而终止；两次均未完成原CTest，不记为通过或跳过，不据此归因内存原因。后续实际提交额度改善后原FP32反向与固定独立参考另行通过，见windows-clangcl24-rocm101-gfx1100-0e218f0-giant-cpu-fp32；先前终止记录保留。",
             "scope": "仅当前Windows ROCm分发CPU、精确BF16存储单步训练与所列资源合同；无原FP32反向、独立参考、完整任务准确率、其他输入/优化器/硬件/OS资格。",
             "validation_receipt_sha256": "40050d62b6cdee1bdb72019cff700bdf09ace50e0410c7011095bdbc4ef1489a",
             "single_thread_fp32_receipt_sha256": "30b6ab5e28b2a715c9f787fdc2c5eafb30fd27367b8b5a0b7fb8070106441c22"

@@ -6,6 +6,7 @@
 
 ### 训练与数据
 
+- 补齐 Windows ROCm 分发的 DINOv2 Giant CPU FP32 反向、实际 SGD 更新及固定 timm 随机架构数值验证，保留原资源上限、参考身份和数值容差。
 - 增加默认关闭的 DINOv2 Giant CPU BF16 参数存储资源门禁，覆盖完整有限梯度、分类头及 patch 权重的实际 SGD 更新和 8 GiB RSS 上限；与原 FP32 反向门禁分别验证。
 - 登记 ResNet18 完整小样本配方及已训练模型的原生 CPU 推理、EfficientNetV2 固定前向及 DINOv2 指定首批次张量与同 AMD 后端官方 PyTorch 实现的一致性范围，保留原固定参考、ORT 数值与任务质量门槛结果。
 - DINOv2-small 真实首批次测试增加显式启用的完整张量采集，保存 logits、loss、六份梯度和六份更新参数；补齐 Windows 与 WSL AMD GPU 各自同后端的 14 份张量与官方 PyTorch 完整反向的逐字节对照，保留原数值断言和双方确定性设置边界。

@@ -30,7 +30,7 @@ ROCm LibTorch 沿用 `torch::kCUDA`、`torch::cuda` 和 `cuda:<index>`。C++ 使
 
 DINOv2/DINOv3 的部分架构已验证 CPU FP32 与 GPU FP16 autocast 的完整文件检查点恢复；DINOv3 ViT-huge 另有 FP16 参数存储的独立验证。检查包含全部模型与优化器状态、数据游标、损失和下一 CPU/GPU 随机数。具体模型、输入和资源边界见兼容矩阵；未列容量、精度、预训练权重和任务准确率须分别验证。
 
-本 ROCm 分发的 CPU FP32 路径另通过 DINOv2-small 与 DINOv3 Huge+ 的独立随机架构数值对照，覆盖严格状态导入、完整 tokens 和 CLS；Huge+ 还核对三层中间输出与原 12 GiB 峰值 RSS 上限。输入分别为 `2×3×224×280` 和 `1×3×35×50`，参考来源及固定身份见兼容矩阵。这些 CPU 对照不授予 GPU 数值、预训练权重或任务质量资格。
+本 ROCm 分发的 CPU FP32 路径另通过 DINOv2-small/giant 与 DINOv3 Huge+ 的独立随机架构数值对照，覆盖严格状态导入、完整 tokens 和 CLS；Huge+ 还核对三层中间输出与原 12 GiB 峰值 RSS 上限。DINOv2 输入为 `2×3×224×280`，Huge+ 为 `1×3×35×50`，参考来源及固定身份见兼容矩阵。这些 CPU 对照不授予 GPU 数值、预训练权重或任务质量资格。
 
 固定独立随机状态参考另通过 ResNet18/34/50/101、ResNeXt50、DenseNet121、MobileNetV2、MobileNetV3 Small/Large、EfficientNet B0/B2、ConvNeXt Tiny/Small、ViT Tiny/Small/Base、Swin Tiny 与带掩码 Transformer Encoder 的 GPU FP32 前向数值合同，Windows 与 WSL 分别验证原 logits 及适用中间 stage。`tf_efficientnetv2_s` 的 GPU 输出和最后一个 stage 均超原容差，仍未授予该数值资格；Windows 同一 AMD Torch/C10 核心库上的原生实现与锁定官方 timm 在该固定输入下，CPU/GPU 各六份完整输出逐字节相同，但两者仍未通过这两项 GPU 对照，失败原因未确定。19 个 CPU 对照分两批全部通过。ViT 另核对完整 tokens 和 patch grid，Swin 核对四级完整特征。范围限于兼容矩阵列出的固定随机状态、输入和精度，不推导反向、预训练权重或任务质量。
 
@@ -94,7 +94,7 @@ ROCm 构建可选择独立训练与八类优化器 benchmark，记录实际 HIP 
 
 [图像读取到训练更新](../benchmarks/README.md#图像读取到训练更新)入口同样支持 HIP 身份、同步与独立显存指标，可选择文件读取、解码缓存或预缩放缓存；`cuda-fp16` 与 `cuda-fp16-storage` 分别使用 FP32 主权重和 FP16 参数存储。每种模型、数据、精度与加载配置须独立采样，训练完成不代表统计稳定或任务准确率。
 
-Windows ROCm LibTorch 分发的 CPU 可单独验证 Giant BF16 参数存储资源门禁，覆盖全部 568 份有限梯度及分类头、patch 权重的实际 SGD 更新，峰值 RSS 约 4.77 GiB；启用方式见[贡献指南](../../CONTRIBUTING.md)。原 Giant CPU FP32 反向在降低准入、另行限制子进程线程数后均仍触及提交内存预留边界，尚未完成。
+Windows ROCm LibTorch 分发的 CPU 已通过 Giant FP32 单步反向与实际 SGD 更新资源门禁，峰值 RSS 约 8.92 GiB，低于原 14 GiB 上限；执行前仍须检查可用物理内存与系统提交额度。另有独立 BF16 参数存储门禁，覆盖全部 568 份有限梯度及分类头、patch 权重的实际 SGD 更新，峰值 RSS 约 4.77 GiB；启用方式见[贡献指南](../../CONTRIBUTING.md)。两项均使用 `1×3×14×14` 输入，资源通过不代表 BF16/FP32 任务精度等价。
 
 ## 与 PyTorch 的精度对照
 
@@ -137,7 +137,7 @@ W7900 另已验证 WSL2、Ubuntu 24.04.5、GCC 13.3、同版 ROCm/LibTorch 的�
 
 原生[行人检测](../../examples/evaluation/README.md)与[TinyUNet 分割](../../examples/evaluation/segmentation/README.md)示例另在该 WSL2 CPU/AMD GPU 组合分别完成各自原 80 轮、1200 次 FP32 更新及固定 25 图留出集质量验证。两例均通过第 137 步暂停、新进程恢复与真实强杀后的恢复，同次同构建三条完成路线的最终模型和完整检查点逐字节一致；GPU 训练后的检测权重另经 CPU 评估，分割核对全部 170 份原始样本身份。各例保留原质量、RSS、适用的 HIP allocator 与超时门槛，精确范围和独立 checker 身份见兼容矩阵。
 
-原生模型另通过 43 个 CPU、19 个 GPU 合同，覆盖架构/输入边界、前后向、实际 SGD 更新和位置插值数值。GPU 容量合同包含 DINOv3 ViT-large/large-plus、ConvNeXt-base/large 的 FP16 autocast，以及 DINOv2 Giant、DINOv3 Huge+ 的 FP16 参数存储；具体输入、精度和资源门槛见兼容矩阵。Huge+ CPU、Giant CPU 反向仍未满足原主存准入，未计入通过范围。
+原生模型另通过 43 个 CPU、19 个 GPU 合同，覆盖架构/输入边界、前后向、实际 SGD 更新和位置插值数值。GPU 容量合同包含 DINOv3 ViT-large/large-plus、ConvNeXt-base/large 的 FP16 autocast，以及 DINOv2 Giant、DINOv3 Huge+ 的 FP16 参数存储；具体输入、精度和资源门槛见兼容矩阵。此 WSL 组合的 Huge+ CPU、Giant CPU 反向仍未满足原主存准入，未计入通过范围。
 
 ROCm 分发的 CPU 路径另通过 28 项独立随机架构参考、DINOv2-small/base/large 固定参考及 DINOv3 Huge+ 独立 Meta 参考，覆盖完整状态、tokens/CLS、中间层及原资源门禁。固定输入、参考文件、容差和每例 600 秒上限不变；DINOv2 Base/Large 输入为 `2×3×224×280`。Huge+ 输入为 `1×3×35×50`，核对全部 552 份状态、完整 tokens/CLS 与第 0/15/31 层输出，并保留原 12 GiB RSS 上限。该结果只表示 CPU FP32 架构数值和所列资源合同，不授予 GPU 独立数值、预训练权重或任务质量资格。
 
