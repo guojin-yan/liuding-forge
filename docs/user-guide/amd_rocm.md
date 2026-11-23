@@ -185,4 +185,6 @@ cmake --build out/build/wsl-rocm --parallel 2 \
 
 框架构建的 Linux ROCm 可执行文件使用 ELF RPATH 查找配置时选择的 LibTorch/HIP SDK 及其数学库，安装后也保留这些 SDK 路径，使默认空环境的原生遥测 worker 能正常启动。外部 SDK 必须保持在配置时的位置；迁移 SDK 后重新配置、构建和安装。该设置不复制 SDK、不修改系统搜索路径或 worker 的环境继承策略；应用自行构建可执行文件时仍须配置自己的运行库搜索路径。
 
+Windows ROCm 应用同样必须让配置时匹配的 HIP SDK `bin` 目录及其传递 DLL 位于进程的 DLL 搜索路径；LibTorch runtime staging 只复制 LibTorch 自身的运行库和 AOTriton/Kpack 资源，不复制外部 HIP SDK。迁移或更换 HIP SDK 后应重新配置、构建，并由启动器显式提供该 SDK 的运行库路径，不能依赖系统中其他 ROCm 安装的同名 DLL。
+
 该范围限于上述原生契约、任务、安装接口和合成资源负载；完整视觉配方、真实数据质量、其他资源负载与更长稳定性须在 WSL 中独立验证。Windows 的结果不扩大这些边界。
