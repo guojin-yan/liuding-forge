@@ -2187,7 +2187,8 @@
             "scope": "仅Windows11/clang-cl24/W7900原生ROCm组合上列明目录入口与该精度的随机权重合成输入单步合同；不授未列精度、预训练权重、收敛、真实任务质量、完整配方、恢复、性能、其他设备/系统或发布资格。所有历史失败继续保留。",
             "validation_receipt_sha256": "d71f65ec960b9abc6331feaae7712dd3c381b86aa60c75748d50fd8ab540439c",
             "qualification_summary_sha256": "465520d6c7cbf2194b62172c52934823ac743d691e6e402ca07b300799bdc0f6",
-            "observed_limit": "11项均在finite loss通过、backward/unscale之后被scaler拒绝，未进入SGD。Windows比WSL额外出现YOLOv8s GhostP6首步失败；该s入口尚无动态回退后更新资格，其余十入口的独立动态回退合同已分别登记。不能据此定位具体错误算子。"
+            "observed_limit": "11项均在finite loss通过、backward/unscale之后被scaler拒绝，未进入SGD。Windows比WSL额外出现YOLOv8s GhostP6首步失败；该s入口尚无动态回退后更新资格，其余十入口的独立动态回退合同已分别登记。不能据此定位具体错误算子。",
+            "pytorch_comparison_gap": "workspace/records/amd-parity-20261124/p6-fp16-pytorch-gap.json: strict Windows/W7900 FP16 P6 failures and dynamic-backoff evidence are retained, but the primary device has no ROCm Python PyTorch/Ultralytics reference environment. CPU-only reference packages cannot reproduce the W7900 FP16 autocast path; no PyTorch parity claim is made."
           }
         },
         {
