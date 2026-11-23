@@ -160,6 +160,21 @@ TEST(StepLrSchedulerTest, DecaysEveryConfiguredCompletedStepInterval) {
   EXPECT_EQ(scheduler.learning_rates(), (std::vector<double>{0.05, 0.0125}));
 }
 
+TEST(StepLrSchedulerTest, CanMatchPytorchInitialStepSemantics) {
+  auto optimizer = make_optimizer();
+  jyppx::liuding::optim::StepLrScheduler scheduler(
+      optimizer, {.step_size = 1, .gamma = 0.9, .skip_initial_decay = true});
+
+  scheduler.step();
+  EXPECT_EQ(scheduler.completed_steps(), 1U);
+  EXPECT_EQ(scheduler.learning_rates(), (std::vector<double>{0.2, 0.05}));
+  scheduler.step();
+  EXPECT_EQ(scheduler.completed_steps(), 2U);
+  EXPECT_EQ(scheduler.learning_rates(), (std::vector<double>{0.18, 0.045}));
+  scheduler.step();
+  EXPECT_EQ(scheduler.learning_rates(), (std::vector<double>{0.162, 0.0405}));
+}
+
 TEST(StepLrSchedulerTest, RejectsInvalidConstructionBeforeMutation) {
   auto optimizer = make_optimizer();
   const auto before = optimizer->learning_rates();

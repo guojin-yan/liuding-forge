@@ -75,7 +75,7 @@ liuding-forge recipe check --file my-resnet18.json --format json
 
 ### 3.1 选择学习率调度
 
-省略 `lr_schedule` 或设为 `"epoch_step"` 时，沿用原有行为：每轮成功完成训练后，将当前学习率乘以 `lr_gamma`。此模式不接受 `warmup_updates`、`warmup_start_factor` 或 `lr_end_factor`。
+省略 `lr_schedule` 或设为 `"epoch_step"` 时，每轮成功完成训练后按 PyTorch `StepLR(last_epoch=-1)` 语义更新学习率：第一次 scheduler 事件保留初始学习率，之后每轮将当前学习率乘以 `lr_gamma`。此模式不接受 `warmup_updates`、`warmup_start_factor` 或 `lr_end_factor`。
 
 设为 `"linear"` 时，要求 `lr_gamma = 1`，且不能提供上述三个预热字段。对初始学习率 `B`、总更新数 `T` 和已完成成功更新数 `k`，当前学习率为 `B × (1 - k / T)`；第一次更新使用 `B`，最后一次使用 `B / T`，完成后为零。该模式不执行预热，可与 SGD 或 AdamW 组合。
 

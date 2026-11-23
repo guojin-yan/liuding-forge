@@ -14,6 +14,7 @@
 #include <cmath>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <new>
 #include <set>
 #include <span>
@@ -1219,11 +1220,13 @@ StepLrScheduler::StepLrScheduler(
                   std::to_string(options_.gamma),
                   "Choose a valid decay multiplier.");
   }
-  configure_descriptor(
-      kTypeId, SchedulerStepMode::epoch,
-      {{"base_learning_rates", base_learning_rates()},
-       {"gamma", options_.gamma},
-       {"step_size", static_cast<std::int64_t>(options_.step_size)}});
+  std::map<std::string, SchedulerConfigValue> config{
+      {"base_learning_rates", base_learning_rates()},
+      {"gamma", options_.gamma},
+      {"step_size", static_cast<std::int64_t>(options_.step_size)}};
+  if (options_.skip_initial_decay)
+    config.emplace("skip_initial_decay", true);
+  configure_descriptor(kTypeId, SchedulerStepMode::epoch, std::move(config));
 }
 
 StepLrScheduler::~StepLrScheduler() = default;
@@ -1241,7 +1244,11 @@ detail::SchedulerTransition StepLrScheduler::preview_step_impl(
   }
   std::vector<double> candidate(learning_rates.begin(), learning_rates.end());
   const auto next_step = completed_steps_ + 1;
-  if (next_step % options_.step_size == 0) {
+  const bool decay = options_.skip_initial_decay
+                         ? next_step > 1U &&
+                               (next_step - 1U) % options_.step_size == 0U
+                         : next_step % options_.step_size == 0U;
+  if (decay) {
     for (auto& rate : candidate) {
       rate *= options_.gamma;
       if (!std::isfinite(rate) || rate < 0.0) {

@@ -540,7 +540,8 @@ std::shared_ptr<optim::LrScheduler> make_scheduler(
         optimizer, optim::StepLrSchedulerOptions{
                        .scheduler_id = "recipe.lr",
                        .step_size = 1,
-                       .gamma = config.at("lr_gamma").get<double>()});
+                       .gamma = config.at("lr_gamma").get<double>(),
+                       .skip_initial_decay = true});
   if (!uses_warmup_schedule(config))
     return std::make_shared<optim::PolynomialLrScheduler>(
         optimizer, optim::PolynomialLrSchedulerOptions{
@@ -620,6 +621,7 @@ Json describe_optimization(const RecipeOptimizer& optimizer,
                            {"kind", "step_lr"},
                            {"step_size", 1},
                            {"gamma", config.at("lr_gamma")},
+                           {"skip_initial_decay", true},
                            {"completed_steps", scheduler.completed_steps()}};
   return result;
 }

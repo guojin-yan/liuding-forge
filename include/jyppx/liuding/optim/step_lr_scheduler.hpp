@@ -30,6 +30,8 @@ struct StepLrSchedulerOptions {
   std::uint64_t step_size =
       1;  ///< Positive number of completed scheduler steps per decay.
   double gamma = 0.1;  ///< Finite non-negative decay multiplier.
+  bool skip_initial_decay =
+      false;  ///< Preserve the initial rate on the first event, matching PyTorch StepLR.
 };
 
 /**
@@ -37,7 +39,9 @@ struct StepLrSchedulerOptions {
  *
  * Calling `step()` increments the completed-step counter and multiplies all
  * current rates by `gamma` whenever the new count is divisible by
- * `step_size`. The generic base preflights the transition and commits all
+ * `step_size`. With `skip_initial_decay`, the first event preserves the
+ * initial rate and subsequent events follow PyTorch's `last_epoch=-1` StepLR
+ * schedule. The generic base preflights the transition and commits all
  * optimizer groups atomically.
  */
 class StepLrScheduler final : public LrScheduler {
