@@ -26,7 +26,7 @@ ROCm LibTorch 沿用 `torch::kCUDA`、`torch::cuda` 和 `cuda:<index>`。C++ 使
 
 代表任务已验证 ResNet18 分类/多标签、YOLO26n 检测/分类/实例分割/姿态/旋转框，以及 FCOS、ViT-Adapter、RT-DETR、语义分割、深度、SimMIM 和 ReID 的 FP32/FP16/BF16 单步训练。检查覆盖有限损失、梯度、实际参数更新及冻结参数保持；随机权重和合成输入不代表官方权重、任务准确率、逐模型续训或性能资格。
 
-固定外部 ResNet50 a1 与 DINOv2-small 权重已验证 CPU/W7900 FP32 严格导入、独立前向参考及冻结主干后的新分类头更新；DINOv2-small 另通过两步梯度与分组 SGD 数值对照。两模型在固定 Fashion-MNIST 子集（训练/测试各 1000 张）上的冻结特征线性分类也通过原质量门槛，准确率分别为 0.81 和 0.855。权重、参考身份和输入范围见兼容矩阵；这些验证不授予完整数据、全量微调或训练恢复资格。额外的 DINOv2 真实首批次 CPU 梯度门禁在本组合仍有一处 patch embedding 梯度超出原容差，尚未通过。
+固定外部 ResNet50 a1 与 DINOv2-small 权重已验证 CPU/W7900 FP32 严格导入、独立前向参考及冻结主干后的新分类头更新；DINOv2-small 另通过两步梯度与分组 SGD 数值对照。两模型在固定 Fashion-MNIST 子集（训练/测试各 1000 张）上的冻结特征线性分类也通过原质量门槛，准确率分别为 0.81 和 0.855。权重、参考身份和输入范围见兼容矩阵；这些验证不授予完整数据、全量微调或训练恢复资格。额外的 DINOv2 真实首批次 CPU 梯度门禁仍保留一处 patch embedding 梯度超出原固定参考容差的结果；已确认的同后端官方实现一致性见[精度对照](#与-pytorch-的精度对照)。
 
 真实空间任务已验证随机初始化 TinyUNet 的 FP32 固定配方训练，以及独立固定 ROCm 产物在 CPU/GPU 上的留出集质量、拆批统计和持久评估恢复。同设备训练另验证第 601 次更新的文件检查点在新进程恢复到第 1200 次更新、全部参与者状态与连续训练相同，以及完成态重放；数据、身份与门禁入口见[空间任务 fixture](../../tests/fixtures/metrics/penn_fudan/README.md)。质量资格限于该固定 25 图测试集。历史训练权重的 SHA 门禁仍失败，ROCm 产物使用单独身份；由预测掩码生成的候选框不代表独立检测模型。
 
@@ -114,6 +114,8 @@ AMD 适配按相同设备、后端、状态、输入和训练配方与官方 PyT
 | --- | --- |
 | ResNet18 小样本训练，WSL GPU FP32 | 官方 torchvision 训练图的 48 次 SGD 更新，每步 logits、全部 62 份梯度和 122 份更新后状态均逐字节一致，最终准确率同为 0.5；接受此配方与 PyTorch 的一致性，原 0.875 任务门槛仍未达到。 |
 | 已训练 ResNet18，Windows CPU FP32 | 固定 10000 图、两种批次顺序下，原生模型全部 100000 个 logits 均与相同 AMD `torch_cpu` 库上的官方 torchvision/PyTorch 逐字节一致，准确率均为 0.7662；接受原生前向一致性。ORT 相对原生及官方均有相同 3 个坐标超差，其原数值门槛结果保留。 |
+| YOLO26 n/s/m/l/x P6，Windows GPU FP16 模型与 FP32 损失 | 固定 `2×3×64×64` 输入、三类别，全部参数梯度及一次 SGD 后的完整参数和缓冲状态与独立 AMD PyTorch 逐字节一致。使用各容量动态回退观察到的有限 scale；原 scale 8 首步溢出保留。 |
+| YOLO26n P5 旋转框，Windows GPU FP16 模型与 FP32 损失 | 固定 `2×3×64×64` 输入、三类别、scale 1，全部 414 份参数梯度及一次 SGD 后的 792 份状态与独立 AMD PyTorch 逐字节一致。CPU/GPU 固定损失参考另覆盖 FP32/FP16 输入与 autocast 开关；不扩展其他容量或真实数据质量。 |
 | EfficientNetV2-S 固定前向 | Windows 官方 timm eager 的 CPU/GPU 各六份完整输出，以及 WSL 同后端官方固定形状图的六份 GPU 输出，分别与本库逐字节一致；接受对应 FP32 前向，原固定参考的 `blocks5` 和 `output` 超差仍保留。 |
 | DINOv2-small 真实首批次，Windows CPU FP32 | 默认与关闭 oneDNN 两种模式，各 14 份完整 logits/loss、梯度及更新参数均与官方 HF/PyTorch eager 逐字节一致。 |
 | DINOv2-small 真实首批次，Windows GPU FP32 | 本库严格确定性完整反向及 SGD 后的 14 份完整 logits/loss、六梯度和六更新参数，均与同 W7900/AMD PyTorch 官方 HF 完整反向逐字节一致；官方进程关闭确定性算法限制以执行 bicubic 反向。本项仅确认这 14 份张量，未对照位置嵌入导数或其余全部参数。 |
@@ -198,6 +200,6 @@ cmake --build out/build/wsl-rocm --parallel 2 \
 
 框架构建的 Linux ROCm 可执行文件使用 ELF RPATH 查找配置时选择的 LibTorch/HIP SDK 及其数学库，安装后也保留这些 SDK 路径，使默认空环境的原生遥测 worker 能正常启动。外部 SDK 必须保持在配置时的位置；迁移 SDK 后重新配置、构建和安装。该设置不复制 SDK、不修改系统搜索路径或 worker 的环境继承策略；应用自行构建可执行文件时仍须配置自己的运行库搜索路径。
 
-Windows ROCm 应用同样必须让配置时匹配的 HIP SDK `bin` 目录及其传递 DLL 位于进程的 DLL 搜索路径；LibTorch runtime staging 只复制 LibTorch 自身的运行库和 AOTriton/Kpack 资源，不复制外部 HIP SDK。迁移或更换 HIP SDK 后应重新配置、构建，并由启动器显式提供该 SDK 的运行库路径，不能依赖系统中其他 ROCm 安装的同名 DLL。
+Windows ROCm 应用同样必须提供配置时匹配的 HIP SDK 运行环境。可选 runtime staging 会按 PE 导入闭包暂存匹配的 HIP DLL 及其相邻 `.kpack`，并保留 LibTorch 自身的运行库和 AOTriton/Kpack 资源；数学库数据和动态加载资源仍按 SDK 激活环境提供。迁移或更换 HIP SDK 后应重新配置、构建，并由启动器显式提供该 SDK 的运行库路径，不能依赖系统中其他 ROCm 安装的同名 DLL。
 
-该范围限于上述原生契约、任务、安装接口和合成资源负载；完整视觉配方、真实数据质量、其他资源负载与更长稳定性须在 WSL 中独立验证。Windows 的结果不扩大这些边界。
+训练资源与稳定性数字都绑定兼容矩阵中的精确负载。除上文较早的 WSL2 测量外，Windows/W7900 已对 FP32、FP16、BF16 各运行一个独立两小时进程，并在五个固定模型上完成资源采样；后者最大变异系数为 3.08%。其他资源入口的既有波动超限记录仍保留；由于没有合格的 ROCm 功耗/频率观测，不提供可比较的性能基线。上述样本不代表完整数据集质量、物理显存耗尽、驱动重置或挂起恢复，也不外推到其他 AMD 设备、裸机 Linux 或多卡。
