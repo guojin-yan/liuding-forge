@@ -94,7 +94,9 @@ function(jyppx_add_torch_runtime_dependency target_name)
         return()
     endif()
     file(GLOB_RECURSE jyppx_torch_runtime_images CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE
-        "${jyppx_torch_runtime_dir}/aotriton.images/*")
+        "${jyppx_torch_runtime_dir}/aotriton.images/*"
+        "${jyppx_torch_runtime_dir}/hipblaslt/library/*"
+        "${jyppx_torch_runtime_dir}/rocblas/library/*")
     list(APPEND jyppx_torch_runtime_dlls ${jyppx_torch_runtime_images})
     if(EXISTS "${jyppx_torch_runtime_dir}/torch_hip.dll")
         file(GLOB jyppx_torch_runtime_kpacks CONFIGURE_DEPENDS
@@ -105,6 +107,8 @@ function(jyppx_add_torch_runtime_dependency target_name)
     set(jyppx_rocm_extra_runtime_dlls)
     set(jyppx_rocm_extra_runtime_manifest)
     set(jyppx_rocm_extra_runtime_kpacks)
+    set(jyppx_rocm_extra_runtime_math_files)
+    set(jyppx_rocm_extra_runtime_source_dir)
     if(JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS)
         if(NOT TARGET hip::amdhip64 OR NOT EXISTS "${jyppx_torch_runtime_dir}/torch_hip.dll")
             message(FATAL_ERROR
@@ -179,6 +183,9 @@ function(jyppx_add_torch_runtime_dependency target_name)
             JYPPX_WINDOWS_ROCM_RUNTIME_SOURCE_DIR)
         file(GLOB jyppx_rocm_extra_runtime_kpacks CONFIGURE_DEPENDS
             "${jyppx_rocm_extra_runtime_source_dir}/../.kpack/*.kpack")
+        file(GLOB_RECURSE jyppx_rocm_extra_runtime_math_files CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE
+            "${jyppx_rocm_extra_runtime_source_dir}/hipblaslt/library/*"
+            "${jyppx_rocm_extra_runtime_source_dir}/rocblas/library/*")
     endif()
 
     string(MD5 jyppx_binary_dir_hash "${CMAKE_CURRENT_BINARY_DIR}")
@@ -200,7 +207,7 @@ function(jyppx_add_torch_runtime_dependency target_name)
         if(jyppx_rocm_extra_runtime_manifest)
             file(READ "${jyppx_rocm_extra_runtime_manifest}" jyppx_rocm_runtime_manifest_content)
             string(APPEND jyppx_runtime_input_content
-                "${jyppx_rocm_extra_runtime_manifest}\n${jyppx_rocm_runtime_manifest_content}\n${jyppx_rocm_extra_runtime_kpacks}\n")
+                "${jyppx_rocm_extra_runtime_manifest}\n${jyppx_rocm_runtime_manifest_content}\n${jyppx_rocm_extra_runtime_kpacks}\n${jyppx_rocm_extra_runtime_math_files}\n")
         endif()
         file(GENERATE OUTPUT "${jyppx_runtime_inputs}"
             CONTENT "${jyppx_runtime_input_content}")
@@ -216,7 +223,7 @@ function(jyppx_add_torch_runtime_dependency target_name)
                 -P "${PROJECT_SOURCE_DIR}/cmake/StageTorchRuntime.cmake"
             COMMAND ${CMAKE_COMMAND} -E touch "${jyppx_runtime_stamp}"
             DEPENDS ${jyppx_torch_runtime_dlls} ${jyppx_rocm_extra_runtime_dlls}
-                ${jyppx_rocm_extra_runtime_kpacks}
+                ${jyppx_rocm_extra_runtime_kpacks} ${jyppx_rocm_extra_runtime_math_files}
                 "${jyppx_rocm_extra_runtime_manifest}"
                 "${jyppx_runtime_inputs}"
                 "${PROJECT_SOURCE_DIR}/cmake/StageTorchRuntime.cmake"

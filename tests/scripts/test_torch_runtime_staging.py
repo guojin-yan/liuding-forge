@@ -141,6 +141,102 @@ class TorchRuntimeStagingTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
         self.assertEqual(hip.read_bytes(), b"synthetic HIP runtime")
 
+    def write_math_data(self, root: Path) -> list[Path]:
+        paths = [root / "hipblaslt/library/gfx1100/TensileLibrary_lazy_gfx1100.dat.zlib",
+                 root / "hipblaslt/library/gfx1100/Kernels.so-000-gfx1100.hsaco",
+                 root / "rocblas/library/TensileLibrary_lazy_gfx1100.dat"]
+        for index, path in enumerate(paths):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"math data {index}".encode())
+        return paths
+
+    def test_bundled_math_data_keeps_layout_hashes_and_owned_removal(self) -> None:
+        paths = self.write_math_data(self.sdk)
+        self.stage()
+        rows = {row["name"]: row for row in self.inventory()["files"]}
+        self.assertEqual(self.inventory()["scope"], "staged-torch-runtime")
+        for path in paths:
+            name = path.relative_to(self.sdk).as_posix()
+            self.assertEqual((self.output / name).read_bytes(), path.read_bytes())
+            self.assertEqual(rows[name]["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+        independent = self.output / "rocblas/library/application.dat"
+        independent.write_bytes(b"independent data")
+        paths[0].unlink()
+        self.stage()
+        self.assertFalse((self.output / paths[0].relative_to(self.sdk)).exists())
+        self.assertEqual(independent.read_bytes(), b"independent data")
+
+    def test_sdk_math_data_is_staged_and_removed_when_opt_out(self) -> None:
+        hip = self.extra_source / "hipblaslt.dll"
+        hip.write_bytes(b"synthetic math runtime")
+        self.write_extra_manifest(hip)
+        paths = self.write_math_data(self.extra_source)
+        self.stage()
+        for path in paths:
+            self.assertEqual((self.output / path.relative_to(self.extra_source)).read_bytes(),
+                             path.read_bytes())
+        self.write_extra_manifest()
+        self.stage()
+        self.assertEqual([row["name"] for row in self.inventory()["files"]], ["torch.dll"])
+        for path in paths:
+            self.assertFalse((self.output / path.relative_to(self.extra_source)).exists())
+
+    def test_math_collision_and_modified_stale_data_preserve_previous_output(self) -> None:
+        path = self.write_math_data(self.sdk)[0]
+        self.stage()
+        before = (self.output / "liuding-forge-torch-runtime.json").read_bytes()
+        hip = self.extra_source / "hipblaslt.dll"
+        hip.write_bytes(b"synthetic math runtime")
+        self.write_extra_manifest(hip)
+        self.write_math_data(self.extra_source)
+        self.assertIn(b"Duplicate runtime DLL name", self.stage(success=False).stdout)
+        self.assertFalse((self.output / hip.name).exists())
+        self.extra_manifest.unlink()
+        target = self.output / path.relative_to(self.sdk)
+        target.unlink()  # Never write through a staged SDK hardlink.
+        target.write_bytes(b"application replacement")
+        path.unlink()
+        self.assertIn(b"was modified", self.stage(success=False).stdout)
+        self.assertEqual(target.read_bytes(), b"application replacement")
+        self.assertEqual((self.output / "liuding-forge-torch-runtime.json").read_bytes(), before)
+
+    def link_directory(self, target: Path, link: Path) -> None:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            result = subprocess.run([os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c",
+                                     "mklink", "/J", str(link), str(target)],
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
+        else:
+            link.symlink_to(target, target_is_directory=True)
+
+    def test_math_data_rejects_destination_link_and_source_escape(self) -> None:
+        paths = self.write_math_data(self.extra_source)
+        hip = self.extra_source / "hipblaslt.dll"
+        hip.write_bytes(b"synthetic math runtime")
+        self.write_extra_manifest(hip)
+        outside = self.root / "outside"
+        outside.mkdir()
+        sentinel = outside / "sentinel.dat"
+        sentinel.write_bytes(b"must remain")
+        self.link_directory(outside, self.output / "hipblaslt")
+        self.assertIn(b"parent is a symlink", self.stage(success=False).stdout)
+        self.assertFalse((self.output / "torch.dll").exists())
+        self.assertEqual(sentinel.read_bytes(), b"must remain")
+        self.output = self.root / "second-runtime"
+        shutil.rmtree(paths[0].parents[1])
+        self.link_directory(outside, self.extra_source / "hipblaslt/library")
+        self.assertIn(b"outside its selected source", self.stage(success=False).stdout)
+        self.assertFalse(self.output.exists())
+
+    def test_math_subtree_does_not_relax_additional_dll_manifest_boundary(self) -> None:
+        nested = self.extra_source / "hipblaslt/library/injected.dll"
+        nested.parent.mkdir(parents=True)
+        nested.write_bytes(b"not an approved DLL import")
+        self.write_extra_manifest(nested)
+        self.assertIn(b"outside its selected source directory", self.stage(success=False).stdout)
+        self.assertFalse(self.output.exists())
+
     def test_rocm_device_archives_keep_dll_parent_layout(self) -> None:
         self.sdk = self.sdk / "lib"
         self.sdk.mkdir()
@@ -226,6 +322,7 @@ class TorchRuntimeStagingTests(unittest.TestCase):
 
     def test_incremental_build_tracks_sdk_archives_and_opt_out(self) -> None:
         _, sdk_packs = self.prepare_sdk_archives()
+        math_paths = self.write_math_data(self.extra_source)
         project = self.root / "project"
         project.mkdir()
         # Supply a synthetic already-scanned import closure; never load text DLLs.
@@ -254,6 +351,22 @@ class TorchRuntimeStagingTests(unittest.TestCase):
         packs = next(build.parent.rglob("liuding-forge-torch-kpack.json")).parent
         target = packs / "blas_lib_gfx1100.kpack"
         self.assertEqual(target.read_bytes(), b"BLAS device code")
+        runtime = next(build.rglob("liuding-forge-torch-runtime.json")).parent
+        math_target = runtime / math_paths[0].relative_to(self.extra_source)
+        self.assertEqual(math_target.read_bytes(), math_paths[0].read_bytes())
+        new_math = self.extra_source / "hipblaslt/library/gfx1100/new.dat.zlib"
+        new_math.write_bytes(b"new math metadata")
+        self.invoke(*build_args)
+        new_math_target = runtime / new_math.relative_to(self.extra_source)
+        self.assertEqual(new_math_target.read_bytes(), b"new math metadata")
+        replacement = new_math.with_name("replacement")
+        replacement.write_bytes(b"updated metadata")
+        replacement.replace(new_math)
+        self.invoke(*build_args)
+        self.assertEqual(new_math_target.read_bytes(), b"updated metadata")
+        new_math.unlink()
+        self.invoke(*build_args)
+        self.assertFalse(new_math_target.exists())
         replacement = sdk_packs / "replacement"
         replacement.write_bytes(b"updated code")
         replacement.replace(sdk_packs / target.name)
@@ -268,6 +381,7 @@ class TorchRuntimeStagingTests(unittest.TestCase):
         self.invoke(*configure, "-DJYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS=OFF")
         self.invoke(*build_args)
         self.assertFalse((packs / "solver_lib_gfx1100.kpack").exists())
+        self.assertFalse(math_target.exists())
         self.assertEqual((packs / "torch_gfx1100.kpack").read_bytes(), b"Torch device code")
 
     def test_modified_old_dll_rejects_before_other_output_mutation(self) -> None:
