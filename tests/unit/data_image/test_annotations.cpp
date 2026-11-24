@@ -89,6 +89,72 @@ TEST(ImageAnnotationTest, CocoRejectsDuplicateAndDanglingIdentities) {
                jyppx::liuding::SerializationError);
 }
 
+TEST(ImageAnnotationTest, CocoLargeObjectArrayKeepsOrderAndNumericTypes) {
+  constexpr std::size_t count = 80000;
+  std::string document =
+      R"({"images":[{"id":1,"file_name":"a.jpg","width":100,"height":100}],"categories":[{"id":2,"name":"cat"}],"annotations":[)";
+  document.reserve(count * 96);
+  for (std::size_t i = 0; i < count; ++i) {
+    if (i) document += ',';
+    document +=
+        "{\"id\":" + std::to_string(i + 1) +
+        R"(,"image_id":1,"category_id":2,"bbox":[1,2,3,4],"area":12.0,"iscrowd":false})";
+  }
+  document +=
+      R"(],"ignored":{"nil":null,"flag":true,"signed":-1,"unsigned":18446744073709551615,"floating":1.25,"nested":[{},[],false]}})";
+  const auto index =
+      parse_annotations(document, AnnotationFormat::coco_instances);
+  ASSERT_EQ(index.images.size(), 1U);
+  ASSERT_EQ(index.images.front().objects.size(), count);
+  for (std::size_t i = 0; i < count; ++i) {
+    const auto& object = index.images.front().objects[i];
+    EXPECT_EQ(object.source_id, static_cast<std::int64_t>(i + 1));
+    EXPECT_FALSE(object.crowd);
+    ASSERT_TRUE(object.box);
+    EXPECT_DOUBLE_EQ(object.box->x_max, 4.);
+    EXPECT_DOUBLE_EQ(object.area.value(), 12.);
+  }
+}
+
+TEST(ImageAnnotationTest, JsonContainerEventsKeepExactNodeBudget) {
+  const auto* empty = R"({"images":[],"categories":[],"annotations":[]})";
+  AnnotationReadOptions options;
+  options.limits.max_nodes = 10;
+  EXPECT_THROW(
+      parse_annotations(empty, AnnotationFormat::coco_instances, options),
+      jyppx::liuding::ResourceExhausted);
+  options.limits.max_nodes = 11;
+  EXPECT_TRUE(
+      parse_annotations(empty, AnnotationFormat::coco_instances, options)
+          .images.empty());
+}
+
+TEST(ImageAnnotationTest, IgnoredJsonMetadataStillChecksKeysAndStringBudgets) {
+  AnnotationReadOptions options;
+  options.limits.max_string_bytes = 16;
+  options.limits.max_rle_bytes = 64;
+  const std::string prefix =
+      R"({"images":[],"categories":[],"annotations":[],"ignored":)";
+  const auto rle = prefix + "{\"counts\":\"" + std::string(64, 'A') + "\"}}";
+  EXPECT_NO_THROW(
+      parse_annotations(rle, AnnotationFormat::coco_instances, options));
+  options.limits.max_rle_bytes = 63;
+  EXPECT_THROW(
+      parse_annotations(rle, AnnotationFormat::coco_instances, options),
+      jyppx::liuding::ResourceExhausted);
+  options.limits.max_rle_bytes = 64;
+  EXPECT_THROW(parse_annotations(
+                   prefix + "{\"counts\":[\"" + std::string(64, 'A') + "\"]}}",
+                   AnnotationFormat::coco_instances, options),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(parse_annotations(prefix + R"({"a":[],"a":null}})",
+                                 AnnotationFormat::coco_instances, options),
+               jyppx::liuding::SerializationError);
+  EXPECT_THROW(parse_annotations(prefix + R"({"a":[1,]}})",
+                                 AnnotationFormat::coco_instances, options),
+               jyppx::liuding::SerializationError);
+}
+
 TEST(ImageAnnotationTest, CocoRejectsTraversalAndInvalidGeometry) {
   EXPECT_THROW(parse_annotations(Replace(kCoco, "train/猫.jpg", "../a.jpg"),
                                  AnnotationFormat::coco_instances),

@@ -42,43 +42,113 @@ void ValidateCategories(const std::vector<VisionCategory>& categories,
   }
 }
 
-Json ParseJson(std::string_view bytes, ParseState& state) {
-  std::size_t nodes = 0;
-  struct ObjectKeys {
+namespace {
+// The callback DOM parser scans the parent array after each completed object.
+// Build through the public SAX interface so large COCO arrays stay linear,
+// while retaining per-event cancellation, budgets and duplicate-key checks.
+class BoundedJsonSax final : public nlohmann::json_sax<Json> {
+  struct Frame {
+    Json value;
     std::unordered_set<std::string> seen;
     std::string field;
-    int depth = 0;
+    std::size_t depth = 0;
   };
-  std::vector<ObjectKeys> keys;
-  auto callback = [&](int depth, Json::parse_event_t event, Json& value) {
-    CheckStop(state.stop);
-    if (depth < 0 ||
-        static_cast<std::uint32_t>(depth) > state.options.limits.max_depth)
-      Resource("json.depth");
-    Add(nodes, 1U, state.options.limits.max_nodes, "json.nodes");
-    if (event == Json::parse_event_t::object_start)
-      keys.push_back({{}, {}, depth});
-    if (event == Json::parse_event_t::key) {
-      const auto& key = value.get_ref<const std::string&>();
-      Text(key, state.options.limits);
-      if (keys.empty() || !keys.back().seen.insert(key).second)
-        Malformed("json.duplicate_key");
-      keys.back().field = key;
-    }
-    if (event == Json::parse_event_t::object_end) keys.pop_back();
-    if (event == Json::parse_event_t::value && value.is_string()) {
-      const auto& text = value.get_ref<const std::string&>();
-      const bool rle = !keys.empty() && keys.back().field == "counts" &&
-                       depth == keys.back().depth + 1;
-      const auto maximum = rle ? state.options.limits.max_rle_bytes
-                               : state.options.limits.max_string_bytes;
-      if (text.size() > maximum) Resource("json.string_bytes");
-    }
+
+ public:
+  explicit BoundedJsonSax(ParseState& state) : state_(state) {}
+
+  bool null() override { return Value(nullptr); }
+  bool boolean(bool value) override { return Value(value); }
+  bool number_integer(number_integer_t value) override { return Value(value); }
+  bool number_unsigned(number_unsigned_t value) override {
+    return Value(value);
+  }
+  bool number_float(number_float_t value, const string_t&) override {
+    return Value(value);
+  }
+  bool string(string_t& value) override {
+    Node(frames_.size());
+    const auto owner =
+        std::find_if(frames_.rbegin(), frames_.rend(),
+                     [](const Frame& f) { return f.value.is_object(); });
+    const bool rle = owner != frames_.rend() && owner->field == "counts" &&
+                     frames_.size() == owner->depth + 1;
+    const auto maximum = rle ? state_.options.limits.max_rle_bytes
+                             : state_.options.limits.max_string_bytes;
+    if (value.size() > maximum) Resource("json.string_bytes");
+    Attach(Json(std::move(value)));
     return true;
-  };
-  auto result = Json::parse(bytes.begin(), bytes.end(), callback, true, false);
-  if (!result.is_object()) Malformed("json.root_object");
-  return result;
+  }
+  bool binary(binary_t&) override { Malformed("json.parse"); }
+  bool start_object(std::size_t) override { return Start(true); }
+  bool start_array(std::size_t) override { return Start(false); }
+  bool key(string_t& value) override {
+    Node(frames_.size());
+    Text(value, state_.options.limits);
+    if (frames_.empty() || !frames_.back().value.is_object() ||
+        !frames_.back().seen.insert(value).second)
+      Malformed("json.duplicate_key");
+    frames_.back().field = std::move(value);
+    return true;
+  }
+  bool end_object() override { return End(); }
+  bool end_array() override { return End(); }
+  bool parse_error(std::size_t, const std::string&,
+                   const Json::exception&) override {
+    Malformed("json.parse");
+  }
+  Json take() {
+    if (!root_.is_object()) Malformed("json.root_object");
+    return std::move(root_);
+  }
+
+ private:
+  void Node(std::size_t depth) {
+    CheckStop(state_.stop);
+    if (depth > state_.options.limits.max_depth) Resource("json.depth");
+    Add(nodes_, 1U, state_.options.limits.max_nodes, "json.nodes");
+  }
+  void Attach(Json value) {
+    if (frames_.empty())
+      root_ = std::move(value);
+    else if (frames_.back().value.is_array())
+      frames_.back().value.push_back(std::move(value));
+    else
+      frames_.back().value[frames_.back().field] = std::move(value);
+  }
+  template <class T>
+  bool Value(T value) {
+    Node(frames_.size());
+    Attach(Json(value));
+    return true;
+  }
+  bool Start(bool object) {
+    Node(frames_.size());
+    frames_.push_back(
+        {object ? Json::object() : Json::array(), {}, {}, frames_.size()});
+    return true;
+  }
+  bool End() {
+    if (frames_.empty()) Malformed("json.parse");
+    Node(frames_.size() - 1);
+    auto value = std::move(frames_.back().value);
+    frames_.pop_back();
+    Attach(std::move(value));
+    return true;
+  }
+  ParseState& state_;
+  std::size_t nodes_ = 0;
+  std::vector<Frame> frames_;
+  Json root_;
+};
+}  // namespace
+
+Json ParseJson(std::string_view bytes, ParseState& state) {
+  BoundedJsonSax sax(state);
+  if (!Json::sax_parse(bytes.begin(), bytes.end(), &sax)) {
+    Malformed("json.parse");
+  }
+  return sax.take();
 }
 
 }  // namespace detail
