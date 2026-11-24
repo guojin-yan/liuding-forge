@@ -1314,6 +1314,93 @@ TEST(TrainerTest,
   trainer.close();
 }
 
+TEST(TrainerTest,
+     BatchPolicyControlsDynamicAccumulationBeforeEachTrainingStep) {
+  namespace tr = jyppx::liuding::training;
+  auto domain = make_domain(8, 2);
+  auto config = options(1);
+  config.accumulation_tail = tr::AccumulationTailPolicy::carry;
+  config.accumulation_reduction = tr::AccumulationReduction::sum;
+
+  const std::vector<std::size_t> accumulation_targets{2, 1, 2, 1};
+  std::vector<tr::StepContext> contexts;
+  std::size_t completed_updates = 0;
+  auto request = make_request(domain);
+  request.training_batch_policy_id = "training.policy.dynamic.v1";
+  request.training_batch_policy = [&](const tr::StepContext& context) {
+    contexts.push_back(context);
+    return accumulation_targets.at(context.batch_sequence);
+  };
+  request.event_observer = [&](const tr::CallbackEvent& event) {
+    if (event.kind == tr::CallbackEventKind::optimizer_step_finished) {
+      ++completed_updates;
+    }
+  };
+
+  tr::Trainer trainer(config);
+  trainer.prepare(std::move(request));
+  const auto result = trainer.fit();
+
+  EXPECT_EQ(result.global_step, 2U);
+  EXPECT_EQ(completed_updates, 2U);
+  ASSERT_EQ(contexts.size(), accumulation_targets.size());
+  for (std::size_t index = 0; index < contexts.size(); ++index) {
+    EXPECT_EQ(contexts[index].phase, tr::StepPhase::training);
+    EXPECT_EQ(contexts[index].epoch, 0U);
+    EXPECT_EQ(contexts[index].batch_sequence, index);
+    EXPECT_EQ(contexts[index].global_step, index / 2U);
+    EXPECT_EQ(contexts[index].micro_step, index % 2U + 1U);
+  }
+  trainer.close();
+}
+
+TEST(TrainerTest, BatchPolicyRejectsInvalidTargetsAndBindsRestoreIdentity) {
+  namespace tr = jyppx::liuding::training;
+  for (const auto target : {0U, 4097U}) {
+    auto domain = make_domain();
+    auto config = options(1);
+    config.accumulation_tail = tr::AccumulationTailPolicy::carry;
+    config.accumulation_reduction = tr::AccumulationReduction::sum;
+    auto request = make_request(domain);
+    request.training_batch_policy_id = "training.policy.invalid.v1";
+    request.training_batch_policy = [target](const tr::StepContext&) {
+      return static_cast<std::size_t>(target);
+    };
+    tr::Trainer trainer(config);
+    trainer.prepare(std::move(request));
+    EXPECT_THROW(trainer.fit(), jyppx::liuding::InvalidArgument);
+    EXPECT_EQ(trainer.phase(), tr::TrainerPhase::failed);
+    trainer.close();
+  }
+
+  const auto request_for = [](const Domain& domain, std::string policy_id) {
+    auto request = make_request(domain);
+    request.training_batch_policy_id = std::move(policy_id);
+    request.training_batch_policy = [](const tr::StepContext&) {
+      return std::size_t{1};
+    };
+    return request;
+  };
+  auto config = options(2);
+  config.accumulation_tail = tr::AccumulationTailPolicy::carry;
+  config.accumulation_reduction = tr::AccumulationReduction::sum;
+  MemoryCheckpoint checkpoint;
+  {
+    auto domain = make_domain();
+    tr::Trainer trainer(config);
+    trainer.prepare(request_for(domain, "training.policy.one.v1"));
+    ASSERT_EQ(trainer.fit_until(1).status, tr::FitStatus::paused);
+    trainer.save_checkpoint(checkpoint);
+    trainer.close();
+  }
+  auto domain = make_domain();
+  tr::Trainer trainer(config);
+  trainer.prepare(request_for(domain, "training.policy.two.v1"));
+  EXPECT_THROW(trainer.restore_checkpoint(checkpoint),
+               jyppx::liuding::CompatibilityError);
+  trainer.close();
+}
+
 TEST(TrainerTest, EpochCarryStopDiscardsPendingGradientsAtEpochBoundary) {
   namespace tr = jyppx::liuding::training;
   auto domain = make_domain(5, 1);

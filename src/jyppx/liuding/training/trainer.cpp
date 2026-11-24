@@ -584,6 +584,10 @@ std::vector<std::byte> encode_topology(
       append_string(output, participant->participant_id());
     }
   }
+  if (request.training_batch_policy) {
+    append_string(output, "training-batch-policy/v1");
+    append_string(output, request.training_batch_policy_id);
+  }
   // Keep the default topology byte for byte; nondefault loss reduction must
   // reject recovery into a domain with a different gradient scale.
   if (options.accumulation_reduction != AccumulationReduction::mean) {
@@ -1159,6 +1163,21 @@ void Trainer::prepare(FitRequest request) {
                   "one or more null objects",
                   "Bind a complete execution and checkpoint domain.");
   }
+  if (static_cast<bool>(request.training_batch_policy) !=
+          !request.training_batch_policy_id.empty() ||
+      (!request.training_batch_policy_id.empty() &&
+       (!is_identifier(request.training_batch_policy_id) ||
+        request.training_batch_policy_id.size() >
+            impl_->options.max_identifier_bytes)) ||
+      (request.training_batch_policy &&
+       (impl_->options.accumulation_tail != AccumulationTailPolicy::carry ||
+        impl_->options.accumulation_reduction != AccumulationReduction::sum))) {
+    throw_invalid(
+        "prepare.training_batch_policy",
+        "a stable policy identity with sum reduction and carried tails",
+        request.training_batch_policy_id,
+        "Bind a deterministic policy and matching exact-resume recipe.");
+  }
   std::sort(request.optimizers.begin(), request.optimizers.end(),
             [](const auto& left, const auto& right) {
               if (!left.optimizer) {
@@ -1494,6 +1513,23 @@ FitResult Trainer::fit_until(std::uint64_t absolute_step,
         }
         impl_->emit(CallbackEventKind::batch_started, CallbackPhase::training,
                     {}, stop);
+        std::size_t accumulation_steps = impl_->options.accumulate_steps;
+        if (impl_->request.training_batch_policy) {
+          const StepContext policy_context{
+              .phase = StepPhase::training,
+              .epoch = impl_->state.active_epoch,
+              .global_step = impl_->state.global_step,
+              .batch_sequence = batch->sequence,
+              .micro_step = impl_->state.pending_micro_steps + 1U};
+          accumulation_steps =
+              impl_->request.training_batch_policy(policy_context);
+          if (accumulation_steps == 0U || accumulation_steps > 4096U) {
+            throw_invalid("training_batch_policy.accumulation_steps",
+                          "an integer from 1 through 4096",
+                          std::to_string(accumulation_steps),
+                          "Return the current bounded accumulation target.");
+          }
+        }
         auto output = impl_->invoke_step(
             *batch, impl_->request.training_batch_mapper,
             impl_->request.training_target_mapper, impl_->request.training_step,
@@ -1504,16 +1540,15 @@ FitResult Trainer::fit_until(std::uint64_t absolute_step,
         auto backward_loss = output.loss;
         if (impl_->options.accumulation_reduction ==
             AccumulationReduction::mean) {
-          backward_loss = backward_loss /
-                          static_cast<double>(impl_->options.accumulate_steps);
+          backward_loss =
+              backward_loss / static_cast<double>(accumulation_steps);
         }
         if (impl_->request.gradient_scaler) {
           backward_loss = impl_->request.gradient_scaler->scale(backward_loss);
         }
         impl_->request.strategy->backward(backward_loss);
         ++impl_->state.pending_micro_steps;
-        if (impl_->state.pending_micro_steps ==
-            impl_->options.accumulate_steps) {
+        if (impl_->state.pending_micro_steps >= accumulation_steps) {
           impl_->optimizer_step(stop, false);
         }
         auto batch_metrics = output.metrics;

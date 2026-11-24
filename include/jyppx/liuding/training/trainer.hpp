@@ -214,6 +214,16 @@ using TargetMapper =
 using StepFunction = std::function<StepOutput(const StepInput& input)>;
 
 /**
+ * @brief Selects the accumulation window before one training micro-batch.
+ *
+ * The callback may update its bound optimizer's scheduled rates before
+ * forward/backward. It must be deterministic from the supplied cursor and
+ * recipe identity; it must not change model parameters or batch contents.
+ */
+using TrainingBatchPolicy =
+    std::function<std::size_t(const StepContext& context)>;
+
+/**
  * @brief Publishes one participant-consistent checkpoint through an external
  * artifact boundary.
  *
@@ -297,6 +307,11 @@ struct FitRequest {
                        ///< included in restore topology; receives only new
                        ///< events, not replayed history. Must not mutate the
                        ///< training domain. Exceptions fail the operation.
+  std::string training_batch_policy_id;  ///< Stable identity for a per-batch
+                                         ///< optimizer/accumulation policy.
+  TrainingBatchPolicy training_batch_policy;  ///< Optional deterministic
+                                              ///< policy invoked before each
+                                              ///< training forward.
 };
 
 /** @brief Summarizes one completed, stopped, cancelled, or paused fit call. */
