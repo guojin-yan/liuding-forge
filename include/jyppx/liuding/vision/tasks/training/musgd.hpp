@@ -40,6 +40,10 @@ class MuSgdOptimizer final : public optim::OptimizerAdapter,
   const std::vector<std::string>& parameter_group_ids() const noexcept override;
   std::vector<double> learning_rates() const override;
   void set_learning_rates(const std::vector<double>& rates) override;
+  /** @brief Returns current SGD/Muon momentum in stable group order. */
+  std::vector<double> momentums() const;
+  /** @brief Updates both MuSGD momentum paths and its delegated SGD state. */
+  void set_momentums(const std::vector<double>& momentums);
   std::string participant_id() const override;
   StateManifest describe_state() const override;
   void save_state(StateWriter& writer) const override;

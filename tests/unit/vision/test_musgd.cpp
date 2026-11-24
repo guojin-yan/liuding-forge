@@ -114,6 +114,8 @@ TEST(MuSgdBf16, RestoresMomentumRatesAndMissingGradientContinuation) {
   const auto rows = J::parse(musgd_reference)["variants"]["contiguous"];
   MuSgdDomain original;
   original.step(rows[0]);
+  original.optimizer->set_momentums(
+      std::vector<double>(original.optimizer->momentums().size(), .6576));
   const MuSgdState saved(*original.optimizer);
   MuSgdDomain restored;
   {
@@ -122,6 +124,9 @@ TEST(MuSgdBf16, RestoresMomentumRatesAndMissingGradientContinuation) {
       restored.parameters[i].copy_(original.parameters[i]);
   }
   restored.optimizer->load_state(saved, RestorePolicy::exact_only);
+  EXPECT_EQ(
+      restored.optimizer->momentums(),
+      (std::vector<double>(restored.optimizer->momentums().size(), .6576)));
   for (std::size_t step = 1; step < rows.size(); ++step) {
     original.step(rows[step]);
     restored.step(rows[step]);

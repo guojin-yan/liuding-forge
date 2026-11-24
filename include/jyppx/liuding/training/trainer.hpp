@@ -216,9 +216,9 @@ using StepFunction = std::function<StepOutput(const StepInput& input)>;
 /**
  * @brief Selects the accumulation window before one training micro-batch.
  *
- * The callback may update its bound optimizer's scheduled rates before
- * forward/backward. It must be deterministic from the supplied cursor and
- * recipe identity; it must not change model parameters or batch contents.
+ * The callback may update its bound optimizer's scheduled rates and momentum
+ * before forward/backward. It must be deterministic from the supplied cursor
+ * and recipe identity; it must not change model parameters or batch contents.
  */
 using TrainingBatchPolicy =
     std::function<std::size_t(const StepContext& context)>;

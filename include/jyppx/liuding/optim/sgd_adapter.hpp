@@ -130,12 +130,22 @@ class SgdOptimizerAdapter final : public OptimizerAdapter {
    */
   std::vector<double> learning_rates() const override;
 
+  /** @brief Returns current momentum values in stable group order. */
+  std::vector<double> momentums() const;
+
   /**
    * @brief Atomically validates and sets every group learning rate.
    * @param learning_rates Finite non-negative values matching group count.
    * @throws InvalidArgument If a count or value is invalid.
    */
   void set_learning_rates(const std::vector<double>& learning_rates) override;
+
+  /**
+   * @brief Atomically updates mutable momentum values for every group.
+   * @param momentums Finite non-negative values matching group count.
+   * @throws InvalidArgument If a value/count violates the SGD group contract.
+   */
+  void set_momentums(const std::vector<double>& momentums);
 
   /**
    * @brief Returns the immutable stable optimizer identity.

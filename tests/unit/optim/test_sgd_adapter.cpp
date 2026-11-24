@@ -127,8 +127,52 @@ MemoryStateStore save_participant(
   return store;
 }
 
-MemoryStateStore make_schema_v1_fixture(const MemoryStateStore& current) {
+void downgrade_sgd_control_to_v1(MemoryStateStore& fixture) {
+  auto control = fixture.mutable_blob("control");
+  const auto read_u32 = [&](std::size_t offset) {
+    return static_cast<std::uint32_t>(
+               std::to_integer<std::uint8_t>(control[offset])) |
+           (static_cast<std::uint32_t>(
+                std::to_integer<std::uint8_t>(control[offset + 1]))
+            << 8U) |
+           (static_cast<std::uint32_t>(
+                std::to_integer<std::uint8_t>(control[offset + 2]))
+            << 16U) |
+           (static_cast<std::uint32_t>(
+                std::to_integer<std::uint8_t>(control[offset + 3]))
+            << 24U);
+  };
+  const auto group_count = read_u32(20);
+  const auto presence_offset = 28U + 16U * group_count;
+  std::vector<std::byte> legacy;
+  legacy.insert(
+      legacy.end(), control.begin(),
+      control.begin() + static_cast<std::ptrdiff_t>(28U + 8U * group_count));
+  legacy.insert(legacy.end(), control.begin() + presence_offset, control.end());
+  legacy[8] = std::byte{1};
+  legacy[9] = std::byte{0};
+  legacy[10] = std::byte{0};
+  legacy[11] = std::byte{0};
+  fixture.mutable_blob("control") = std::move(legacy);
+  auto& manifest = fixture.mutable_manifest();
+  auto field = std::find_if(
+      manifest.fields.begin(), manifest.fields.end(),
+      [](const auto& candidate) { return candidate.name == "control"; });
+  field->media_type = "application/vnd.jyppx.sgd-control-v1";
+  field->max_bytes = fixture.blobs().at("control").size();
+}
+
+MemoryStateStore make_schema_v2_fixture(const MemoryStateStore& current) {
   MemoryStateStore fixture = current;
+  downgrade_sgd_control_to_v1(fixture);
+  auto& manifest = fixture.mutable_manifest();
+  manifest.schema_version = 2;
+  jyppx::liuding::validate_state_manifest(manifest);
+  return fixture;
+}
+
+MemoryStateStore make_schema_v1_fixture(const MemoryStateStore& current) {
+  MemoryStateStore fixture = make_schema_v2_fixture(current);
   auto& manifest = fixture.mutable_manifest();
   manifest.schema_version = 1;
   std::erase_if(manifest.fields,
@@ -586,12 +630,14 @@ TEST(SgdOptimizerCheckpointTest, UsesFixedRawFieldsWithoutNativeArchive) {
       optimizer);
 
   const auto manifest = participant.describe_state();
-  ASSERT_EQ(manifest.schema_version, 2U);
+  ASSERT_EQ(manifest.schema_version, 3U);
   ASSERT_EQ(manifest.restore_level, jyppx::liuding::RestoreLevel::exact);
   ASSERT_EQ(manifest.fields.size(), 4U);
   EXPECT_EQ(manifest.fields[0].name, "topology");
   EXPECT_EQ(manifest.fields[1].name, "producer");
   EXPECT_EQ(manifest.fields[2].name, "control");
+  EXPECT_EQ(manifest.fields[2].media_type,
+            "application/vnd.jyppx.sgd-control-v2");
   EXPECT_EQ(manifest.fields[3].name, "momentum.0000000000");
 
   const auto store = save_participant(participant);
@@ -605,6 +651,22 @@ TEST(SgdOptimizerCheckpointTest, UsesFixedRawFieldsWithoutNativeArchive) {
             "JYPPXSGP");
   EXPECT_TRUE(store.read_blob("momentum.0000000000", 1024).empty());
   EXPECT_FALSE(topology[0] == std::byte{'P'} && topology[1] == std::byte{'K'});
+}
+
+TEST(SgdOptimizerAdapterTest, UpdatesMutableMomentumAndRejectsInvalidValues) {
+  auto parameter = torch::ones(
+      {2}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+  auto optimizer = make_optimizer(
+      parameter, {.learning_rate = 0.05, .momentum = 0.9, .nesterov = true});
+
+  EXPECT_EQ(optimizer->momentums(), (std::vector<double>{0.9}));
+  EXPECT_THROW(optimizer->set_momentums({}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(optimizer->set_momentums({0.0}),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_EQ(optimizer->momentums(), (std::vector<double>{0.9}));
+
+  optimizer->set_momentums({0.6576});
+  EXPECT_EQ(optimizer->momentums(), (std::vector<double>{0.6576}));
 }
 
 TEST(SgdOptimizerCheckpointTest,
@@ -621,6 +683,7 @@ TEST(SgdOptimizerCheckpointTest,
     source->step();
   }
   source->set_learning_rates({0.015});
+  source->set_momentums({0.65});
   jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(
       source);
   const auto store = save_participant(source_participant);
@@ -641,6 +704,7 @@ TEST(SgdOptimizerCheckpointTest,
   ASSERT_EQ(resumed->completed_steps(), 2U);
   ASSERT_EQ(resumed->learning_rates().size(), 1U);
   EXPECT_DOUBLE_EQ(resumed->learning_rates()[0], 0.015);
+  EXPECT_EQ(resumed->momentums(), (std::vector<double>{0.65}));
   const auto next_gradient = torch::tensor({-0.3, 0.7}, torch::kFloat64);
   source_parameter.mutable_grad() = next_gradient.clone();
   resumed_parameter.mutable_grad() = next_gradient.clone();
@@ -748,7 +812,7 @@ TEST(SgdOptimizerCheckpointTest,
   EXPECT_EQ(resumed->completed_steps(), 2U);
   EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.015}));
   const auto migrated = save_participant(resumed_participant);
-  EXPECT_EQ(migrated.manifest().schema_version, 2U);
+  EXPECT_EQ(migrated.manifest().schema_version, 3U);
   EXPECT_TRUE(migrated.contains("producer"));
 
   const auto next_gradient = torch::tensor({-0.3, 0.7}, torch::kFloat64);
@@ -758,6 +822,36 @@ TEST(SgdOptimizerCheckpointTest,
   resumed->step();
   EXPECT_TRUE(
       torch::allclose(source_parameter, resumed_parameter, 1e-12, 1e-12));
+}
+
+TEST(SgdOptimizerCheckpointTest,
+     MigratesSchemaV2ControlWithStaticMomentumToCurrentSchema) {
+  auto source_parameter = torch::tensor(
+      {2.0, -1.0},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto source = make_optimizer(
+      source_parameter,
+      {.learning_rate = 0.04, .momentum = 0.8, .weight_decay = 0.02});
+  source_parameter.mutable_grad() =
+      torch::tensor({0.5, -0.25}, torch::kFloat64);
+  source->step();
+  source->set_learning_rates({0.015});
+  const auto schema_v2 = make_schema_v2_fixture(save_participant(
+      jyppx::liuding::optim::SgdOptimizerCheckpointParticipant(source)));
+  ASSERT_EQ(schema_v2.manifest().schema_version, 2U);
+
+  auto resumed_parameter =
+      source_parameter.detach().clone().set_requires_grad(true);
+  auto resumed = make_optimizer(
+      resumed_parameter,
+      {.learning_rate = 0.9, .momentum = 0.8, .weight_decay = 0.02});
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant participant(resumed);
+  participant.load_state(schema_v2, jyppx::liuding::RestorePolicy::exact_only);
+
+  EXPECT_EQ(resumed->completed_steps(), 1U);
+  EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.015}));
+  EXPECT_EQ(resumed->momentums(), (std::vector<double>{0.8}));
+  EXPECT_EQ(save_participant(participant).manifest().schema_version, 3U);
 }
 
 TEST(SgdOptimizerCheckpointTest,
@@ -932,7 +1026,7 @@ TEST(SgdOptimizerCheckpointTest,
   const auto before = save_participant(target_participant);
 
   auto future = current_store;
-  future.mutable_manifest().schema_version = 3;
+  future.mutable_manifest().schema_version = 4;
   EXPECT_THROW(target_participant.load_state(
                    future, jyppx::liuding::RestorePolicy::exact_only),
                jyppx::liuding::CompatibilityError);

@@ -332,6 +332,24 @@ const std::vector<std::string>& MuSgdOptimizer::parameter_group_ids()
 std::vector<double> MuSgdOptimizer::learning_rates() const {
   return impl_->rates;
 }
+
+std::vector<double> MuSgdOptimizer::momentums() const {
+  std::vector<double> values;
+  values.reserve(impl_->groups.size());
+  for (const auto& group : impl_->groups)
+    values.push_back(group.options.momentum);
+  return values;
+}
+
+void MuSgdOptimizer::set_momentums(const std::vector<double>& momentums) {
+  auto& s = *impl_;
+  if (momentums.size() != s.groups.size())
+    throw InvalidArgument("MuSGD momentum group count mismatch");
+  s.sgd->set_momentums(momentums);
+  for (std::size_t index = 0; index < momentums.size(); ++index)
+    s.groups[index].options.momentum = momentums[index];
+}
+
 void MuSgdOptimizer::set_learning_rates(const std::vector<double>& rates) {
   auto& s = *impl_;
   if (rates.size() != s.groups.size())
@@ -387,8 +405,11 @@ void MuSgdOptimizer::load_state(const StateReader& reader,
     throw;
   }
   auto rates = s.sgd->learning_rates();
-  for (std::size_t i = 0; i < rates.size(); ++i)
+  const auto momentums = s.sgd->momentums();
+  for (std::size_t i = 0; i < rates.size(); ++i) {
     if (s.groups[i].group_id.ends_with(".muon")) rates[i] /= s.options.sgd;
+    s.groups[i].options.momentum = momentums[i];
+  }
   s.rates = std::move(rates);
 }
 }  // namespace jyppx::liuding::vision::tasks

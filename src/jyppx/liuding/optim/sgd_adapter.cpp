@@ -35,11 +35,13 @@ namespace jyppx::liuding::optim {
 namespace {
 
 constexpr char kComponent[] = "optim.sgd_adapter";
-constexpr std::uint32_t kPreviousSchemaVersion = 1;
-constexpr std::uint32_t kSchemaVersion = 2;
+constexpr std::uint32_t kLegacySchemaVersion = 1;
+constexpr std::uint32_t kPreviousSchemaVersion = 2;
+constexpr std::uint32_t kSchemaVersion = 3;
 constexpr std::uint32_t kTopologyVersion = 1;
 constexpr std::uint32_t kProducerVersion = 1;
-constexpr std::uint32_t kControlVersion = 1;
+constexpr std::uint32_t kPreviousControlVersion = 1;
+constexpr std::uint32_t kControlVersion = 2;
 constexpr std::size_t kMaximumRank = 64;
 constexpr std::size_t kAdapterMaximumIdentifierBytes = 4096;
 constexpr std::array<std::byte, 8> kTopologyMagic = {
@@ -76,6 +78,7 @@ struct OptimizerSnapshot {
 struct DecodedControl {
   std::uint64_t completed_steps;       ///< Restored successful-step count.
   std::vector<double> learning_rates;  ///< Mutable rates in group order.
+  std::vector<double> momentums;       ///< Mutable momentum in group order.
   std::vector<bool> has_momentum;      ///< Presence bit in parameter order.
 };
 
@@ -478,7 +481,7 @@ std::vector<std::byte> encode_producer(
 
 std::vector<std::byte> encode_control(
     std::uint64_t completed_steps, const std::vector<double>& learning_rates,
-    const std::vector<bool>& has_momentum,
+    const std::vector<double>& momentums, const std::vector<bool>& has_momentum,
     const SgdOptimizerCheckpointOptions& limits) {
   std::vector<std::byte> output(kControlMagic.begin(), kControlMagic.end());
   append_u32(output, kControlVersion);
@@ -487,6 +490,9 @@ std::vector<std::byte> encode_control(
   append_u32(output, static_cast<std::uint32_t>(has_momentum.size()));
   for (const auto rate : learning_rates) {
     append_double(output, rate);
+  }
+  for (const auto momentum : momentums) {
+    append_double(output, momentum);
   }
   for (const auto present : has_momentum) {
     append_u8(output, present ? 1 : 0);
@@ -729,7 +735,7 @@ void validate_topology_blob(std::span<const std::byte> bytes,
 }
 
 DecodedControl decode_control(std::span<const std::byte> bytes,
-                              std::size_t expected_groups,
+                              const std::vector<SgdParameterGroup>& groups,
                               std::size_t expected_parameters,
                               const SgdOptimizerCheckpointOptions& limits) {
   if (bytes.size() > limits.max_control_bytes) {
@@ -739,8 +745,10 @@ DecodedControl decode_control(std::span<const std::byte> bytes,
   ByteCursor cursor(bytes);
   validate_magic(cursor, kControlMagic, "control.magic", "JYPPXSGC");
   const auto version = cursor.read_u32("control.version");
-  if (version != kControlVersion) {
-    throw_compatibility("control.version", std::to_string(kControlVersion),
+  if (version != kPreviousControlVersion && version != kControlVersion) {
+    throw_compatibility("control.version",
+                        std::to_string(kPreviousControlVersion) + " or " +
+                            std::to_string(kControlVersion),
                         std::to_string(version),
                         "Migrate optimizer control metadata explicitly.");
   }
@@ -748,11 +756,10 @@ DecodedControl decode_control(std::span<const std::byte> bytes,
   decoded.completed_steps = cursor.read_u64("control.completed_steps");
   const auto group_count = cursor.read_u32("control.group_count");
   const auto parameter_count = cursor.read_u32("control.parameter_count");
-  if (group_count != expected_groups ||
-      parameter_count != expected_parameters) {
+  if (group_count != groups.size() || parameter_count != expected_parameters) {
     throw_serialization(
         "control.counts",
-        std::to_string(expected_groups) + ":" +
+        std::to_string(groups.size()) + ":" +
             std::to_string(expected_parameters),
         std::to_string(group_count) + ":" + std::to_string(parameter_count),
         "Reject control state from a different optimizer topology.");
@@ -766,6 +773,23 @@ DecodedControl decode_control(std::span<const std::byte> bytes,
                           "Reject invalid mutable optimizer options.");
     }
     decoded.learning_rates.push_back(rate);
+  }
+  decoded.momentums.reserve(group_count);
+  for (std::uint32_t index = 0; index < group_count; ++index) {
+    const auto momentum = version == kControlVersion
+                              ? cursor.read_double("control.momentum")
+                              : groups[index].options.momentum;
+    const auto& options = groups[index].options;
+    if (!std::isfinite(momentum) || momentum < 0.0 ||
+        (options.nesterov && momentum <= 0.0)) {
+      throw_serialization("control.momentum",
+                          options.nesterov
+                              ? "a finite positive value for Nesterov SGD"
+                              : "a finite non-negative value",
+                          std::to_string(momentum),
+                          "Reject invalid mutable optimizer options.");
+    }
+    decoded.momentums.push_back(momentum);
   }
   decoded.has_momentum.reserve(parameter_count);
   for (std::uint32_t index = 0; index < parameter_count; ++index) {
@@ -795,9 +819,46 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
          state_fields_equal(left.fields, right.fields);
 }
 
-StateManifest make_schema_v1_manifest(const StateManifest& current) {
+StateManifest make_schema_v2_manifest(const StateManifest& current,
+                                      std::size_t group_count) {
   StateManifest legacy = current;
   legacy.schema_version = kPreviousSchemaVersion;
+  const auto control = std::find_if(legacy.fields.begin(), legacy.fields.end(),
+                                    [](const StateFieldDescriptor& field) {
+                                      return field.name == "control";
+                                    });
+  if (control == legacy.fields.end()) {
+    throw InternalError(
+        "Current SGD manifest is missing control metadata",
+        ErrorDetails{
+            .component = kComponent,
+            .operation = "migration.v2_manifest",
+            .expected = "a schema-v3 control field",
+            .actual = "missing",
+            .hint = "Keep the current writer and N-1 reader aligned."});
+  }
+  control->media_type = "application/vnd.jyppx.sgd-control-v1";
+  const auto legacy_momentum_bytes =
+      static_cast<std::uint64_t>(group_count) * sizeof(double);
+  if (control->max_bytes < legacy_momentum_bytes) {
+    throw InternalError(
+        "Current SGD control bound cannot contain legacy metadata",
+        ErrorDetails{
+            .component = kComponent,
+            .operation = "migration.v2_manifest",
+            .expected = "a schema-v3 control bound",
+            .actual = std::to_string(control->max_bytes),
+            .hint = "Keep control layout and migration metadata aligned."});
+  }
+  control->max_bytes -= legacy_momentum_bytes;
+  validate_state_manifest(legacy);
+  return legacy;
+}
+
+StateManifest make_schema_v1_manifest(const StateManifest& current,
+                                      std::size_t group_count) {
+  StateManifest legacy = make_schema_v2_manifest(current, group_count);
+  legacy.schema_version = kLegacySchemaVersion;
   const auto producer = std::find_if(legacy.fields.begin(), legacy.fields.end(),
                                      [](const StateFieldDescriptor& field) {
                                        return field.name == "producer";
@@ -874,9 +935,10 @@ void validate_current_topology(const std::vector<SgdParameterGroup>& groups,
 std::vector<double> inspect_native_groups(
     const std::vector<SgdParameterGroup>& groups,
     const std::vector<FlatParameter>& parameters,
-    const torch::optim::SGD& native) {
+    const torch::optim::SGD& native, const std::vector<double>& momentums) {
   const auto& native_groups = native.param_groups();
-  if (native_groups.size() != groups.size()) {
+  if (native_groups.size() != groups.size() ||
+      momentums.size() != groups.size()) {
     throw_invalid("native.group_count", std::to_string(groups.size()),
                   std::to_string(native_groups.size()),
                   "Do not mutate delegated native parameter groups.");
@@ -896,13 +958,16 @@ std::vector<double> inspect_native_groups(
     }
     const auto& options = native_options(actual);
     if (!std::isfinite(options.lr()) || options.lr() < 0.0 ||
-        options.momentum() != expected.options.momentum ||
+        !std::isfinite(momentums[group_index]) ||
+        momentums[group_index] < 0.0 ||
+        (expected.options.nesterov && momentums[group_index] <= 0.0) ||
+        options.momentum() != momentums[group_index] ||
         options.dampening() != expected.options.dampening ||
         options.weight_decay() != expected.options.weight_decay ||
         options.nesterov() != expected.options.nesterov) {
       throw_invalid("native.options", "the stable SGD descriptor",
                     expected.group_id,
-                    "Use set_learning_rates for the only mutable option.");
+                    "Use the adapter's mutable rate and momentum controls.");
     }
     learning_rates.push_back(options.lr());
     for (std::size_t parameter_index = 0;
@@ -985,10 +1050,12 @@ bool momentum_strides_match(const Tensor& buffer,
 OptimizerSnapshot inspect_optimizer(
     const std::vector<SgdParameterGroup>& groups,
     const std::vector<FlatParameter>& parameters,
-    const torch::optim::SGD& native, std::uint64_t completed_steps,
-    const SgdOptimizerCheckpointOptions& limits, std::string participant_id) {
+    const std::vector<double>& momentums, const torch::optim::SGD& native,
+    std::uint64_t completed_steps, const SgdOptimizerCheckpointOptions& limits,
+    std::string participant_id) {
   validate_current_topology(groups, parameters, limits);
-  auto learning_rates = inspect_native_groups(groups, parameters, native);
+  auto learning_rates =
+      inspect_native_groups(groups, parameters, native, momentums);
 
   std::unordered_set<const void*> known_parameters;
   known_parameters.reserve(parameters.size());
@@ -1027,9 +1094,7 @@ OptimizerSnapshot inspect_optimizer(
       has_momentum.push_back(false);
       continue;
     }
-    const auto& descriptor = groups[parameter.group_index].options;
-    if (descriptor.momentum <= 0.0 ||
-        buffer.scalar_type() != parameter.parameter.scalar_type() ||
+    if (buffer.scalar_type() != parameter.parameter.scalar_type() ||
         buffer.device() != parameter.parameter.device() ||
         buffer.sizes().vec() != parameter.sizes ||
         !momentum_strides_match(buffer, parameter) ||
@@ -1048,8 +1113,8 @@ OptimizerSnapshot inspect_optimizer(
 
   auto topology = encode_topology(groups, parameters, limits);
   auto producer = encode_producer(limits);
-  auto control =
-      encode_control(completed_steps, learning_rates, has_momentum, limits);
+  auto control = encode_control(completed_steps, learning_rates, momentums,
+                                has_momentum, limits);
   std::uint64_t total =
       checked_add(topology.size(), producer.size(), limits.max_total_bytes,
                   "state.total_bytes");
@@ -1066,7 +1131,7 @@ OptimizerSnapshot inspect_optimizer(
                   .media_type = "application/vnd.jyppx.sgd-producer-v1",
                   .max_bytes = producer.size()},
                  {.name = "control",
-                  .media_type = "application/vnd.jyppx.sgd-control-v1",
+                  .media_type = "application/vnd.jyppx.sgd-control-v2",
                   .max_bytes = control.size()}},
       .degradation_reasons = {},
   };
@@ -1097,6 +1162,7 @@ struct SgdOptimizerAdapter::Impl {
   std::string optimizer_id;                      ///< Stable optimizer identity.
   std::vector<std::string> parameter_group_ids;  ///< Stable group identities.
   std::vector<SgdParameterGroup> groups;         ///< Stable public descriptor.
+  std::vector<double> momentums;                 ///< Mutable SGD coefficients.
   std::vector<FlatParameter> parameters;      ///< Flattened checkpoint order.
   std::unique_ptr<torch::optim::SGD> native;  ///< Delegated algorithm owner.
   std::uint64_t completed_steps = 0;          ///< Successful native step count.
@@ -1123,6 +1189,7 @@ SgdOptimizerAdapter::SgdOptimizerAdapter(std::string optimizer_id,
     std::unordered_set<const void*> tensor_identities;
     std::vector<torch::optim::OptimizerParamGroup> native_groups;
     impl_->parameter_group_ids.reserve(groups.size());
+    impl_->momentums.reserve(groups.size());
     native_groups.reserve(groups.size());
     for (std::size_t group_index = 0; group_index < groups.size();
          ++group_index) {
@@ -1135,6 +1202,7 @@ SgdOptimizerAdapter::SgdOptimizerAdapter(std::string optimizer_id,
       }
       impl_->parameter_group_ids.push_back(group.group_id);
       validate_sgd_options(group.options, group.group_id);
+      impl_->momentums.push_back(group.options.momentum);
       if (group.parameters.empty()) {
         throw_invalid(group.group_id + ".parameters", "at least one parameter",
                       "empty", "Remove the group or bind model parameters.");
@@ -1211,7 +1279,7 @@ SgdOptimizerAdapter::SgdOptimizerAdapter(std::string optimizer_id,
     impl_->optimizer_id = std::move(optimizer_id);
     impl_->groups = std::move(groups);
     static_cast<void>(inspect_native_groups(impl_->groups, impl_->parameters,
-                                            *impl_->native));
+                                            *impl_->native, impl_->momentums));
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
@@ -1307,8 +1375,8 @@ void SgdOptimizerAdapter::synchronize_parameter_placement() {
       descriptor.byte_count =
           checked_tensor_bytes(parameter, descriptor.dtype_code);
     }
-    static_cast<void>(
-        inspect_native_groups(impl_->groups, candidate, *impl_->native));
+    static_cast<void>(inspect_native_groups(impl_->groups, candidate,
+                                            *impl_->native, impl_->momentums));
     impl_->parameters.swap(candidate);
   } catch (const Error&) {
     throw;
@@ -1322,12 +1390,18 @@ void SgdOptimizerAdapter::synchronize_parameter_placement() {
 std::vector<double> SgdOptimizerAdapter::learning_rates() const {
   try {
     return inspect_native_groups(impl_->groups, impl_->parameters,
-                                 *impl_->native);
+                                 *impl_->native, impl_->momentums);
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("learning_rates");
   }
+}
+
+std::vector<double> SgdOptimizerAdapter::momentums() const {
+  static_cast<void>(inspect_native_groups(impl_->groups, impl_->parameters,
+                                          *impl_->native, impl_->momentums));
+  return impl_->momentums;
 }
 
 void SgdOptimizerAdapter::set_learning_rates(
@@ -1348,6 +1422,32 @@ void SgdOptimizerAdapter::set_learning_rates(
   for (std::size_t index = 0; index < learning_rates.size(); ++index) {
     native_options(native_groups[index]).lr(learning_rates[index]);
   }
+}
+
+void SgdOptimizerAdapter::set_momentums(const std::vector<double>& momentums) {
+  if (momentums.size() != impl_->groups.size()) {
+    throw_invalid("momentums.count", std::to_string(impl_->groups.size()),
+                  std::to_string(momentums.size()),
+                  "Provide one momentum value per stable parameter group.");
+  }
+  for (std::size_t index = 0; index < momentums.size(); ++index) {
+    const auto momentum = momentums[index];
+    if (!std::isfinite(momentum) || momentum < 0.0 ||
+        (impl_->groups[index].options.nesterov && momentum <= 0.0)) {
+      throw_invalid("momentum",
+                    impl_->groups[index].options.nesterov
+                        ? "a finite positive value for Nesterov SGD"
+                        : "a finite non-negative value",
+                    std::to_string(momentum),
+                    "Validate every group before updating the optimizer.");
+    }
+  }
+  auto candidate = momentums;
+  auto& native_groups = impl_->native->param_groups();
+  for (std::size_t index = 0; index < candidate.size(); ++index) {
+    native_options(native_groups[index]).momentum(candidate[index]);
+  }
+  impl_->momentums.swap(candidate);
 }
 
 const std::string& SgdOptimizerAdapter::optimizer_id() const noexcept {
@@ -1412,8 +1512,9 @@ StateManifest SgdOptimizerCheckpointParticipant::describe_state() const {
   try {
     return inspect_optimizer(
                optimizer_->impl_->groups, optimizer_->impl_->parameters,
-               *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
-               options_, optimizer_->optimizer_id())
+               optimizer_->impl_->momentums, *optimizer_->impl_->native,
+               optimizer_->impl_->completed_steps, options_,
+               optimizer_->optimizer_id())
         .manifest;
   } catch (const Error&) {
     throw;
@@ -1428,8 +1529,9 @@ void SgdOptimizerCheckpointParticipant::save_state(StateWriter& writer) const {
   try {
     const auto snapshot = inspect_optimizer(
         optimizer_->impl_->groups, optimizer_->impl_->parameters,
-        *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
-        options_, optimizer_->optimizer_id());
+        optimizer_->impl_->momentums, *optimizer_->impl_->native,
+        optimizer_->impl_->completed_steps, options_,
+        optimizer_->optimizer_id());
     writer.write_blob("topology", snapshot.topology);
     writer.write_blob("producer", snapshot.producer);
     writer.write_blob("control", snapshot.control);
@@ -1469,8 +1571,9 @@ void SgdOptimizerCheckpointParticipant::load_state(const StateReader& reader,
   try {
     const auto current = inspect_optimizer(
         optimizer_->impl_->groups, optimizer_->impl_->parameters,
-        *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
-        options_, optimizer_->optimizer_id());
+        optimizer_->impl_->momentums, *optimizer_->impl_->native,
+        optimizer_->impl_->completed_steps, options_,
+        optimizer_->optimizer_id());
     const auto& stored_manifest = reader.manifest();
     validate_state_manifest(stored_manifest);
     if (!restore_policy_accepts(policy, stored_manifest.restore_level)) {
@@ -1486,11 +1589,16 @@ void SgdOptimizerCheckpointParticipant::load_state(const StateReader& reader,
     if (stored_manifest.schema_version == kSchemaVersion) {
       expected_manifest = current.manifest;
     } else if (stored_manifest.schema_version == kPreviousSchemaVersion) {
-      expected_manifest = make_schema_v1_manifest(current.manifest);
+      expected_manifest = make_schema_v2_manifest(
+          current.manifest, optimizer_->impl_->groups.size());
+    } else if (stored_manifest.schema_version == kLegacySchemaVersion) {
+      expected_manifest = make_schema_v1_manifest(
+          current.manifest, optimizer_->impl_->groups.size());
     } else {
       throw_compatibility(
           "restore.schema_version",
-          std::to_string(kPreviousSchemaVersion) + " or " +
+          std::to_string(kLegacySchemaVersion) + ", " +
+              std::to_string(kPreviousSchemaVersion) + " or " +
               std::to_string(kSchemaVersion),
           std::to_string(stored_manifest.schema_version),
           "Migrate checkpoints through the explicit N-1 schema chain.");
@@ -1524,19 +1632,19 @@ void SgdOptimizerCheckpointParticipant::load_state(const StateReader& reader,
           "Apply an explicit optimizer state migration before restore.");
     }
 
-    const auto is_current_schema =
-        stored_manifest.schema_version == kSchemaVersion;
-    if (is_current_schema) {
+    const auto has_producer =
+        stored_manifest.schema_version != kLegacySchemaVersion;
+    if (has_producer) {
       const auto producer =
           reader.read_blob("producer", current.manifest.fields[1].max_bytes);
       validate_producer_blob(producer, options_);
     }
 
-    const auto control_field_index = is_current_schema ? 2U : 1U;
+    const auto control_field_index = has_producer ? 2U : 1U;
     const auto control_bytes = reader.read_blob(
         "control", expected_manifest.fields[control_field_index].max_bytes);
     const auto decoded =
-        decode_control(control_bytes, optimizer_->impl_->groups.size(),
+        decode_control(control_bytes, optimizer_->impl_->groups,
                        optimizer_->impl_->parameters.size(), options_);
 
     std::vector<Tensor> candidates;
@@ -1556,13 +1664,6 @@ void SgdOptimizerCheckpointParticipant::load_state(const StateReader& reader,
         }
         candidates.emplace_back();
         continue;
-      }
-      if (optimizer_->impl_->groups[parameter.group_index].options.momentum <=
-          0.0) {
-        throw_serialization("restore.momentum_presence",
-                            "state only for momentum-enabled groups",
-                            parameter.parameter_id,
-                            "Reject state inconsistent with SGD options.");
       }
       if (bytes.size() != parameter.byte_count) {
         throw_serialization("restore.momentum_bytes",
@@ -1603,20 +1704,28 @@ void SgdOptimizerCheckpointParticipant::load_state(const StateReader& reader,
     }
 
     const auto previous_rates = optimizer_->learning_rates();
+    const auto previous_momentums = optimizer_->momentums();
     auto& native_groups = optimizer_->impl_->native->param_groups();
-    std::size_t updated_rates = 0;
+    auto restored_momentums = decoded.momentums;
+    std::size_t updated_groups = 0;
     try {
-      for (; updated_rates < decoded.learning_rates.size(); ++updated_rates) {
-        native_options(native_groups[updated_rates])
-            .lr(decoded.learning_rates[updated_rates]);
+      for (; updated_groups < decoded.learning_rates.size(); ++updated_groups) {
+        native_options(native_groups[updated_groups])
+            .lr(decoded.learning_rates[updated_groups]);
+        native_options(native_groups[updated_groups])
+            .momentum(decoded.momentums[updated_groups]);
       }
     } catch (...) {
-      for (std::size_t index = 0; index < updated_rates; ++index) {
+      for (std::size_t index = 0; index < decoded.learning_rates.size();
+           ++index) {
         native_options(native_groups[index]).lr(previous_rates[index]);
+        native_options(native_groups[index])
+            .momentum(previous_momentums[index]);
       }
       throw;
     }
     optimizer_->impl_->native->state().swap(replacement);
+    optimizer_->impl_->momentums.swap(restored_momentums);
     optimizer_->impl_->completed_steps = decoded.completed_steps;
   } catch (const Error&) {
     throw;
