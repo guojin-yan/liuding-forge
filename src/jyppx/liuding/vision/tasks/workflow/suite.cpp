@@ -77,6 +77,25 @@ training::FileCheckpointStoreOptions VisionCheckpointOptions() {
 std::string Hash(const std::string& s) {
   return sha256_hex(std::as_bytes(std::span(s)));
 }
+std::uint64_t RoundNonNegativeTiesToEven(double value) {
+  if (!std::isfinite(value) || value < 0 ||
+      value >= static_cast<double>(std::numeric_limits<std::uint64_t>::max()))
+    throw ResourceExhausted("YOLO26 warmup cursor exceeds its integer range");
+  auto rounded = std::floor(value);
+  const auto fraction = value - rounded;
+  if (fraction > .5 || (fraction == .5 && std::fmod(rounded, 2.0) != 0.0))
+    rounded += 1.0;
+  return static_cast<std::uint64_t>(rounded);
+}
+double YoloEpochLearningRateFactor(std::uint64_t epochs, double final_factor,
+                                   bool cosine, std::uint64_t epoch) {
+  const auto progress =
+      (std::min)(1.0, static_cast<double>(epoch) / static_cast<double>(epochs));
+  if (cosine)
+    return final_factor + (1.0 - final_factor) *
+                              (1.0 + std::cos(std::acos(-1.0) * progress)) * .5;
+  return 1.0 - (1.0 - final_factor) * progress;
+}
 void Save(const std::filesystem::path& p, std::string_view bytes) {
   detail::publish_text(p, bytes);
 }
@@ -519,16 +538,116 @@ TrainResult train_vision(const TrainRequest& request) {
     optimizer_checkpoint = concrete;
   } else
     throw InvalidArgument("Optimizer was not resolved before native binding");
-  const auto batches = (source.train->size() + r.batch_size - 1) / r.batch_size;
-  const auto updates = (batches + r.accumulate_steps - 1) / r.accumulate_steps;
-  if (!updates ||
-      r.epochs >
-          static_cast<std::uint64_t>((std::numeric_limits<I>::max)()) / updates)
-    throw ResourceExhausted("Planned optimizer update count exceeds int64");
-  auto schedule = r.scheduler;
-  schedule.total_updates = r.epochs * updates;
-  auto scheduler = std::make_shared<training::SchedulerAdapter>(
-      std::make_shared<WarmupCosineLrScheduler>(optimizer, schedule));
+  const auto training_samples = source.train->size();
+  if (training_samples == 0) throw InvalidArgument("Training dataset is empty");
+  const auto batches =
+      1U + (training_samples - 1U) / static_cast<std::uint64_t>(r.batch_size);
+  std::shared_ptr<training::SchedulerAdapter> scheduler;
+  training::TrainingBatchPolicy training_batch_policy;
+  std::string training_batch_policy_id;
+  auto initial_accumulation = r.accumulate_steps;
+  if (r.yolo26_warmup.enabled) {
+    const auto planned_batches =
+        batches > (std::numeric_limits<std::uint64_t>::max)() / r.epochs
+            ? (std::numeric_limits<std::uint64_t>::max)()
+            : batches * r.epochs;
+    if (planned_batches >
+        static_cast<std::uint64_t>((std::numeric_limits<I>::max)()))
+      throw ResourceExhausted("Planned YOLO26 batch cursor exceeds int64");
+    auto musgd = std::dynamic_pointer_cast<MuSgdOptimizer>(optimizer);
+    if (!musgd)
+      throw InvalidArgument("YOLO26 warmup requires the native MuSGD adapter");
+    const auto base_rates = musgd->learning_rates();
+    const auto base_momentums = musgd->momentums();
+    const auto group_ids = musgd->parameter_group_ids();
+    if (base_rates.size() != group_ids.size() ||
+        base_momentums.size() != group_ids.size())
+      throw InternalError("YOLO26 warmup optimizer group inventory mismatch");
+    const auto nominal_batch =
+        static_cast<std::uint64_t>(r.optimizer.nominal_batch);
+    const auto batch_size = static_cast<std::uint64_t>(r.batch_size);
+    const auto epochs = r.epochs;
+    const auto final_factor = r.scheduler.final_factor;
+    const auto cosine = r.yolo26_warmup.cosine;
+    const auto warmup_epochs = r.yolo26_warmup.warmup_epochs;
+    const auto warmup_bias_lr = r.yolo26_warmup.warmup_bias_lr;
+    const auto warmup_momentum = r.yolo26_warmup.warmup_momentum;
+    const auto nominal_accumulation =
+        (std::max)(std::uint64_t{1}, RoundNonNegativeTiesToEven(
+                                         static_cast<double>(nominal_batch) /
+                                         static_cast<double>(batch_size)));
+    if (nominal_accumulation > 4096)
+      throw ResourceExhausted(
+          "YOLO26 nominal batch requires more than 4096 accumulated batches");
+    initial_accumulation = static_cast<std::size_t>(nominal_accumulation);
+    const bool warmup_enabled = r.yolo26_warmup.warmup_epochs > 0;
+    const auto warmup_batches =
+        warmup_enabled
+            ? (std::max)(std::uint64_t{100},
+                         RoundNonNegativeTiesToEven(
+                             warmup_epochs * static_cast<double>(batches)))
+            : std::uint64_t{0};
+    training_batch_policy_id = "vision.yolo26-warmup.v1." + recipe_id;
+    training_batch_policy = [musgd, base_rates, base_momentums, group_ids,
+                             rates = base_rates, momentums = base_momentums,
+                             batches, nominal_batch, batch_size, epochs,
+                             final_factor, cosine, warmup_enabled,
+                             warmup_batches, warmup_bias_lr, warmup_momentum](
+                                const training::StepContext& context) mutable {
+      if (context.epoch >= epochs || context.batch_sequence >= batches)
+        throw InvalidArgument("YOLO26 warmup received an invalid batch cursor");
+      if (batches > (std::numeric_limits<std::uint64_t>::max)() / epochs)
+        throw ResourceExhausted("YOLO26 warmup cursor multiplication overflow");
+      const auto batch_index = context.epoch * batches + context.batch_sequence;
+      auto accumulation =
+          static_cast<double>(nominal_batch) / static_cast<double>(batch_size);
+      if (warmup_enabled && batch_index <= warmup_batches) {
+        const auto progress = static_cast<double>(batch_index) /
+                              static_cast<double>(warmup_batches);
+        accumulation = 1.0 + (accumulation - 1.0) * progress;
+      }
+      const auto accumulation_steps =
+          (std::max)(std::uint64_t{1},
+                     RoundNonNegativeTiesToEven(accumulation));
+      if (accumulation_steps > 4096)
+        throw ResourceExhausted("YOLO26 warmup accumulation exceeds its bound");
+
+      const bool inside_warmup =
+          warmup_enabled && batch_index <= warmup_batches;
+      const auto epoch_for_lr = context.epoch;
+      const auto epoch_factor = YoloEpochLearningRateFactor(
+          epochs, final_factor, cosine, epoch_for_lr);
+      const auto warmup_progress = inside_warmup
+                                       ? static_cast<double>(batch_index) /
+                                             static_cast<double>(warmup_batches)
+                                       : 1.0;
+      for (std::size_t index = 0; index < base_rates.size(); ++index) {
+        const bool bias_group =
+            group_ids[index] == "bias" || group_ids[index].starts_with("bias.");
+        const auto initial_rate = bias_group ? warmup_bias_lr : 0.0;
+        const auto scheduled_rate = base_rates[index] * epoch_factor;
+        rates[index] =
+            initial_rate + (scheduled_rate - initial_rate) * warmup_progress;
+        momentums[index] =
+            warmup_momentum +
+            (base_momentums[index] - warmup_momentum) * warmup_progress;
+      }
+      musgd->set_learning_rates(rates);
+      musgd->set_momentums(momentums);
+      return static_cast<std::size_t>(accumulation_steps);
+    };
+  } else {
+    const auto updates =
+        (batches + r.accumulate_steps - 1U) / r.accumulate_steps;
+    if (!updates ||
+        r.epochs > static_cast<std::uint64_t>((std::numeric_limits<I>::max)()) /
+                       updates)
+      throw ResourceExhausted("Planned optimizer update count exceeds int64");
+    auto schedule = r.scheduler;
+    schedule.total_updates = r.epochs * updates;
+    scheduler = std::make_shared<training::SchedulerAdapter>(
+        std::make_shared<WarmupCosineLrScheduler>(optimizer, schedule));
+  }
   phase("optimizer.finished");
   phase("pipeline.started");
   data::DataPipelineOptions p;
@@ -604,13 +723,19 @@ TrainResult train_vision(const TrainRequest& request) {
   options.run_id = "vision." + run_id;
   options.trace_id = options.run_id;
   options.max_epochs = r.epochs;
-  options.accumulate_steps = r.accumulate_steps;
-  options.accumulation_tail = r.accumulation_tail;
-  options.accumulation_reduction = r.accumulation_reduction;
+  options.accumulate_steps = initial_accumulation;
+  options.accumulation_tail = r.yolo26_warmup.enabled
+                                  ? training::AccumulationTailPolicy::carry
+                                  : r.accumulation_tail;
+  options.accumulation_reduction = r.yolo26_warmup.enabled
+                                       ? training::AccumulationReduction::sum
+                                       : r.accumulation_reduction;
   options.precision = r.precision;
   options.gradient_clip_norm = r.gradient_clip_norm;
   training::FitRequest fit;
   fit.event_observer = request.event_observer;
+  fit.training_batch_policy_id = std::move(training_batch_policy_id);
+  fit.training_batch_policy = std::move(training_batch_policy);
   fit.model = binding.model;
   fit.optimizers = {{optimizer, optimizer_checkpoint, scheduler}};
   std::shared_ptr<training::TrainingDiagnostics> diagnostics;

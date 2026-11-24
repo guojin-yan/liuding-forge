@@ -37,32 +37,44 @@ struct Yolo26LossRecipe {
   bool fixed_branch_gains = false;
   double fixed_many_gain = 1., fixed_one_gain = 1.;
 };
-/** @brief Version-2 task policy; all defaults are serialized in run identity. */
+/** @brief Explicit per-batch YOLO26 warmup policy compatible with Ultralytics.
+ */
+struct Yolo26WarmupRecipe {
+  bool enabled = false;
+  double warmup_epochs = .98124;
+  double warmup_bias_lr = .08114;
+  double warmup_momentum = .6576;
+  bool cosine = false;
+};
+/** @brief Version-2 task policy; all defaults are serialized in run identity.
+ */
 struct ExtensionRecipe {
   std::filesystem::path training_manifest, validation_manifest;
-  bool asymmetric_multilabel=false;
+  bool asymmetric_multilabel = false;
   std::vector<double> multilabel_thresholds;
   std::string threshold_validation_identity;
-  bool activation_recomputation=false;
-  std::filesystem::path tokenizer_merges,text_encoder_weights;
-  std::string tokenizer_sha256,text_encoder_sha256;
-  bool feature_outputs=false;
-  std::int64_t feature_projection=0;
+  bool activation_recomputation = false;
+  std::filesystem::path tokenizer_merges, text_encoder_weights;
+  std::string tokenizer_sha256, text_encoder_sha256;
+  bool feature_outputs = false;
+  std::int64_t feature_projection = 0;
   std::string teacher_architecture;
   InitializationOptions teacher_initialization;
-  double distillation_temperature=2.,logits_distillation_weight=1.,feature_distillation_weight=0.;
-  std::int64_t semantic_ignore=255;
-  bool relative_inverse_depth=false;
-  double depth_gradient_weight=0.;
-  std::int64_t model_patch_size=4, mask_patch_size=32;
-  double mask_ratio=.6;
-  double triplet_margin=.3;
+  double distillation_temperature = 2., logits_distillation_weight = 1.,
+         feature_distillation_weight = 0.;
+  std::int64_t semantic_ignore = 255;
+  bool relative_inverse_depth = false;
+  double depth_gradient_weight = 0.;
+  std::int64_t model_patch_size = 4, mask_patch_size = 32;
+  double mask_ratio = .6;
+  double triplet_margin = .3;
 };
 /** @brief Fixed training, validation and initialization policy. */
 struct RecipeSpec {
   std::uint32_t schema_version = 1;
   ModelSpec model;
   std::optional<Yolo26LossRecipe> yolo26_loss;
+  Yolo26WarmupRecipe yolo26_warmup;
   ExtensionRecipe extension;
   DetectionDatasetOptions training;
   std::optional<DetectionDatasetOptions> validation;

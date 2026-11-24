@@ -114,6 +114,10 @@ std::vector<im::ImagePoint> Clip(std::vector<im::ImagePoint> polygon, double w,
       da = db;
     }
   }
+  for (auto& point : polygon) {
+    point.x = std::clamp(point.x, 0., w);
+    point.y = std::clamp(point.y, 0., h);
+  }
   return polygon;
 }
 double Area(const std::vector<im::ImagePoint>& p) {

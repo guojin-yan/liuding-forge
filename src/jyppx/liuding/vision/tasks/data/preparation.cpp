@@ -42,9 +42,10 @@ void CheckProjection(const YoloDataOptions& options) {
   CheckTargets(options);
   for (const auto probability :
        {options.augmentation.horizontal_flip_probability,
-        options.augmentation.vertical_flip_probability})
+        options.augmentation.vertical_flip_probability,
+        options.augmentation.bgr_probability})
     if (!std::isfinite(probability) || probability < 0 || probability > 1)
-      throw InvalidArgument("YOLO flip probability must be in [0,1]");
+      throw InvalidArgument("YOLO augmentation probability must be in [0,1]");
   static_cast<void>(scale_translate_identity(options.augmentation.spatial));
   static_cast<void>(photometric_identity(options.augmentation.photo));
   if (options.normalization_mean.size() != options.normalization_std.size() ||
@@ -58,6 +59,7 @@ void CheckProjection(const YoloDataOptions& options) {
       throw InvalidArgument("Invalid RGB normalization values");
   if ((options.augmentation.horizontal_flip_probability > 0 ||
        options.augmentation.vertical_flip_probability > 0 ||
+       options.augmentation.bgr_probability > 0 ||
        options.augmentation.spatial.scale_gain > 0 ||
        options.augmentation.spatial.translate_fraction > 0 ||
        PhotoEnabled(options.augmentation.photo)) &&
@@ -212,6 +214,15 @@ image::ImageBatch prepare_yolo_batch(
       const auto random = stream(photometric_identity(photo));
       output = augment_photometric(output, photo, random, stop);
     }
+    if (options.augmentation.bgr_probability > 0 &&
+        stream("vision.yolo.bgr-channel-reversal/v1").unit(0) <
+            options.augmentation.bgr_probability) {
+      const auto channel_axis =
+          output.pixels.layout == image::ImageLayout::chw
+              ? 0
+              : output.image.dim() - 1;
+      output.image = output.image.flip({channel_axis}).contiguous();
+    }
     prepared.push_back(std::move(output));
   }
   image::ImageCollateOptions collate;
@@ -341,6 +352,7 @@ std::string yolo_data_identity(const YoloDataOptions& options) {
            << options.allow_unannotated_negatives << ':'
            << options.exclude_crowd << ':' << options.exclude_difficult << ':'
            << options.augmentation.seed << ':'
+           << options.augmentation.bgr_probability << ':'
            << options.augmentation.dataset_id.size() << ':'
            << options.augmentation.dataset_id;
   const auto text = identity.str();
@@ -354,6 +366,7 @@ YoloDataOptions yolo_evaluation_options(const YoloDataOptions& training) {
   result.classification.training = false;
   result.augmentation.horizontal_flip_probability = 0;
   result.augmentation.vertical_flip_probability = 0;
+  result.augmentation.bgr_probability = 0;
   result.augmentation.spatial = {};
   result.augmentation.projective = {};
   result.augmentation.multi_source = {};

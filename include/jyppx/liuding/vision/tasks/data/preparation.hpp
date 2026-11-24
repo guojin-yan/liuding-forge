@@ -31,6 +31,7 @@ namespace jyppx::liuding::vision::tasks {
 struct YoloAugmentationOptions {
   double horizontal_flip_probability = 0;  ///< Explicit probability in [0,1].
   double vertical_flip_probability = 0;    ///< Explicit probability in [0,1].
+  double bgr_probability = 0;  ///< Probability of reversing RGB to BGR.
   ScaleTranslateOptions spatial;  ///< Joint fixed-canvas scale and translation.
   PhotometricOptions photo;  ///< Input RGB photo augmentation after geometry.
   ProjectiveOptions projective;

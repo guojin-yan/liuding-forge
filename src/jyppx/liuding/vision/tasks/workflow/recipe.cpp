@@ -210,6 +210,7 @@ RecipeSpec parse_recipe(std::string_view text,
   Keys(j, {"schema_version",
            "model",
            "yolo26_loss",
+           "yolo26_warmup",
            "extension",
            "dataset",
            "validation",
@@ -375,6 +376,26 @@ RecipeSpec parse_recipe(std::string_view text,
     options.fixed_one_gain =
         loss.value("fixed_one_gain", options.fixed_one_gain);
     r.yolo26_loss = options;
+  }
+  if (j.contains("yolo26_warmup")) {
+    const auto& warmup = j["yolo26_warmup"];
+    Keys(warmup, {"enabled", "warmup_epochs", "warmup_bias_lr",
+                  "warmup_momentum", "cosine"});
+    for (const auto* field :
+         {"warmup_epochs", "warmup_bias_lr", "warmup_momentum"})
+      if (warmup.contains(field) && !warmup[field].is_number())
+        throw InvalidArgument("YOLO26 warmup values must be numeric");
+    if ((warmup.contains("enabled") && !warmup["enabled"].is_boolean()) ||
+        (warmup.contains("cosine") && !warmup["cosine"].is_boolean()))
+      throw InvalidArgument("YOLO26 warmup switches must be boolean");
+    r.yolo26_warmup.enabled = warmup.value("enabled", true);
+    r.yolo26_warmup.warmup_epochs =
+        warmup.value("warmup_epochs", r.yolo26_warmup.warmup_epochs);
+    r.yolo26_warmup.warmup_bias_lr =
+        warmup.value("warmup_bias_lr", r.yolo26_warmup.warmup_bias_lr);
+    r.yolo26_warmup.warmup_momentum =
+        warmup.value("warmup_momentum", r.yolo26_warmup.warmup_momentum);
+    r.yolo26_warmup.cosine = warmup.value("cosine", r.yolo26_warmup.cosine);
   }
   ReadLimit(m, "rtdetr_max_encoder_elements",
             r.model.rtdetr_max_encoder_elements);
@@ -613,6 +634,7 @@ RecipeSpec parse_recipe(std::string_view text,
     const auto& v = j["augmentation"];
     Keys(v, {"horizontal_flip",
              "vertical_flip",
+             "bgr",
              "scale",
              "translate",
              "hsv_h",
@@ -633,6 +655,8 @@ RecipeSpec parse_recipe(std::string_view text,
              "degrees",
              "shear",
              "perspective",
+             "projective_scale",
+             "projective_translate",
              "projective_min_box_area",
              "projective_min_visibility",
              "blur_kernel",
@@ -641,6 +665,7 @@ RecipeSpec parse_recipe(std::string_view text,
     auto& a = r.data.augmentation;
     a.horizontal_flip_probability = v.value("horizontal_flip", 0.);
     a.vertical_flip_probability = v.value("vertical_flip", 0.);
+    a.bgr_probability = v.value("bgr", 0.);
     a.spatial.scale_gain = v.value("scale", 0.);
     a.spatial.translate_fraction = v.value("translate", 0.);
     a.photo.hue_shift = v.value("hsv_h", 0.);
@@ -667,6 +692,9 @@ RecipeSpec parse_recipe(std::string_view text,
     a.projective.degrees = v.value("degrees", 0.);
     a.projective.shear_degrees = v.value("shear", 0.);
     a.projective.perspective = v.value("perspective", 0.);
+    a.projective.scale_gain = v.value("projective_scale", 0.);
+    a.projective.translate_fraction =
+        v.value("projective_translate", 0.);
     a.projective.min_box_area =
         v.value("projective_min_box_area", a.projective.min_box_area);
     a.projective.min_visibility =
@@ -856,6 +884,24 @@ void check_recipe(const RecipeSpec& r) {
       r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16" &&
       r.optimizer_name != "auto")
     throw InvalidArgument("Optimizer must be sgd/adamw/musgd/musgd_bf16/auto");
+  if (r.yolo26_warmup.enabled &&
+      (!r.model.architecture.starts_with("yolo26") ||
+       r.model.task != TaskKind::detect ||
+       (r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16") ||
+       r.accumulation_tail != training::AccumulationTailPolicy::carry ||
+       r.accumulation_reduction != training::AccumulationReduction::sum ||
+       r.scheduler.warmup_updates != 0 ||
+       !std::isfinite(r.yolo26_warmup.warmup_epochs) ||
+       r.yolo26_warmup.warmup_epochs < 0 ||
+       r.yolo26_warmup.warmup_epochs > 1000000 ||
+       !std::isfinite(r.yolo26_warmup.warmup_bias_lr) ||
+       r.yolo26_warmup.warmup_bias_lr < 0 ||
+       !std::isfinite(r.yolo26_warmup.warmup_momentum) ||
+       r.yolo26_warmup.warmup_momentum < 0 ||
+       r.yolo26_warmup.warmup_momentum >= 1))
+    throw InvalidArgument(
+        "YOLO26 per-batch warmup requires detection MuSGD, sum/carry "
+        "accumulation, no update scheduler warmup, and valid hyperparameters");
   if (!std::isfinite(r.musgd_muon_weight) || r.musgd_muon_weight < 0 ||
       !std::isfinite(r.musgd_sgd_weight) || r.musgd_sgd_weight <= 0 ||
       ((r.musgd_muon_weight != .5 || r.musgd_sgd_weight != .5) &&
@@ -1111,6 +1157,7 @@ std::string recipe_json(const RecipeSpec& r) {
       {"augmentation",
        {{"horizontal_flip", a.horizontal_flip_probability},
         {"vertical_flip", a.vertical_flip_probability},
+        {"bgr", a.bgr_probability},
         {"scale", a.spatial.scale_gain},
         {"translate", a.spatial.translate_fraction},
         {"hsv_h", a.photo.hue_shift},
@@ -1134,6 +1181,8 @@ std::string recipe_json(const RecipeSpec& r) {
         {"degrees", a.projective.degrees},
         {"shear", a.projective.shear_degrees},
         {"perspective", a.projective.perspective},
+        {"projective_scale", a.projective.scale_gain},
+        {"projective_translate", a.projective.translate_fraction},
         {"projective_min_box_area", a.projective.min_box_area},
         {"projective_min_visibility", a.projective.min_visibility}}},
       {"ema",
@@ -1208,6 +1257,12 @@ std::string recipe_json(const RecipeSpec& r) {
                         {"fixed_many_gain", loss.fixed_many_gain},
                         {"fixed_one_gain", loss.fixed_one_gain}};
   }
+  if (r.yolo26_warmup.enabled)
+    j["yolo26_warmup"] = {{"enabled", true},
+                          {"warmup_epochs", r.yolo26_warmup.warmup_epochs},
+                          {"warmup_bias_lr", r.yolo26_warmup.warmup_bias_lr},
+                          {"warmup_momentum", r.yolo26_warmup.warmup_momentum},
+                          {"cosine", r.yolo26_warmup.cosine}};
   if (r.model.task == TaskKind::classify) {
     j["classification_root"] = Path(r.classification_root);
     j["classification_validation_root"] =

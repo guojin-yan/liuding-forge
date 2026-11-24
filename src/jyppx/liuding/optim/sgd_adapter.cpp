@@ -1442,12 +1442,11 @@ void SgdOptimizerAdapter::set_momentums(const std::vector<double>& momentums) {
                     "Validate every group before updating the optimizer.");
     }
   }
-  auto candidate = momentums;
   auto& native_groups = impl_->native->param_groups();
-  for (std::size_t index = 0; index < candidate.size(); ++index) {
-    native_options(native_groups[index]).momentum(candidate[index]);
+  for (std::size_t index = 0; index < momentums.size(); ++index) {
+    native_options(native_groups[index]).momentum(momentums[index]);
   }
-  impl_->momentums.swap(candidate);
+  std::copy(momentums.begin(), momentums.end(), impl_->momentums.begin());
 }
 
 const std::string& SgdOptimizerAdapter::optimizer_id() const noexcept {

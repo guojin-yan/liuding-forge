@@ -13,6 +13,7 @@
 #include <jyppx/liuding/vision/tasks/advanced_metrics.hpp>
 #include <jyppx/liuding/vision/tasks/data/augmentation.hpp>
 #include <jyppx/liuding/vision/tasks/data/composition.hpp>
+#include <jyppx/liuding/vision/tasks/data/preparation.hpp>
 #include <jyppx/liuding/vision/tasks/rtdetr.hpp>
 #include <jyppx/liuding/vision/tasks/tracking/metrics.hpp>
 #include <jyppx/liuding/vision/tasks/tracking/tracker.hpp>
@@ -509,6 +510,30 @@ TEST_F(VisionContracts, PhotometricGrayscaleMatchesBt601AndPreservesSource) {
   EXPECT_TRUE(torch::equal(sample.image, before));
 }
 
+TEST_F(VisionContracts, YoloBgrAugmentationReversesChannelsAndEvaluationDisablesIt) {
+  namespace im = data::image;
+  auto sample = ColorBars();
+  sample.pixels = {.layout = im::ImageLayout::chw,
+                   .color = im::PixelColorModel::rgb};
+  t::YoloDataOptions options;
+  options.num_classes = 1;
+  options.allow_unannotated_negatives = true;
+  options.size_divisor = 1;
+  options.letterbox.canvas = {3, 1};
+  options.augmentation.dataset_id = "fixture";
+  options.augmentation.bgr_probability = 1;
+  const std::array samples{sample};
+  const std::array keys{im::ImageBatchKey{.id = "color-bars"}};
+  const auto batch = t::prepare_yolo_batch(samples, keys, options);
+  const auto expected = torch::tensor({0.f, 0.f, 1.f, 0.f, 1.f, 0.f,
+                                       1.f, 0.f, 0.f})
+                            .view({1, 3, 1, 3});
+  EXPECT_TRUE(torch::equal(batch.images, expected));
+  EXPECT_DOUBLE_EQ(t::yolo_evaluation_options(options)
+                       .augmentation.bgr_probability,
+                   0);
+}
+
 TEST_F(VisionContracts, PhotometricReplayDoesNotConsumeGlobalTorchRng) {
   const auto sample = ColorBars();
   const t::PhotometricOptions options{
@@ -676,6 +701,44 @@ TEST_F(VisionContracts, RtDetrEncoderBudgetRoundTripAndBinding) {
                  InvalidArgument)
         << invalid;
   }
+}
+
+TEST_F(VisionContracts, Yolo26OfficialWarmupRoundTripAndRecipeIdentity) {
+  namespace tr = jyppx::liuding::training;
+  t::RecipeSpec recipe;
+  recipe.model.architecture = "yolo26n";
+  recipe.training.source = std::filesystem::absolute("annotations.json");
+  recipe.optimizer_name = "musgd_bf16";
+  recipe.accumulation_tail = tr::AccumulationTailPolicy::carry;
+  recipe.accumulation_reduction = tr::AccumulationReduction::sum;
+  recipe.yolo26_warmup.enabled = true;
+  recipe.data.augmentation.bgr_probability = .10567;
+  recipe.data.augmentation.projective.scale_gain = .56232;
+  recipe.data.augmentation.projective.translate_fraction = .07105;
+  recipe.scheduler.final_factor = .04952;
+  ASSERT_NO_THROW(t::check_recipe(recipe));
+
+  const auto identity = t::recipe_identity(recipe);
+  const auto restored =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  EXPECT_TRUE(restored.yolo26_warmup.enabled);
+  EXPECT_DOUBLE_EQ(restored.yolo26_warmup.warmup_epochs, .98124);
+  EXPECT_DOUBLE_EQ(restored.yolo26_warmup.warmup_bias_lr, .08114);
+  EXPECT_DOUBLE_EQ(restored.yolo26_warmup.warmup_momentum, .6576);
+  EXPECT_FALSE(restored.yolo26_warmup.cosine);
+  EXPECT_DOUBLE_EQ(restored.data.augmentation.bgr_probability, .10567);
+  EXPECT_DOUBLE_EQ(restored.data.augmentation.projective.scale_gain, .56232);
+  EXPECT_DOUBLE_EQ(restored.data.augmentation.projective.translate_fraction,
+                   .07105);
+  EXPECT_EQ(t::recipe_identity(restored), identity);
+
+  recipe.yolo26_warmup.warmup_momentum = .7;
+  EXPECT_NE(t::recipe_identity(recipe), identity);
+  recipe.data.augmentation.bgr_probability = 1.1;
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+  recipe.data.augmentation.bgr_probability = .10567;
+  recipe.accumulation_tail = tr::AccumulationTailPolicy::flush;
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
 }
 
 TEST_F(VisionContracts, ParameterDecayOverridesApplyToActualUpdates) {
