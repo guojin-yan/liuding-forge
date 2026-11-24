@@ -399,6 +399,7 @@ struct RtDetrImpl::Impl : torch::nn::Module {
         o.queries > 1024 || o.decoder_layers < 1 || o.decoder_layers > 6 ||
         o.denoising_queries < 0 || o.denoising_queries > 1000 ||
         o.max_memory_tokens < 1 || o.max_memory_tokens > 32768 ||
+        o.max_encoder_elements < 1 || o.max_encoder_elements > (1LL << 30) ||
         !std::isfinite(o.label_noise) || o.label_noise < 0 ||
         o.label_noise > 1 || !std::isfinite(o.box_noise) || o.box_noise < 0 ||
         o.box_noise > 2 ||
@@ -490,10 +491,10 @@ struct RtDetrImpl::Impl : torch::nn::Module {
     }
     if (tokens < o.queries)
       throw InvalidArgument("RT-DETR query count exceeds feature locations");
-    if (b * tokens * 256 > 16777216 ||
+    if (b * tokens * 256 > o.max_encoder_elements ||
         b * (shapes.back()[0] * shapes.back()[1]) *
                 (shapes.back()[0] * shapes.back()[1]) * 8 >
-            16777216)
+            o.max_encoder_elements)
       throw ResourceExhausted("RT-DETR attention allocation budget exceeded");
     auto memory = torch::cat(flatten, 1), anchor = torch::cat(anchors, 1);
     auto valid = ((anchor > .01) & (anchor < .99)).all(-1, true);

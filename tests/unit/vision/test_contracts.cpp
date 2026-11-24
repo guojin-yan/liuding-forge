@@ -645,6 +645,39 @@ TEST_F(VisionContracts, ExecutionPolicyRoundTripsAndChangesResumeIdentity) {
   }
 }
 
+TEST_F(VisionContracts, RtDetrEncoderBudgetRoundTripAndBinding) {
+  t::RecipeSpec recipe;
+  recipe.model.architecture = "rtdetr_resnet18_vd_coco72";
+  recipe.training.source = std::filesystem::absolute("annotations.json");
+  const auto original = t::recipe_json(recipe);
+  EXPECT_EQ(original.find("rtdetr_max_encoder_elements"), std::string::npos);
+  const auto identity = t::recipe_identity(recipe);
+  recipe.model.rtdetr_max_encoder_elements = 1024;
+  EXPECT_NE(t::recipe_identity(recipe), identity);
+  const auto restored =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  EXPECT_EQ(restored.model.rtdetr_max_encoder_elements, 1024);
+  auto binding = t::bind_task(restored);
+  binding.model->state().module().eval();
+  torch::NoGradGuard no_grad;
+  EXPECT_THROW(binding.model->invoke(
+                   nn::Invocation{.positional = {torch::zeros({2, 3, 256, 256}),
+                                                 torch::empty({0, 6})}}),
+               ResourceExhausted);
+  recipe.model.architecture = "yolo26n";
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+  for (const auto invalid : {"0", "-1", "1.5", "true", "\"1024\"", "null",
+                             "1073741825", "18446744073709551615"}) {
+    const auto json =
+        std::string(
+            R"({"model":{"architecture":"rtdetr_resnet18_vd_coco72","rtdetr_max_encoder_elements":)") +
+        invalid + R"(},"dataset":{"format":"coco","source":"a.json"}})";
+    EXPECT_THROW(t::parse_recipe(json, std::filesystem::current_path()),
+                 InvalidArgument)
+        << invalid;
+  }
+}
+
 TEST_F(VisionContracts, AnnotationBudgetsRoundTripAndBindResumeIdentity) {
   t::RecipeSpec recipe;
   recipe.training.source = std::filesystem::absolute("annotations.json");

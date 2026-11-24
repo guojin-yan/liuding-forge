@@ -17,6 +17,8 @@ struct RtDetrOptions {
   std::int64_t denoising_queries = 100, max_memory_tokens = 32768;
   double label_noise = .5, box_noise = 1.;
   RtDetrProfile profile = RtDetrProfile::native_v1;
+  std::int64_t max_encoder_elements = 16777216;
+  ///< Per-allocation encoder element bound; explicit range 1..2^30.
 };
 /** @brief Deep-stem vd backbone, C5 transformer, CSPRep FPN/PAN and
  * iterative multiscale deformable decoder. Input images [B,3,H,W], H/W

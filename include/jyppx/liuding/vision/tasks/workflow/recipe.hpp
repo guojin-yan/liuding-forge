@@ -26,6 +26,8 @@ struct ModelSpec {
   std::int64_t keypoints = 17;
   std::int64_t keypoint_dimensions = 3;
   std::int64_t mask_channels = 32;
+  std::int64_t rtdetr_max_encoder_elements = 16777216;
+  ///< RT-DETR encoder allocation bound; nondefault values bind run identity.
 };
 /** @brief Version-2 task policy; all defaults are serialized in run identity. */
 struct ExtensionRecipe {

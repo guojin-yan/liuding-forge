@@ -339,8 +339,9 @@ RecipeSpec parse_recipe(std::string_view text,
     x.feature_distillation_weight = e.value("feature_distillation_weight", 0.);
   }
   const auto& m = j.at("model");
-  Keys(m, {"architecture", "task", "variant", "num_classes", "keypoints",
-           "keypoint_dimensions", "mask_channels"});
+  Keys(m,
+       {"architecture", "task", "variant", "num_classes", "keypoints",
+        "keypoint_dimensions", "mask_channels", "rtdetr_max_encoder_elements"});
   r.model.architecture = m.at("architecture").get<std::string>();
   r.model.task = parse_task(m.value("task", std::string("detect")));
   r.model.variant = m.value("variant", r.model.variant);
@@ -349,6 +350,8 @@ RecipeSpec parse_recipe(std::string_view text,
   r.model.keypoint_dimensions =
       m.value("keypoint_dimensions", r.model.keypoint_dimensions);
   r.model.mask_channels = m.value("mask_channels", r.model.mask_channels);
+  ReadLimit(m, "rtdetr_max_encoder_elements",
+            r.model.rtdetr_max_encoder_elements);
   r.keypoint_sigmas = j.value("keypoint_sigmas", r.keypoint_sigmas);
   if (j.contains("dataset"))
     r.training = Source(j["dataset"], root, DatasetSplit::train, r.model);
@@ -658,6 +661,11 @@ void check_recipe(const RecipeSpec& r) {
       r.model.mask_channels > 256 ||
       (r.model.keypoint_dimensions != 2 && r.model.keypoint_dimensions != 3))
     throw InvalidArgument("Invalid model/task recipe");
+  if (r.model.rtdetr_max_encoder_elements < 1 ||
+      r.model.rtdetr_max_encoder_elements > (1LL << 30) ||
+      (r.model.rtdetr_max_encoder_elements != 16777216 &&
+       !r.model.architecture.starts_with("rtdetr_")))
+    throw InvalidArgument("Invalid RT-DETR encoder allocation bound");
   if (!r.extension.multilabel_thresholds.empty()) {
     if (r.schema_version < 2 || r.model.task != TaskKind::classify_multilabel ||
         r.extension.multilabel_thresholds.size() !=
@@ -1078,6 +1086,9 @@ std::string recipe_json(const RecipeSpec& r) {
         {"logits_distillation_weight", r.extension.logits_distillation_weight},
         {"feature_distillation_weight",
          r.extension.feature_distillation_weight}};
+  if (r.model.rtdetr_max_encoder_elements != 16777216)
+    j["model"]["rtdetr_max_encoder_elements"] =
+        r.model.rtdetr_max_encoder_elements;
   if (r.model.task == TaskKind::classify) {
     j["classification_root"] = Path(r.classification_root);
     j["classification_validation_root"] =

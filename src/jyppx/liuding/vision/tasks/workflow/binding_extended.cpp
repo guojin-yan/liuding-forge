@@ -52,8 +52,13 @@ void bind_extended(const RecipeSpec& r,TaskBinding& b,const YoloDataOptions& dat
     b.decode=[task=b.yolo](const c10::IValue& v,auto size,const ResultOptions& options){auto raw=raw_tensors(v);raw.resize(task.task==TaskKind::instance_segment?2:1);return decode_yolo_results(raw,size,task,options);};
   }else if(name.starts_with("rtdetr_")){
     ex::RtDetrOptions o;o.num_classes=r.model.num_classes;if(name=="rtdetr_resnet18_vd"||name=="rtdetr_resnet18_vd_coco72")o.backbone=ex::RtDetrBackbone::resnet18_vd;
-    if(name=="rtdetr_resnet18_vd_coco72")o.profile=ex::RtDetrProfile::r18_coco72;
-    b.model=std::make_shared<nn::ModelAdapter>(ex::adapt(ex::RtDetr(o)));b.step=make_rtdetr_step(r.model.num_classes,o.profile==ex::RtDetrProfile::r18_coco72);b.image_mapper=make_rtdetr_image_mapper(data);
+    if (name == "rtdetr_resnet18_vd_coco72")
+      o.profile = ex::RtDetrProfile::r18_coco72;
+    o.max_encoder_elements = r.model.rtdetr_max_encoder_elements;
+    b.model = std::make_shared<nn::ModelAdapter>(ex::adapt(ex::RtDetr(o)));
+    b.step = make_rtdetr_step(r.model.num_classes,
+                              o.profile == ex::RtDetrProfile::r18_coco72);
+    b.image_mapper = make_rtdetr_image_mapper(data);
     b.decode=[](const c10::IValue& v,auto size,const ResultOptions& options){return decode_rtdetr(raw_tensors(v),size,options);};
   }else if(name.starts_with("fcos_")||name=="retinanet_resnet50_fpn"){
     ex::DenseDetectorOptions o;o.num_classes=r.model.num_classes;

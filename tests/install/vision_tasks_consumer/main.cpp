@@ -59,7 +59,8 @@ int main() try {
     ex::RtDetr model(
         ex::RtDetrOptions{.backbone = ex::RtDetrBackbone::resnet18_vd,
                           .num_classes = 3,
-                          .profile = ex::RtDetrProfile::r18_coco72});
+                          .profile = ex::RtDetrProfile::r18_coco72,
+                          .max_encoder_elements = 67108864});
     if (!model->named_parameters().contains(
             "model.decoder2.self_attention.packed.in_proj_weight") ||
         !model->named_parameters().contains(

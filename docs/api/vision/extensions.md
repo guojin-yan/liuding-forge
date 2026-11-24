@@ -4,6 +4,8 @@
 
 ## 模型选择
 
+RT-DETR 可在 recipe 的 `model.rtdetr_max_encoder_elements` 显式设置编码器每次分配的元素上限，默认 `16777216`，范围 `1..1073741824`；直接构造模型时对应 `RtDetrOptions::max_encoder_elements`。增大额度允许更大的 batch，并增加可能的内存和显存需求；它不改变模型参数或训练数学行为。非默认额度纳入训练和恢复身份，其余模型拒绝非默认设置。
+
 | 任务 | architecture 起点 | 输入与输出 |
 | --- | --- | --- |
 | 多标签分类 | 既有分类骨干，如 `resnet50` | `classify_multilabel`；独立 logits，known mask 区分未知与负类 |

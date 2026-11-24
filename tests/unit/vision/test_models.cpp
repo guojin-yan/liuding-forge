@@ -8,8 +8,8 @@
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #include <jyppx/liuding/training/amp/autocast.hpp>
 #include <jyppx/liuding/training/amp/grad_scaler.hpp>
-#include <jyppx/liuding/vision/models/yolo/model.hpp>
 #include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
+#include <jyppx/liuding/vision/models/yolo/model.hpp>
 #include <jyppx/liuding/vision/tasks/extended.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
 
@@ -308,12 +308,14 @@ std::vector<AcceleratorCase> accelerator_cases() {
   }
   return result;
 }
-TEST(VisionRtDetrProfile, R18CocoTopologyHasThreeDecodersAndTrainableBackboneNorm) {
+TEST(VisionRtDetrProfile,
+     R18CocoTopologyHasThreeDecodersAndTrainableBackboneNorm) {
   torch::set_num_threads(1);
   namespace ex = models::extended;
-  ex::RtDetr model(ex::RtDetrOptions{
-      .backbone = ex::RtDetrBackbone::resnet18_vd, .num_classes = 3,
-      .profile = ex::RtDetrProfile::r18_coco72});
+  ex::RtDetr model(
+      ex::RtDetrOptions{.backbone = ex::RtDetrBackbone::resnet18_vd,
+                        .num_classes = 3,
+                        .profile = ex::RtDetrProfile::r18_coco72});
   const auto parameters = model->named_parameters();
   const auto buffers = model->named_buffers();
   EXPECT_EQ(parameters.size() + buffers.size(), 533);
@@ -322,11 +324,15 @@ TEST(VisionRtDetrProfile, R18CocoTopologyHasThreeDecodersAndTrainableBackboneNor
   EXPECT_EQ(count, 20085596);
   EXPECT_TRUE(parameters.contains("model.backbone.stem.0.norm.weight"));
   EXPECT_TRUE(parameters["model.backbone.stem.0.norm.weight"].requires_grad());
-  EXPECT_TRUE(buffers.contains("model.backbone.stem.0.norm.num_batches_tracked"));
-  EXPECT_TRUE(parameters.contains("model.decoder2.self_attention.packed.in_proj_weight"));
-  EXPECT_FALSE(parameters.contains("model.decoder3.self_attention.packed.in_proj_weight"));
+  EXPECT_TRUE(
+      buffers.contains("model.backbone.stem.0.norm.num_batches_tracked"));
+  EXPECT_TRUE(parameters.contains(
+      "model.decoder2.self_attention.packed.in_proj_weight"));
+  EXPECT_FALSE(parameters.contains(
+      "model.decoder3.self_attention.packed.in_proj_weight"));
   EXPECT_EQ(parameters["model.encoder.fpn0.conv1.conv.weight"].size(0), 128);
-  EXPECT_TRUE(parameters.contains("model.encoder.fpn0.blocks.2.conv3.conv.weight"));
+  EXPECT_TRUE(
+      parameters.contains("model.encoder.fpn0.blocks.2.conv3.conv.weight"));
   t::ModelSpec spec;
   spec.architecture = "rtdetr_resnet18_vd_coco72";
   const auto profile = t::describe_binding(spec);
@@ -344,6 +350,33 @@ TEST(VisionRtDetrProfile, RejectsInvalidBackboneAndUnknownProfile) {
   options.backbone = ex::RtDetrBackbone::resnet18_vd;
   options.profile = static_cast<ex::RtDetrProfile>(99);
   EXPECT_THROW(ex::RtDetr model(options), InvalidArgument);
+}
+
+TEST(VisionRtDetrProfile, ExplicitEncoderBudgetControlsActualForward) {
+  torch::set_num_threads(1);
+  torch::NoGradGuard no_grad;
+  namespace ex = models::extended;
+  ex::RtDetrOptions options;
+  options.backbone = ex::RtDetrBackbone::resnet18_vd;
+  options.profile = ex::RtDetrProfile::r18_coco72;
+  options.max_encoder_elements = 1024;
+  ex::RtDetr limited(options);
+  limited->eval();
+  const auto images = torch::zeros({2, 3, 256, 256});
+  const auto targets = torch::empty({0, 6});
+  EXPECT_THROW(limited->forward(images, targets), ResourceExhausted);
+  options.max_encoder_elements = 1048576;
+  ex::RtDetr allowed(options);
+  allowed->eval();
+  const auto result = allowed->forward(images, targets);
+  ASSERT_EQ(result.size(), 8U);
+  EXPECT_EQ(result[0].size(1), 2);
+  EXPECT_TRUE(torch::isfinite(result[0]).all().item<bool>());
+  for (const auto invalid :
+       std::initializer_list<std::int64_t>{0, -1, (1LL << 30) + 1}) {
+    options.max_encoder_elements = invalid;
+    EXPECT_THROW(ex::RtDetr model(options), InvalidArgument);
+  }
 }
 
 class VisionAcceleratorTraining
