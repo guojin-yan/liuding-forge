@@ -159,6 +159,117 @@ class TorchRuntimeStagingTests(unittest.TestCase):
         self.assertEqual((output_pack.parent / "torch_gfx1200.kpack").read_bytes(),
                          b"another device archive")
 
+    def prepare_sdk_archives(self) -> tuple[Path, Path]:
+        self.sdk = self.sdk / "lib"
+        self.sdk.mkdir()
+        (self.sdk / "torch_hip.dll").write_bytes(b"synthetic HIP backend")
+        torch_packs = self.sdk.parent / ".kpack"
+        torch_packs.mkdir()
+        (torch_packs / "torch_gfx1100.kpack").write_bytes(b"Torch device code")
+        hip = self.extra_source / "rocblas.dll"
+        hip.write_bytes(b"synthetic rocBLAS")
+        self.write_extra_manifest(hip)
+        sdk_packs = self.extra_source.parent / ".kpack"
+        sdk_packs.mkdir()
+        (sdk_packs / "blas_lib_gfx1100.kpack").write_bytes(b"BLAS device code")
+        self.output = self.root / "stage/bin"
+        return torch_packs, sdk_packs
+
+    def test_sdk_archives_merge_and_disable_without_removing_torch_or_other_files(self) -> None:
+        _, sdk_packs = self.prepare_sdk_archives()
+        self.stage()
+        packs = self.output.parent / ".kpack"
+        report = json.loads((packs / "liuding-forge-torch-kpack.json").read_bytes())
+        self.assertEqual(report["scope"], "staged-torch-sdk-kpacks")
+        self.assertEqual({row["name"] for row in report["files"]},
+                         {"blas_lib_gfx1100.kpack", "torch_gfx1100.kpack"})
+        self.assertEqual((packs / "blas_lib_gfx1100.kpack").read_bytes(), b"BLAS device code")
+        (packs / "independent.kpack").write_bytes(b"unowned device code")
+        (sdk_packs / "blas_lib_gfx1100.kpack").unlink()
+        (sdk_packs / "blas_lib_gfx1200.kpack").write_bytes(b"replacement device code")
+        self.stage()
+        self.assertFalse((packs / "blas_lib_gfx1100.kpack").exists())
+        self.assertEqual((packs / "blas_lib_gfx1200.kpack").read_bytes(), b"replacement device code")
+        self.write_extra_manifest()
+        self.stage()
+        self.assertFalse((packs / "blas_lib_gfx1200.kpack").exists())
+        self.assertEqual((packs / "torch_gfx1100.kpack").read_bytes(), b"Torch device code")
+        self.assertEqual((packs / "independent.kpack").read_bytes(), b"unowned device code")
+
+    def test_sdk_archive_conflict_and_modified_stale_archive_are_rejected(self) -> None:
+        torch_packs, sdk_packs = self.prepare_sdk_archives()
+        self.stage()
+        packs = self.output.parent / ".kpack"
+        report = packs / "liuding-forge-torch-kpack.json"
+        before = report.read_bytes()
+        collision = sdk_packs / "TORCH_gfx1100.kpack"
+        collision.write_bytes(b"conflicting device code")
+        arguments = [f"-DJYPPX_RUNTIME_SOURCE_DIR={torch_packs}",
+                     f"-DJYPPX_RUNTIME_OUTPUT_DIR={packs}",
+                     f"-DJYPPX_RUNTIME_EXTRA_KPACK_DIR={sdk_packs}",
+                     "-DJYPPX_RUNTIME_KPACK_ONLY=ON", "-P", ROOT / "cmake/StageTorchRuntime.cmake"]
+        self.assertIn(b"Duplicate runtime DLL name", self.invoke(*arguments, success=False).stdout)
+        self.assertEqual(report.read_bytes(), before)
+        collision.unlink()
+        stale = packs / "blas_lib_gfx1100.kpack"
+        stale.unlink()  # Do not modify the SDK through a staged hardlink.
+        stale.write_bytes(b"application replacement")
+        (sdk_packs / stale.name).unlink()
+        (sdk_packs / "new.kpack").write_bytes(b"new archive")
+        self.assertIn(b"was modified", self.invoke(*arguments, success=False).stdout)
+        self.assertEqual(stale.read_bytes(), b"application replacement")
+        self.assertFalse((packs / "new.kpack").exists())
+        self.assertEqual(report.read_bytes(), before)
+        arguments[1] = f"-DJYPPX_RUNTIME_OUTPUT_DIR={sdk_packs / 'nested'}"
+        self.assertIn(b"must not overlap", self.invoke(*arguments, success=False).stdout)
+        self.assertFalse((sdk_packs / "nested").exists())
+
+    def test_incremental_build_tracks_sdk_archives_and_opt_out(self) -> None:
+        _, sdk_packs = self.prepare_sdk_archives()
+        project = self.root / "project"
+        project.mkdir()
+        # Supply a synthetic already-scanned import closure; never load text DLLs.
+        project.joinpath("CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.18)\nproject(runtime_contract NONE)\n"
+            "set(WIN32 TRUE)\n"
+            "option(JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS \"\" ON)\n"
+            "add_library(hip::amdhip64 INTERFACE IMPORTED)\n"
+            f'set(PROJECT_SOURCE_DIR "{ROOT.as_posix()}")\n'
+            f'set(TORCH_LIBRARY "{self.sdk.as_posix()}/torch.lib")\n'
+            'set_property(GLOBAL PROPERTY JYPPX_WINDOWS_ROCM_RUNTIME_SCANNED TRUE)\n'
+            f'set_property(GLOBAL PROPERTY JYPPX_WINDOWS_ROCM_RUNTIME_DLLS "{self.extra_source.as_posix()}/rocblas.dll")\n'
+            f'set_property(GLOBAL PROPERTY JYPPX_WINDOWS_ROCM_RUNTIME_MANIFEST "{self.extra_manifest.as_posix()}")\n'
+            f'set_property(GLOBAL PROPERTY JYPPX_WINDOWS_ROCM_RUNTIME_SOURCE_DIR "{self.extra_source.as_posix()}")\n'
+            f'include("{ROOT.as_posix()}/cmake/CopyTorchRuntime.cmake")\n'
+            "add_custom_target(runtime_contract ALL)\n"
+            "jyppx_add_torch_runtime_dependency(runtime_contract)\n", encoding="utf-8")
+        build = self.root / "build"
+        configure = ["-S", project, "-B", build]
+        ninja = os.environ.get("JYPPX_TEST_NINJA") or shutil.which("ninja")
+        if ninja:
+            configure.extend(["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}"])
+        self.invoke(*configure)
+        build_args = ["--build", build, "--config", "Release", "--parallel", "1"]
+        self.invoke(*build_args)
+        packs = next(build.parent.rglob("liuding-forge-torch-kpack.json")).parent
+        target = packs / "blas_lib_gfx1100.kpack"
+        self.assertEqual(target.read_bytes(), b"BLAS device code")
+        replacement = sdk_packs / "replacement"
+        replacement.write_bytes(b"updated code")
+        replacement.replace(sdk_packs / target.name)
+        self.invoke(*build_args)
+        self.assertEqual(target.read_bytes(), b"updated code")
+        (sdk_packs / "solver_lib_gfx1100.kpack").write_bytes(b"solver code")
+        self.invoke(*build_args)
+        self.assertEqual((packs / "solver_lib_gfx1100.kpack").read_bytes(), b"solver code")
+        (sdk_packs / target.name).unlink()
+        self.invoke(*build_args)
+        self.assertFalse(target.exists())
+        self.invoke(*configure, "-DJYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS=OFF")
+        self.invoke(*build_args)
+        self.assertFalse((packs / "solver_lib_gfx1100.kpack").exists())
+        self.assertEqual((packs / "torch_gfx1100.kpack").read_bytes(), b"Torch device code")
+
     def test_modified_old_dll_rejects_before_other_output_mutation(self) -> None:
         (self.sdk / "old.dll").write_bytes(b"old runtime")
         self.stage()

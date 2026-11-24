@@ -29,6 +29,31 @@ if(JYPPX_RUNTIME_KPACK_ONLY)
     set(runtime_name_pattern "[A-Za-z0-9][A-Za-z0-9_.+-]*[.]kpack")
     set(runtime_inventory_name "liuding-forge-torch-kpack")
     set(runtime_scope "staged-torch-kpacks")
+    if(JYPPX_RUNTIME_EXTRA_KPACK_DIR)
+        if(NOT IS_ABSOLUTE "${JYPPX_RUNTIME_EXTRA_KPACK_DIR}" OR
+           NOT IS_DIRECTORY "${JYPPX_RUNTIME_EXTRA_KPACK_DIR}")
+            message(FATAL_ERROR "Additional device archives require an absolute source directory")
+        endif()
+        get_filename_component(runtime_extra_source_root
+            "${JYPPX_RUNTIME_EXTRA_KPACK_DIR}" REALPATH)
+        file(TO_CMAKE_PATH "${runtime_extra_source_root}" runtime_extra_source_root)
+        set(runtime_extra_source_comparison "${runtime_extra_source_root}/")
+        if(WIN32)
+            string(TOLOWER "${runtime_extra_source_comparison}" runtime_extra_source_comparison)
+        endif()
+        string(FIND "${runtime_extra_source_comparison}" "${runtime_output_comparison}"
+            runtime_extra_source_overlap)
+        string(FIND "${runtime_output_comparison}" "${runtime_extra_source_comparison}"
+            runtime_extra_output_overlap)
+        if(runtime_extra_source_overlap EQUAL 0 OR runtime_extra_output_overlap EQUAL 0)
+            message(FATAL_ERROR "Additional device archive source and output directories must not overlap")
+        endif()
+        file(GLOB runtime_extra_files "${runtime_extra_source_root}/*.kpack")
+        list(APPEND runtime_files ${runtime_extra_files})
+        if(runtime_extra_files)
+            set(runtime_scope "staged-torch-sdk-kpacks")
+        endif()
+    endif()
     # Sibling executables can share the parent .kpack directory. Serialize its
     # ownership updates independently from their DLL staging directories.
     if(IS_SYMLINK "${runtime_output_root}")
@@ -280,9 +305,18 @@ file(RENAME "${runtime_report}.new" "${runtime_report}")
 if(NOT JYPPX_RUNTIME_KPACK_ONLY AND EXISTS "${runtime_source_root}/torch_hip.dll"
    AND IS_DIRECTORY "${runtime_source_root}/../.kpack")
     # HIPK metadata in torch_hip.dll expects ../.kpack relative to that DLL.
+    # Relocated SDK math DLLs use the same layout for their own device code.
+    # Merge both sets under one ownership index so disabling the opt-in removes
+    # only the SDK archives while retaining the Torch archives and other files.
+    set(runtime_extra_kpack_dir)
+    if(runtime_extra_files AND IS_DIRECTORY "${runtime_extra_source_root}/../.kpack")
+        get_filename_component(runtime_extra_kpack_dir
+            "${runtime_extra_source_root}/../.kpack" REALPATH)
+    endif()
     execute_process(COMMAND "${CMAKE_COMMAND}"
         "-DJYPPX_RUNTIME_SOURCE_DIR=${runtime_source_root}/../.kpack"
         "-DJYPPX_RUNTIME_OUTPUT_DIR=${runtime_output_root}/../.kpack"
+        "-DJYPPX_RUNTIME_EXTRA_KPACK_DIR=${runtime_extra_kpack_dir}"
         -DJYPPX_RUNTIME_KPACK_ONLY=ON
         -P "${CMAKE_CURRENT_LIST_FILE}" RESULT_VARIABLE runtime_kpack_result)
     if(NOT runtime_kpack_result EQUAL 0)

@@ -25,6 +25,7 @@
 - 注册 MIGraphX 图像示例的参数测试时，将其可执行程序纳入默认测试构建，避免默认构建后 CTest 缺少程序。
 - 接入 AMD ROCm LibTorch/HIP 构建、GPU 设备发现与构建指纹，视觉 batch 预检使用 HIP 内存查询；AMD 继续使用 LibTorch 的 `cuda:<index>` 与既有训练/AMP/恢复接口。
 - 增加默认关闭的 Windows ROCm 构建树运行库暂存选项，按 PE 导入依赖闭包暂存匹配 SDK DLL，并通过清单管理替换、冲突和旧文件；安装运行仍由应用提供匹配 SDK。
+- 修复 Windows ROCm 可选 DLL 暂存后缺少数学库 `.kpack` 设备归档造成的 `hipErrorInvalidKernelFile`；构建树及视觉安装消费者保留 SDK 归档相对路径，增量更新和关闭选项时按清单管理归档。
 - Windows/Linux ROCm 10.1.0 LibTorch 2.14.0 可启用原生 ONNX 导出；GPU 训练模型通过独立 CPU 副本导出，视觉 CLI 使用 CPU FP32，推理后端由 ONNX Runtime 单独选择。
 - 补齐 AMD 开发组合的八类优化器、十五类调度器与 FP32/FP16/BF16 autocast 数值及精确续训回归；主权重使用 FP32。
 - 补充 StepLR 显式 PyTorch 启动模式的完整状态恢复与模式不匹配拒绝验证，覆盖首次事件及首次衰减边界；记录选项和检查点兼容语义。

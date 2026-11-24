@@ -52,7 +52,9 @@ Windows FP16 的首步失败包括 YOLOv8 s/m/l/x Ghost P6、YOLO26 n/s/m/l/x P6
 
 Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像；应用仍需提供匹配的 HIP 运行库、数学库和设备数据。保留 HIP SDK 自身的 `.kpack`、数学库数据目录，按 SDK 激活脚本设置 `HIPBLASLT_TENSILE_LIBPATH`、`ROCBLAS_TENSILE_LIBPATH` 及运行库搜索路径。只复制 `torch_hip.dll` 不能构成完整部署。
 
-自行部署时，`torch_hip.dll` 上一级目录保留 `.kpack/torch_gfx1100.kpack`，`aotriton_v2.dll` 相邻目录保留 `aotriton.images`。不设置仅指向 Torch 归档的全局 `ROCM_KPACK_PATH_PREFIX`，它还会影响 HIP 数学库的归档选择。缺少设备数据时，设备发现和 BLAS 矩阵乘法仍可能成功，其他算子则会报 `hipErrorInvalidKernelFile`。
+显式启用 `JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS=ON` 时，构建目录还会暂存所选 HIP SDK 的 DLL 导入闭包及其上一级 `.kpack/` 归档，保留数学库加载设备代码所需的相对路径。重复构建会更新归档；关闭该选项后只清理清单拥有且未修改的 SDK 归档，保留 Torch 归档和应用自行放置的文件。该选项不收集延迟加载的全部插件、数据库或数学库数据，也不改变安装包的外部 SDK 要求。
+
+自行部署时，`torch_hip.dll` 上一级目录保留 `.kpack/torch_gfx1100.kpack`，SDK 数学库 DLL 上一级目录保留各自的 `.kpack/*_lib_gfx1100.kpack`，`aotriton_v2.dll` 相邻目录保留 `aotriton.images`。不设置仅指向 Torch 归档的全局 `ROCM_KPACK_PATH_PREFIX`，它还会影响 HIP 数学库的归档选择。缺少设备数据时，设备发现和 BLAS 矩阵乘法仍可能成功，其他算子则会报 `hipErrorInvalidKernelFile`。
 
 安装后的 `find_package(jyppx CONFIG REQUIRED COMPONENTS sdk)` 使用同一 ROCm LibTorch 版本；混用 CPU/NVIDIA 包会被拒绝。安装 SDK 不内置完整 ROCm 运行环境。
 

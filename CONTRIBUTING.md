@@ -55,7 +55,7 @@ MIGRAPHX_DISABLE_MLIR=1 ctest --test-dir <构建目录> -C Release --output-on-f
 
 将示例中的 target 和测试选择替换为实际受影响的范围。公共头、CMake target 或组件依赖变化还需运行以下检查，并验证安装后消费者及相关组件关闭组合：
 
-Windows ROCm 的 `VisionTasksInstallConsumer` 继承父构建显式启用的 `JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS`，在其独立消费者构建目录暂存相同 HIP 导入闭包；重复构建及关闭该选择会更新暂存清单，并只移除清单拥有且未修改的旧 DLL。该测试设置不写入安装包或更改应用的 SDK 部署要求。
+Windows ROCm 的 `VisionTasksInstallConsumer` 继承父构建显式启用的 `JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS`，在其独立消费者构建目录暂存相同 HIP 导入闭包及 SDK `.kpack` 归档；重复构建及关闭该选择会更新暂存清单，并只移除清单拥有且未修改的旧文件。该测试设置不写入安装包或更改应用的 SDK 部署要求。
 
 ```sh
 ctest --test-dir out/build/windows-release -C Release --output-on-failure -j 1 -R "^(ComponentDependencyGraph|RepositoryHygiene|PublicHeaderGuards)$"
