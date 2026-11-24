@@ -410,9 +410,12 @@ TrainResult train_vision(const TrainRequest& request) {
     optimizer = concrete;
     optimizer_checkpoint =
         std::make_shared<optim::AdamWOptimizerCheckpointParticipant>(concrete);
-  } else if (r.optimizer_name == "musgd") {
+  } else if (r.optimizer_name == "musgd" || r.optimizer_name == "musgd_bf16") {
     auto concrete = std::make_shared<MuSgdOptimizer>("optimizer.vision",
-                                                     std::move(groups.groups));
+        std::move(groups.groups), MuSgdOptions{
+            .muon = r.musgd_muon_weight, .sgd = r.musgd_sgd_weight,
+            .math = r.optimizer_name == "musgd_bf16" ? MuSgdMath::bf16_batched
+                                                      : MuSgdMath::fp32_native});
     optimizer = concrete;
     optimizer_checkpoint = concrete;
   } else

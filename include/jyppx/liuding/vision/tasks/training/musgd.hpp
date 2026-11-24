@@ -8,17 +8,20 @@
  */
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 namespace jyppx::liuding::vision::tasks {
+enum class MuSgdMath { fp32_native, bf16_batched };
 struct MuSgdOptions {
   double muon = .5;
   double sgd = .5;
   std::uint32_t newton_schulz_steps = 5;
   std::int64_t max_gram_elements = 16777216;
+  MuSgdMath math = MuSgdMath::fp32_native;
 };
 /** @brief Explicit FP32 Newton-Schulz MuSGD profile, with exact native state.
  * Rank>=2 parameters receive orthogonalized EMA momentum followed by weighted
  * SGD; vectors receive standard SGD. SGD decay sees post-Muon parameters.
  * Nesterov and momentum follow each frozen parameter group's recipe. This
- * native FP32 arithmetic profile is distinct from upstream BF16 qualification.
+ * native FP32 arithmetic profile is distinct from the opt-in BF16 batched
+ * Newton-Schulz profile. Their checkpoint recipes cannot be interchanged.
  */
 class MuSgdOptimizer final : public optim::OptimizerAdapter,
                              public CheckpointParticipant {

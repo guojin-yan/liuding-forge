@@ -61,9 +61,12 @@ std::shared_ptr<optim::OptimizerAdapter> Optimizer(nn::ModelAdapter& model,
   if (name == "sgd")
     return std::make_shared<optim::SgdOptimizerAdapter>(
         "preflight.optimizer", std::move(groups.groups));
-  if (name == "musgd")
+  if (name == "musgd" || name == "musgd_bf16")
     return std::make_shared<MuSgdOptimizer>("preflight.optimizer",
-                                            std::move(groups.groups));
+        std::move(groups.groups), MuSgdOptions{
+            .muon = r.musgd_muon_weight, .sgd = r.musgd_sgd_weight,
+            .math = name == "musgd_bf16" ? MuSgdMath::bf16_batched
+                                          : MuSgdMath::fp32_native});
   std::vector<optim::AdamWParameterGroup> converted;
   for (auto& g : groups.groups) {
     optim::AdamWParameterGroup v;

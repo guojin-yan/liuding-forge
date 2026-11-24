@@ -414,8 +414,10 @@ RecipeSpec parse_recipe(std::string_view text,
   if (j.contains("optimizer")) {
     const auto& v = j["optimizer"];
     Keys(v, {"name", "learning_rate", "momentum", "weight_decay", "nesterov",
-             "nominal_batch", "scale_weight_decay"});
+             "nominal_batch", "scale_weight_decay", "muon_weight", "sgd_weight"});
     r.optimizer_name = v.value("name", r.optimizer_name);
+    r.musgd_muon_weight = v.value("muon_weight", r.musgd_muon_weight);
+    r.musgd_sgd_weight = v.value("sgd_weight", r.musgd_sgd_weight);
     auto& o = r.optimizer;
     o.learning_rate = v.value("learning_rate", o.learning_rate);
     o.momentum = v.value("momentum", o.momentum);
@@ -589,8 +591,14 @@ void check_recipe(const RecipeSpec& r) {
       !std::isfinite(r.ema_ramp_updates) || r.ema_ramp_updates <= 0)
     throw InvalidArgument("Invalid smoothing/EMA policy");
   if (r.optimizer_name != "sgd" && r.optimizer_name != "adamw" &&
-      r.optimizer_name != "musgd" && r.optimizer_name != "auto")
-    throw InvalidArgument("Optimizer must be sgd/adamw/musgd/auto");
+      r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16" &&
+      r.optimizer_name != "auto")
+    throw InvalidArgument("Optimizer must be sgd/adamw/musgd/musgd_bf16/auto");
+  if (!std::isfinite(r.musgd_muon_weight) || r.musgd_muon_weight < 0 ||
+      !std::isfinite(r.musgd_sgd_weight) || r.musgd_sgd_weight <= 0 ||
+      ((r.musgd_muon_weight != .5 || r.musgd_sgd_weight != .5) &&
+       r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16"))
+    throw InvalidArgument("Invalid or inapplicable MuSGD component weights");
   if (!std::isfinite(r.optimizer.learning_rate) ||
       r.optimizer.learning_rate <= 0 || !std::isfinite(r.optimizer.momentum) ||
       r.optimizer.momentum < 0 || r.optimizer.momentum >= 1 ||
@@ -900,6 +908,12 @@ std::string recipe_json(const RecipeSpec& r) {
   } else {
     j["dataset"] = SourceJson(r.training);
     if (r.validation) j["validation"] = SourceJson(*r.validation);
+  }
+  // Preserve the canonical JSON and restore identity of existing default recipes.
+  if (r.optimizer_name == "musgd_bf16" || r.musgd_muon_weight != .5 ||
+      r.musgd_sgd_weight != .5) {
+    j["optimizer"]["muon_weight"] = r.musgd_muon_weight;
+    j["optimizer"]["sgd_weight"] = r.musgd_sgd_weight;
   }
   return j.dump(2);
 }

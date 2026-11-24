@@ -61,6 +61,7 @@ struct RecipeSpec {
   DetectionSgdOptions optimizer;
   WarmupCosineOptions scheduler;
   std::string optimizer_name = "sgd";
+  double musgd_muon_weight = .5, musgd_sgd_weight = .5;
   Device device{torch::kCPU};
   training::PrecisionMode precision = training::PrecisionMode::full;
   std::uint64_t seed = 0;

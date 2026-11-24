@@ -7,12 +7,47 @@
 #include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
 #include <jyppx/liuding/vision/tasks/training/musgd.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <nlohmann/json.hpp>
 #include <set>
+#include <tuple>
 namespace jyppx::liuding::vision::tasks {
 namespace {
+using Bf16BucketKey =
+    std::tuple<std::int64_t, double, c10::DeviceType, std::int64_t>;
+
+// Check every batch before changing any parameter or momentum buffer.
+void CheckBatchedGramBudget(const std::vector<optim::SgdParameterGroup>& groups,
+                            std::int64_t limit) {
+  using I = std::int64_t;
+  for (const auto& group : groups) {
+    std::map<Bf16BucketKey, std::vector<I>> buckets;
+    for (const auto& binding : group.parameters) {
+      const auto grad = binding.parameter.grad();
+      if (!grad.defined() || grad.dim() < 2) continue;
+      const auto scale = std::sqrt(
+          (std::max)(1., static_cast<double>(grad.size(-2)) / grad.size(-1)));
+      buckets[{grad.numel() / grad.size(0), scale, grad.device().type(),
+               grad.device().index()}]
+          .push_back(grad.size(0));
+    }
+    for (auto& [key, rows] : buckets) {
+      std::sort(rows.begin(), rows.end(), std::greater<>{});
+      for (std::size_t first = 0; first < rows.size();) {
+        auto last = first + 1;
+        while (last < rows.size() && rows[first] <= 16 * rows[last]) ++last;
+        const I smaller = (std::min)(rows[first], std::get<0>(key));
+        if (smaller > limit / smaller / static_cast<I>(last - first))
+          throw ResourceExhausted(
+              "MuSGD batched Gram workspace bound exceeded");
+        first = last;
+      }
+    }
+  }
+}
+
 class PrefixWriter : public StateWriter {
  public:
   StateWriter& target;
@@ -80,7 +115,8 @@ struct MuSgdOptimizer::Impl {
       : id(std::move(value)), options(o), groups(std::move(g)) {
     if (!state::Identifier(id) || !std::isfinite(o.muon) || o.muon < 0 ||
         !std::isfinite(o.sgd) || o.sgd <= 0 || o.newton_schulz_steps < 1 ||
-        o.newton_schulz_steps > 16 || o.max_gram_elements < 1)
+        o.newton_schulz_steps > 16 || o.max_gram_elements < 1 ||
+        (o.math != MuSgdMath::fp32_native && o.math != MuSgdMath::bf16_batched))
       throw InvalidArgument("Invalid MuSGD profile");
     // Split matrix and vector parameters so pure SGD vectors retain full LR.
     std::vector<optim::SgdParameterGroup> split;
@@ -129,8 +165,11 @@ struct MuSgdOptimizer::Impl {
         std::make_shared<nn::ModelStateView>(momentum),
         nn::ModelCheckpointParticipantOptions{.participant_id =
                                                   id + ".momentum"});
-    recipe = nlohmann::json{"musgd/fp32-ns/v1", o.muon, o.sgd,
-                            o.newton_schulz_steps, o.max_gram_elements}
+    recipe = nlohmann::json{o.math == MuSgdMath::fp32_native
+                                ? "musgd/fp32-ns/v1"
+                                : "musgd/bf16-batched-ns/v1",
+                            o.muon, o.sgd, o.newton_schulz_steps,
+                            o.max_gram_elements}
                  .dump();
   }
 };
@@ -155,30 +194,108 @@ Tensor MuSgdOptimizer::step(LossClosure closure) {
            grad.scalar_type() != p.parameter.scalar_type()))
         throw InvalidArgument("MuSGD gradient topology mismatch");
     }
-  for (std::size_t gi = 0; gi < s.groups.size(); ++gi)
-    for (const auto& binding : s.groups[gi].parameters) {
-      auto buffer = s.buffers[index++];
-      const auto grad = binding.parameter.grad();
-      if (!buffer.defined() || !grad.defined()) continue;
-      const auto& o = s.groups[gi].options;
-      buffer.mul_(o.momentum).add_(grad, 1 - o.momentum);
-      auto update =
-          o.nesterov ? buffer * o.momentum + grad * (1 - o.momentum) : buffer;
-      auto matrix = update.reshape({update.size(0), -1});
-      bool transposed = matrix.size(0) > matrix.size(1);
-      if (transposed) matrix = matrix.transpose(0, 1);
-      matrix = matrix / (matrix.norm() + 1e-7);
-      for (std::uint32_t i = 0; i < s.options.newton_schulz_steps; ++i) {
-        auto gram = matrix.matmul(matrix.transpose(0, 1));
-        matrix = matrix * 3.4445 +
-                 (-4.7750 * gram + 2.0315 * gram.matmul(gram)).matmul(matrix);
+  if (s.options.math == MuSgdMath::bf16_batched) {
+    CheckBatchedGramBudget(s.groups, s.options.max_gram_elements);
+    using I = std::int64_t;
+    struct Update {
+      Tensor parameter, matrix;
+    };
+    for (std::size_t gi = 0; gi < s.groups.size(); ++gi) {
+      const auto& group = s.groups[gi];
+      std::map<Bf16BucketKey, std::vector<Update>> buckets;
+      for (const auto& binding : group.parameters) {
+        auto buffer = s.buffers[index++];
+        const auto grad = binding.parameter.grad();
+        if (!buffer.defined() || !grad.defined()) continue;
+        const auto& o = group.options;
+        buffer.mul_(o.momentum).add_(grad, 1 - o.momentum);
+        auto update =
+            o.nesterov ? buffer * o.momentum + grad * (1 - o.momentum) : buffer;
+        if (update.dim() == 4 &&
+            update.is_contiguous(torch::MemoryFormat::ChannelsLast))
+          update = update.permute({0, 2, 3, 1});
+        auto matrix = update.reshape({update.size(0), -1});
+        const auto scale = std::sqrt(
+            (std::max)(1., static_cast<double>(grad.size(-2)) / grad.size(-1)));
+        buckets[{matrix.size(1), scale, grad.device().type(),
+                 grad.device().index()}]
+            .push_back({binding.parameter, matrix});
       }
-      if (transposed) matrix = matrix.transpose(0, 1);
-      const auto scale = std::sqrt(
-          (std::max)(1., static_cast<double>(grad.size(-2)) / grad.size(-1)));
-      binding.parameter.add_(matrix.reshape_as(binding.parameter),
-                             -s.rates[gi] * s.options.muon * scale);
+      for (auto& [key, items] : buckets) {
+        std::stable_sort(items.begin(), items.end(),
+                         [](const auto& a, const auto& b) {
+                           return a.matrix.size(0) > b.matrix.size(0);
+                         });
+        for (std::size_t first = 0; first < items.size();) {
+          auto last = first + 1;
+          while (last < items.size() &&
+                 items[first].matrix.size(0) <= 16 * items[last].matrix.size(0))
+            ++last;
+          const I rows = items[first].matrix.size(0), cols = std::get<0>(key);
+          const I count = static_cast<I>(last - first);
+          auto matrix =
+              torch::zeros({count, rows, cols}, items[first].matrix.options());
+          for (auto j = first; j < last; ++j)
+            matrix[static_cast<I>(j - first)]
+                .narrow(0, 0, items[j].matrix.size(0))
+                .add_(items[j].matrix);
+          matrix = matrix.to(torch::kBFloat16);
+          matrix.div_(torch::linalg_vector_norm(matrix, 2,
+                                                std::vector<I>{-2, -1}, true) +
+                      1e-7);
+          const bool transposed = rows > cols;
+          if (transposed) matrix = matrix.transpose(-2, -1);
+          for (std::uint32_t i = 0; i < s.options.newton_schulz_steps; ++i) {
+            auto gram = matrix.matmul(matrix.transpose(-2, -1));
+            auto polynomial = torch::baddbmm(gram, gram, gram, -4.7750, 2.0315);
+            matrix = torch::baddbmm(matrix, polynomial, matrix, 3.4445, 1.);
+          }
+          if (transposed) matrix = matrix.transpose(-2, -1);
+          matrix = matrix.contiguous().to(torch::kFloat32);
+          matrix.mul_(std::get<1>(key));
+          for (auto j = first; j < last; ++j) {
+            auto update = matrix[static_cast<I>(j - first)].narrow(
+                0, 0, items[j].matrix.size(0));
+            auto parameter = items[j].parameter;
+            if (parameter.dim() == 4 &&
+                parameter.is_contiguous(torch::MemoryFormat::ChannelsLast))
+              update = update
+                           .reshape({parameter.size(0), parameter.size(2),
+                                     parameter.size(3), parameter.size(1)})
+                           .permute({0, 3, 1, 2});
+            else
+              update = update.reshape_as(parameter);
+            parameter.add_(update, -s.rates[gi] * s.options.muon);
+          }
+          first = last;
+        }
+      }
     }
+  } else
+    for (std::size_t gi = 0; gi < s.groups.size(); ++gi)
+      for (const auto& binding : s.groups[gi].parameters) {
+        auto buffer = s.buffers[index++];
+        const auto grad = binding.parameter.grad();
+        if (!buffer.defined() || !grad.defined()) continue;
+        const auto& o = s.groups[gi].options;
+        buffer.mul_(o.momentum).add_(grad, 1 - o.momentum);
+        auto update =
+            o.nesterov ? buffer * o.momentum + grad * (1 - o.momentum) : buffer;
+        auto matrix = update.reshape({update.size(0), -1});
+        bool transposed = matrix.size(0) > matrix.size(1);
+        if (transposed) matrix = matrix.transpose(0, 1);
+        matrix = matrix / (matrix.norm() + 1e-7);
+        for (std::uint32_t i = 0; i < s.options.newton_schulz_steps; ++i) {
+          auto gram = matrix.matmul(matrix.transpose(0, 1));
+          matrix = matrix * 3.4445 +
+                   (-4.7750 * gram + 2.0315 * gram.matmul(gram)).matmul(matrix);
+        }
+        if (transposed) matrix = matrix.transpose(0, 1);
+        const auto scale = std::sqrt(
+            (std::max)(1., static_cast<double>(grad.size(-2)) / grad.size(-1)));
+        binding.parameter.add_(matrix.reshape_as(binding.parameter),
+                               -s.rates[gi] * s.options.muon * scale);
+      }
   s.sgd->step();
   return loss;
 }

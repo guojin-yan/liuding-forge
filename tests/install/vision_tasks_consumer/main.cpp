@@ -5,6 +5,8 @@
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
+#include <jyppx/liuding/core/runtime.hpp>
+#include <jyppx/liuding/vision/tasks/training/musgd.hpp>
 #include <jyppx/liuding/vision/tasks/training/weight_conversion.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/export.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/output.hpp>
@@ -33,6 +35,20 @@
 #include <stdexcept>
 int main() try {
   namespace tasks = jyppx::liuding::vision::tasks;
+  jyppx::liuding::initialize_runtime();
+  {
+    auto parameter = torch::ones({2, 2}, torch::requires_grad());
+    parameter.mutable_grad() = torch::ones_like(parameter);
+    tasks::MuSgdOptimizer optimizer("installed.musgd",
+        {{.group_id = "matrix", .parameters = {{"weight", parameter}},
+          .options = {.learning_rate = .01, .momentum = .9}}},
+        {.math = tasks::MuSgdMath::bf16_batched});
+    optimizer.step();
+    if (optimizer.completed_steps() != 1 ||
+        torch::equal(parameter, torch::ones_like(parameter)) ||
+        !torch::isfinite(parameter).all().item<bool>())
+      throw std::runtime_error("installed BF16 MuSGD update failed");
+  }
   const auto catalog = tasks::vision_catalog();
 #if defined(VISION_CONSUMER_MODELS) || defined(VISION_CONSUMER_MODELS_YOLO) || \
     defined(VISION_CONSUMER_MODELS_RCNN) || defined(VISION_CONSUMER_MODELS_VISION)
