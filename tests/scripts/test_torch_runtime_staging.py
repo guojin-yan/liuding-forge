@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +42,11 @@ class TorchRuntimeStagingTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
+        # Makefile generators can compare custom-command timestamps at whole
+        # seconds. Let the next input mutation land after the completed build;
+        # do not force a rebuild by touching outputs or future-dating inputs.
+        if "--build" in arguments and not (os.environ.get("JYPPX_TEST_NINJA") or shutil.which("ninja")):
+            time.sleep(1.1)
         return result
 
     def stage(self, success: bool = True) -> subprocess.CompletedProcess:
