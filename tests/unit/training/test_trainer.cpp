@@ -501,13 +501,17 @@ TEST(TrainerTest,
        {Scenario{8, 1, 3, tr::AccumulationTailPolicy::flush},
         Scenario{10, 2, 2, tr::AccumulationTailPolicy::flush},
         Scenario{3, 3, 1, tr::AccumulationTailPolicy::flush},
-        Scenario{10, 2, 2, tr::AccumulationTailPolicy::drop}}) {
+        Scenario{10, 2, 2, tr::AccumulationTailPolicy::drop},
+        Scenario{10, 2, 3, tr::AccumulationTailPolicy::carry}}) {
     SCOPED_TRACE(::testing::Message()
                  << scenario.samples << "/" << scenario.accumulation << "/"
                  << static_cast<int>(scenario.tail));
     auto config = options(3);
     config.accumulate_steps = scenario.accumulation;
     config.accumulation_tail = scenario.tail;
+    if (scenario.tail == tr::AccumulationTailPolicy::carry) {
+      config.accumulation_reduction = tr::AccumulationReduction::sum;
+    }
     torch::manual_seed(20261029);
     auto baseline = make_domain(scenario.samples, 2);
     tr::Trainer continuous(config);
@@ -1190,6 +1194,157 @@ TEST(TrainerTest, AccumulationTailFlushAndDropAreExplicit) {
            jyppx::liuding::training::AccumulationTailPolicy::drop});
   drop_trainer.prepare(make_request(drop_domain));
   EXPECT_EQ(drop_trainer.fit().global_step, 0U);
+}
+
+TEST(TrainerTest, AccumulationReductionAndEpochCarryMatchAnalyticSgdUpdates) {
+  namespace tr = jyppx::liuding::training;
+  struct Scenario {
+    tr::AccumulationTailPolicy tail;
+    tr::AccumulationReduction reduction;
+    std::uint64_t updates;
+    double weight0, weight1, bias;
+  };
+  // Each epoch repeats the five inputs x_i = [2i, 2i+1]. Carry commits the
+  // first twelve of fifteen batches and drops the last three.
+  for (const auto& s :
+       {Scenario{tr::AccumulationTailPolicy::flush,
+                 tr::AccumulationReduction::sum, 6, 60, 75, 15},
+        Scenario{tr::AccumulationTailPolicy::drop,
+                 tr::AccumulationReduction::sum, 3, 36, 48, 12},
+        Scenario{tr::AccumulationTailPolicy::carry,
+                 tr::AccumulationReduction::sum, 3, 42, 54, 12},
+        Scenario{tr::AccumulationTailPolicy::flush,
+                 tr::AccumulationReduction::mean, 6, 33, 39, 6},
+        Scenario{tr::AccumulationTailPolicy::drop,
+                 tr::AccumulationReduction::mean, 3, 9, 12, 3},
+        Scenario{tr::AccumulationTailPolicy::carry,
+                 tr::AccumulationReduction::mean, 3, 10.5, 13.5, 3}}) {
+    SCOPED_TRACE(::testing::Message() << static_cast<int>(s.tail) << "/"
+                                      << static_cast<int>(s.reduction));
+    auto domain = make_domain(5, 1);
+    {
+      torch::NoGradGuard guard;
+      for (auto& parameter : domain.model->state().named_parameters()) {
+        parameter.value().zero_();
+      }
+    }
+    auto request = make_request(domain);
+    request.training_step = [](const tr::StepInput& input) {
+      return tr::StepOutput{
+          .loss = input.model.invoke(input.invocation).value.toTensor().sum(),
+          .sample_count = input.batch.sample_ids.size()};
+    };
+    auto config = options(3);
+    config.accumulate_steps = 4;
+    config.accumulation_tail = s.tail;
+    config.accumulation_reduction = s.reduction;
+    tr::Trainer trainer(config);
+    trainer.prepare(std::move(request));
+    const auto result = trainer.fit();
+    EXPECT_EQ(result.completed_epochs, 3U);
+    EXPECT_EQ(result.global_step, s.updates);
+    const auto parameters = domain.model->state().named_parameters();
+    EXPECT_NEAR(parameters["weight"][0][0].item<double>(), -1e-4 * s.weight0,
+                1e-8);
+    EXPECT_NEAR(parameters["weight"][0][1].item<double>(), -1e-4 * s.weight1,
+                1e-8);
+    EXPECT_NEAR(parameters["bias"].item<double>(), -1e-4 * s.bias, 1e-8);
+    MemoryCheckpoint checkpoint;
+    EXPECT_NO_THROW(trainer.save_checkpoint(checkpoint));
+    trainer.close();
+  }
+}
+
+TEST(TrainerTest, EpochCarryDefersCheckpointUntilGradientsAreCommitted) {
+  namespace tr = jyppx::liuding::training;
+  auto domain = make_domain(5, 1);
+  std::vector<std::uint64_t> checkpoint_steps;
+  auto callback = std::make_shared<RecordingCallback>(
+      "callback.epoch-checkpoint", tr::CallbackEventKind::epoch_finished,
+      std::vector<tr::CallbackCommandKind>{
+          tr::CallbackCommandKind::request_checkpoint},
+      [](const tr::CallbackEvent&) {
+        return tr::CallbackCommandRequest{
+            .kind = tr::CallbackCommandKind::request_checkpoint,
+            .reason = "epoch"};
+      });
+  auto request = make_request(
+      domain,
+      std::make_shared<tr::CallbackDispatcher>(
+          std::vector<std::shared_ptr<tr::CallbackHandler>>{callback}),
+      {}, [&](const tr::CheckpointCoordinator& coordinator) {
+        MemoryCheckpoint checkpoint;
+        coordinator.save(checkpoint);
+        checkpoint_steps.push_back(domain.optimizer->completed_steps());
+      });
+  auto config = options(3);
+  config.accumulate_steps = 4;
+  config.accumulation_tail = tr::AccumulationTailPolicy::carry;
+  config.accumulation_reduction = tr::AccumulationReduction::sum;
+  tr::Trainer trainer(config);
+  trainer.prepare(std::move(request));
+  EXPECT_EQ(trainer.fit().global_step, 3U);
+  EXPECT_EQ(checkpoint_steps, (std::vector<std::uint64_t>{2, 3, 3}));
+  trainer.close();
+}
+
+TEST(TrainerTest,
+     AccumulationReductionRejectsInvalidAndDifferentRestorePolicy) {
+  namespace tr = jyppx::liuding::training;
+  auto invalid = options(1);
+  invalid.accumulation_reduction = static_cast<tr::AccumulationReduction>(0);
+  EXPECT_THROW(tr::Trainer{invalid}, jyppx::liuding::InvalidArgument);
+  auto config = options(2);
+  config.accumulation_reduction = tr::AccumulationReduction::sum;
+  MemoryCheckpoint checkpoint;
+  {
+    auto domain = make_domain();
+    tr::Trainer trainer(config);
+    trainer.prepare(make_request(domain));
+    ASSERT_EQ(trainer.fit_until(1).status, tr::FitStatus::paused);
+    trainer.save_checkpoint(checkpoint);
+    trainer.close();
+  }
+  config.accumulation_reduction = tr::AccumulationReduction::mean;
+  auto domain = make_domain();
+  tr::Trainer trainer(config);
+  trainer.prepare(make_request(domain));
+  EXPECT_THROW(trainer.restore_checkpoint(checkpoint),
+               jyppx::liuding::CompatibilityError);
+  trainer.close();
+}
+
+TEST(TrainerTest, EpochCarryStopDiscardsPendingGradientsAtEpochBoundary) {
+  namespace tr = jyppx::liuding::training;
+  auto domain = make_domain(5, 1);
+  auto callback = std::make_shared<RecordingCallback>(
+      "callback.epoch-stop", tr::CallbackEventKind::epoch_finished,
+      std::vector<tr::CallbackCommandKind>{tr::CallbackCommandKind::stop},
+      [](const tr::CallbackEvent&) {
+        return tr::CallbackCommandRequest{.kind = tr::CallbackCommandKind::stop,
+                                          .reason = "stop after first epoch"};
+      });
+  auto config = options(3);
+  config.accumulate_steps = 4;
+  config.accumulation_tail = tr::AccumulationTailPolicy::carry;
+  config.accumulation_reduction = tr::AccumulationReduction::sum;
+  tr::Trainer trainer(config);
+  trainer.prepare(make_request(
+      domain,
+      std::make_shared<tr::CallbackDispatcher>(
+          std::vector<std::shared_ptr<tr::CallbackHandler>>{callback})));
+  const auto result = trainer.fit();
+  EXPECT_EQ(result.status, tr::FitStatus::stopped);
+  EXPECT_EQ(result.global_step, 1U);
+  EXPECT_EQ(result.completed_epochs, 1U);
+  for (const auto& parameter : domain.model->state().named_parameters()) {
+    const auto gradient = parameter.value().grad();
+    EXPECT_TRUE(!gradient.defined() ||
+                gradient.abs().sum().item<double>() == 0.);
+  }
+  MemoryCheckpoint checkpoint;
+  EXPECT_NO_THROW(trainer.save_checkpoint(checkpoint));
+  trainer.close();
 }
 
 TEST(TrainerTest, EpochSchedulerAndMetricSchedulerReceiveStrictEvents) {

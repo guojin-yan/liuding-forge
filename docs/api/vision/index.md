@@ -93,6 +93,8 @@ YOLO split 支持图片目录或 UTF-8 图片列表；最后一个 `images` 路�
 
 支持梯度累积、裁剪、成功更新驱动的预热/余弦调度、显式 nominal/effective batch 的 decay 缩放、EMA、best/last/周期保存和早停。固定 `class_weights` 仅用于训练，验证损失清除类权重；数据统计只应来自训练集。调度器和 EMA 不随 AMP 跳步推进。
 
+可选 `accumulation` 对象指定 `reduction`（`mean` 或 `sum`）及 `tail`（`flush`、`drop` 或 `carry`）；默认平均 loss 并在轮末校正更新尾窗。`sum` 直接累加任务 loss，`carry` 保留梯度到下一轮并在运行完成时丢弃剩余尾窗。自定义策略进入恢复身份；跨轮保存只在空梯度窗口完成，详见 [Trainer](../training.md#trainer-与-fitrequest)。这两项设置不启用动态累积或按批预热。
+
 现代 YOLO 的分布解码、目标匹配和检测损失显式使用 FP32，即使模型处于 FP16 autocast；检测损失分支共享精度转换，在汇总梯度后才转换回输入精度。与上游对照时须同时核对损失精度策略；上游默认 autocast 的解码与相同输入下的 FP32 损失不保证逐位一致。完整梯度及更新等价资格须按模型和配方分别验收。
 
 YOLO26 检测、实例分割和姿态配方绑定 `yolo26-e2e-fp32/v3` 数值语义：双分支初始权重为 0.8/0.2，在 `max(epochs-1,1)` 处达到 0.1/0.9；one-to-one 在七个候选完成冲突处理后保留一个匹配。绑定使用第二级 stride 作为轴对齐小框候选边长下限，真实回归目标不扩张。`YoloDetectionOptions` 可显式选择候选边长下限与冲突后的二次 top-k，默认关闭，其他现有调用保持原候选策略。

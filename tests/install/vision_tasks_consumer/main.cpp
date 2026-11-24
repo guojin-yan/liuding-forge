@@ -92,6 +92,23 @@ int main() try {
       tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
     throw std::runtime_error("installed annotation limits roundtrip mismatch");
   recipe.optimizer.weight_decay_overrides.clear();
+  {
+    auto accumulation_recipe = recipe;
+    accumulation_recipe.accumulation_tail =
+        jyppx::liuding::training::AccumulationTailPolicy::carry;
+    accumulation_recipe.accumulation_reduction =
+        jyppx::liuding::training::AccumulationReduction::sum;
+    const auto restored =
+        tasks::parse_recipe(tasks::recipe_json(accumulation_recipe),
+                            std::filesystem::current_path());
+    if (restored.accumulation_tail != accumulation_recipe.accumulation_tail ||
+        restored.accumulation_reduction !=
+            accumulation_recipe.accumulation_reduction ||
+        tasks::recipe_identity(restored) !=
+            tasks::recipe_identity(accumulation_recipe))
+      throw std::runtime_error(
+          "installed gradient accumulation roundtrip mismatch");
+  }
   auto criterion_recipe = recipe;
   criterion_recipe.model.architecture = "yolo26n";
   criterion_recipe.yolo26_loss =

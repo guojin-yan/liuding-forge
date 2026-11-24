@@ -64,10 +64,23 @@ if(WIN32)
     if(NOT EXISTS "${JYPPX_RUNTIME_STAGER}")
         message(FATAL_ERROR "Windows consumer requires StageTorchRuntime.cmake")
     endif()
+    set(migrated_runtime_extra_args)
+    if(JYPPX_RUNTIME_EXTRA_DLL_LIST OR JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR)
+        if(NOT IS_ABSOLUTE "${JYPPX_RUNTIME_EXTRA_DLL_LIST}" OR
+           NOT EXISTS "${JYPPX_RUNTIME_EXTRA_DLL_LIST}" OR
+           NOT IS_ABSOLUTE "${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}" OR
+           NOT IS_DIRECTORY "${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}")
+            message(FATAL_ERROR "Windows migrated consumer ROCm runtime closure is incomplete")
+        endif()
+        list(APPEND migrated_runtime_extra_args
+            "-DJYPPX_RUNTIME_EXTRA_DLL_LIST=${JYPPX_RUNTIME_EXTRA_DLL_LIST}"
+            "-DJYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR=${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}")
+    endif()
     add_custom_command(TARGET jyppx_migrated_api_consumer POST_BUILD
         COMMAND ${CMAKE_COMMAND}
             "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
             "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_migrated_api_consumer>"
+            ${migrated_runtime_extra_args}
             -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
 endif()
 

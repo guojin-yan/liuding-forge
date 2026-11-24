@@ -89,6 +89,10 @@ struct RecipeSpec {
   ExifPolicy exif_policy = ExifPolicy::reject_non_identity;
   InitializationOptions initialization;
   std::size_t accumulate_steps = 1;
+  training::AccumulationTailPolicy accumulation_tail =
+      training::AccumulationTailPolicy::flush;
+  training::AccumulationReduction accumulation_reduction =
+      training::AccumulationReduction::mean;
   std::optional<double> gradient_clip_norm = 10.;
   double label_smoothing = 0;
   std::vector<double>

@@ -225,6 +225,7 @@ RecipeSpec parse_recipe(std::string_view text,
            "device",
            "precision",
            "accumulate_steps",
+           "accumulation",
            "gradient_clip_norm",
            "label_smoothing",
            "optimizer",
@@ -495,6 +496,29 @@ RecipeSpec parse_recipe(std::string_view text,
   r.initial_loss_scale = j.value("initial_loss_scale", r.initial_loss_scale);
   r.device = Device(j.value("device", std::string("cpu")));
   r.accumulate_steps = j.value("accumulate_steps", r.accumulate_steps);
+  if (j.contains("accumulation")) {
+    const auto& a = j.at("accumulation");
+    Keys(a, {"tail", "reduction"});
+    if ((a.contains("tail") && !a.at("tail").is_string()) ||
+        (a.contains("reduction") && !a.at("reduction").is_string()))
+      throw InvalidArgument("Accumulation tail and reduction must be strings");
+    const auto tail = a.value("tail", std::string("flush"));
+    if (tail == "flush")
+      r.accumulation_tail = training::AccumulationTailPolicy::flush;
+    else if (tail == "drop")
+      r.accumulation_tail = training::AccumulationTailPolicy::drop;
+    else if (tail == "carry")
+      r.accumulation_tail = training::AccumulationTailPolicy::carry;
+    else
+      throw InvalidArgument("Unknown gradient accumulation tail policy");
+    const auto reduction = a.value("reduction", std::string("mean"));
+    if (reduction == "mean")
+      r.accumulation_reduction = training::AccumulationReduction::mean;
+    else if (reduction == "sum")
+      r.accumulation_reduction = training::AccumulationReduction::sum;
+    else
+      throw InvalidArgument("Unknown gradient accumulation loss reduction");
+  }
   if (j.contains("precision")) {
     auto v = j["precision"].get<std::string>();
     auto i = std::find(precisions.begin(), precisions.end(), v);
@@ -817,6 +841,12 @@ void check_recipe(const RecipeSpec& r) {
       r.data.letterbox.canvas.height < 32 ||
       r.data.letterbox.canvas.height > 8192)
     throw InvalidArgument("Invalid training/data resource bounds");
+  if ((r.accumulation_tail != training::AccumulationTailPolicy::flush &&
+       r.accumulation_tail != training::AccumulationTailPolicy::drop &&
+       r.accumulation_tail != training::AccumulationTailPolicy::carry) ||
+      (r.accumulation_reduction != training::AccumulationReduction::mean &&
+       r.accumulation_reduction != training::AccumulationReduction::sum))
+    throw InvalidArgument("Invalid gradient accumulation policy");
   if (!std::isfinite(r.label_smoothing) || r.label_smoothing < 0 ||
       r.label_smoothing >= 1 || !std::isfinite(r.ema_decay) ||
       r.ema_decay < 0 || r.ema_decay >= 1 ||
@@ -1117,6 +1147,19 @@ std::string recipe_json(const RecipeSpec& r) {
   for (const auto& rule : r.initialization.learning_rates)
     j["initialization"]["learning_rates"].push_back(
         {{"prefix", rule.prefix}, {"multiplier", rule.multiplier}});
+  if (r.accumulation_tail != training::AccumulationTailPolicy::flush ||
+      r.accumulation_reduction != training::AccumulationReduction::mean) {
+    j["accumulation"] = {
+        {"tail", r.accumulation_tail == training::AccumulationTailPolicy::flush
+                     ? "flush"
+                 : r.accumulation_tail == training::AccumulationTailPolicy::drop
+                     ? "drop"
+                     : "carry"},
+        {"reduction",
+         r.accumulation_reduction == training::AccumulationReduction::mean
+             ? "mean"
+             : "sum"}};
+  }
   if (!r.optimizer.weight_decay_overrides.empty()) {
     j["optimizer"]["weight_decay_overrides"] = J::array();
     for (const auto& rule : r.optimizer.weight_decay_overrides)

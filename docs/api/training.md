@@ -17,7 +17,9 @@ jyppx::liuding::training::Trainer trainer({
 });
 ```
 
-`max_steps == 0` 表示按 epoch 限制。梯度累积尾批由 `accumulation_tail` 选择校正后更新或丢弃；恢复时必须保持这些训练策略一致。
+`max_steps == 0` 表示按 epoch 限制。`accumulation_reduction` 默认为 `mean`，反向前将每份 loss 除以 `accumulate_steps`；`sum` 直接累加任务返回的 loss。`accumulation_tail` 默认为 `flush`，轮末更新不足完整窗口的梯度，且只在 `mean` 模式校正除数；`drop` 在每轮末丢弃尾窗；`carry` 保留尾窗到下一轮，在整个运行完成时丢弃剩余梯度。恢复时必须保持这些策略一致。
+
+`carry` 允许验证期间保留训练梯度。检查点仍只在空累积窗口保存：轮末请求会延迟到下一次更新后的安全边界，不能直接保存尚未提交的梯度。暂停仍在完整更新后生效；取消或停止会清空剩余梯度。该策略本身不配置动态累积窗口、学习率或 momentum 预热。
 
 `FitRequest` 绑定模型、优化器、数据管线、任务函数与执行策略。模型、每个优化器及 RNG 的 checkpoint participant 为必需项；scheduler、callbacks、outbox、诊断与其他任务 participant 可选，启用后一起保存恢复。
 

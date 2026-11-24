@@ -605,6 +605,8 @@ TrainResult train_vision(const TrainRequest& request) {
   options.trace_id = options.run_id;
   options.max_epochs = r.epochs;
   options.accumulate_steps = r.accumulate_steps;
+  options.accumulation_tail = r.accumulation_tail;
+  options.accumulation_reduction = r.accumulation_reduction;
   options.precision = r.precision;
   options.gradient_clip_norm = r.gradient_clip_norm;
   training::FitRequest fit;

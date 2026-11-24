@@ -762,6 +762,39 @@ TEST_F(VisionContracts, ParameterDecayOverridesRoundTripAndBindResumeIdentity) {
   }
 }
 
+TEST_F(VisionContracts, AccumulationPolicyRoundTripAndResumeIdentity) {
+  namespace tr = jyppx::liuding::training;
+  t::RecipeSpec recipe;
+  recipe.training.source = std::filesystem::absolute("a.json");
+  const auto original = t::recipe_json(recipe);
+  EXPECT_EQ(original.find("\"accumulation\""), std::string::npos);
+  const auto identity = t::recipe_identity(recipe);
+  recipe.accumulation_tail = tr::AccumulationTailPolicy::carry;
+  recipe.accumulation_reduction = tr::AccumulationReduction::sum;
+  EXPECT_NE(t::recipe_identity(recipe), identity);
+  const auto restored =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  EXPECT_EQ(restored.accumulation_tail, tr::AccumulationTailPolicy::carry);
+  EXPECT_EQ(restored.accumulation_reduction, tr::AccumulationReduction::sum);
+  EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
+  for (const auto* invalid :
+       {"null", "[]", R"({"tail":"unknown"})", R"({"reduction":"unknown"})",
+        R"({"tail":true})", R"({"reduction":1})", R"({"unknown":1})"}) {
+    const auto json =
+        std::string(
+            R"({"model":{"architecture":"yolo26n"},"dataset":{"format":"coco","source":"a.json"},"accumulation":)") +
+        invalid + "}";
+    EXPECT_THROW(t::parse_recipe(json, std::filesystem::current_path()),
+                 InvalidArgument)
+        << invalid;
+  }
+  recipe.accumulation_tail = tr::AccumulationTailPolicy::flush;
+  recipe.accumulation_reduction = tr::AccumulationReduction::mean;
+  EXPECT_EQ(t::recipe_json(recipe), original);
+  recipe.accumulation_reduction = static_cast<tr::AccumulationReduction>(0);
+  EXPECT_THROW(t::recipe_identity(recipe), InvalidArgument);
+}
+
 TEST_F(VisionContracts, Yolo26ExplicitLossRecipeRoundTripAndBinding) {
   t::RecipeSpec recipe;
   recipe.model.architecture = "yolo26n";

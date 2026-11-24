@@ -160,7 +160,11 @@ int main() {
   jyppx::liuding::training::Trainer installed_trainer(
       {.trainer_id = "trainer.consumer",
        .run_id = "run.consumer",
-       .trace_id = "trace.consumer"});
+       .trace_id = "trace.consumer",
+       .accumulation_tail =
+           jyppx::liuding::training::AccumulationTailPolicy::carry,
+       .accumulation_reduction =
+           jyppx::liuding::training::AccumulationReduction::sum});
   bool rejects_unprepared_pause = false;
   try {
     (void)installed_trainer.fit_until(1);
@@ -171,7 +175,11 @@ int main() {
       rejects_unprepared_pause &&
       installed_trainer.phase() ==
           jyppx::liuding::training::TrainerPhase::created &&
-      installed_trainer.options().trainer_id == "trainer.consumer";
+      installed_trainer.options().trainer_id == "trainer.consumer" &&
+      installed_trainer.options().accumulation_tail ==
+          jyppx::liuding::training::AccumulationTailPolicy::carry &&
+      installed_trainer.options().accumulation_reduction ==
+          jyppx::liuding::training::AccumulationReduction::sum;
   const jyppx::liuding::InvalidArgument error(
       "consumer probe",
       jyppx::liuding::ErrorDetails{.component = "InstallConsumer"});

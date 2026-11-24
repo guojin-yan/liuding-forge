@@ -159,7 +159,8 @@ std::string phase_name(TrainerPhase phase) {
 
 bool valid_tail_policy(AccumulationTailPolicy policy) {
   return policy == AccumulationTailPolicy::flush ||
-         policy == AccumulationTailPolicy::drop;
+         policy == AccumulationTailPolicy::drop ||
+         policy == AccumulationTailPolicy::carry;
 }
 
 bool valid_precision_mode(PrecisionMode mode) {
@@ -396,6 +397,8 @@ void validate_options(const TrainerOptions& options) {
   }
   if (options.max_epochs == 0U || options.accumulate_steps == 0U ||
       !valid_tail_policy(options.accumulation_tail) ||
+      (options.accumulation_reduction != AccumulationReduction::mean &&
+       options.accumulation_reduction != AccumulationReduction::sum) ||
       !valid_precision_mode(options.precision)) {
     throw_invalid("options.loop", "positive epochs/accumulation and known tail",
                   std::to_string(options.max_epochs) + "/" +
@@ -580,6 +583,13 @@ std::vector<std::byte> encode_topology(
     for (const auto& participant : request.optimizer_update_participants) {
       append_string(output, participant->participant_id());
     }
+  }
+  // Keep the default topology byte for byte; nondefault loss reduction must
+  // reject recovery into a domain with a different gradient scale.
+  if (options.accumulation_reduction != AccumulationReduction::mean) {
+    append_string(output, "accumulation-reduction/v1");
+    append_u8(output,
+              static_cast<std::uint8_t>(options.accumulation_reduction));
   }
   return output;
 }
@@ -960,7 +970,9 @@ struct Trainer::Impl {
     }
     emit(CallbackEventKind::optimizer_step_started, CallbackPhase::training, {},
          stop);
-    if (partial_tail && state.pending_micro_steps < options.accumulate_steps) {
+    if (partial_tail &&
+        options.accumulation_reduction == AccumulationReduction::mean &&
+        state.pending_micro_steps < options.accumulate_steps) {
       scale_gradients(static_cast<double>(options.accumulate_steps) /
                       static_cast<double>(state.pending_micro_steps));
     }
@@ -1489,8 +1501,12 @@ FitResult Trainer::fit_until(std::uint64_t absolute_step,
         const auto loss_value = *impl_->validate_output(output, *batch, true);
         add_output(impl_->state.training, output, loss_value, "training.loss",
                    impl_->options);
-        auto backward_loss =
-            output.loss / static_cast<double>(impl_->options.accumulate_steps);
+        auto backward_loss = output.loss;
+        if (impl_->options.accumulation_reduction ==
+            AccumulationReduction::mean) {
+          backward_loss = backward_loss /
+                          static_cast<double>(impl_->options.accumulate_steps);
+        }
         if (impl_->request.gradient_scaler) {
           backward_loss = impl_->request.gradient_scaler->scale(backward_loss);
         }
@@ -1541,7 +1557,14 @@ FitResult Trainer::fit_until(std::uint64_t absolute_step,
         break;
       }
       if (impl_->state.pending_micro_steps != 0U) {
-        impl_->optimizer_step(stop, true);
+        if (impl_->options.accumulation_tail == AccumulationTailPolicy::carry) {
+          if (impl_->state.active_epoch + 1U == impl_->options.max_epochs) {
+            impl_->zero_grad_all();
+            impl_->state.pending_micro_steps = 0;
+          }
+        } else {
+          impl_->optimizer_step(stop, true);
+        }
         reached_step_limit =
             impl_->options.max_steps != 0U &&
             impl_->state.global_step >= impl_->options.max_steps;
@@ -1598,6 +1621,13 @@ FitResult Trainer::fit_until(std::uint64_t absolute_step,
                impl_->state.next_epoch < impl_->options.max_epochs;
     }
 
+    // A stop/cancel command can arrive at epoch_finished while carry retains
+    // gradients. Terminal domains must never expose an unsaved partial window.
+    if (!paused && impl_->state.pending_micro_steps != 0U) {
+      impl_->zero_grad_all();
+      impl_->state.pending_micro_steps = 0;
+    }
+    if (!paused) impl_->state.checkpoint_pending = false;
     FitResult result{.status = FitStatus::completed,
                      .completed_epochs = impl_->state.completed_epochs,
                      .global_step = impl_->state.global_step,

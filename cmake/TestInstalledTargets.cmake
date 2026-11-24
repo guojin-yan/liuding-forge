@@ -22,9 +22,9 @@ set(consumer_build_dir "${test_root}/b")
 file(REMOVE_RECURSE "${install_dir}")
 file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_dir}")
 set(config_args)
-# Reuse the parent's opt-in HIP import closure for the vision/image/SDK consumers.
-# Explicit empty values clear a prior selection in its reusable cache.
-if(WIN32 AND consumer_source_dir MATCHES "/(vision_tasks|data_image|sdk)_consumer$")
+# Reuse the parent's opt-in HIP import closure for installed consumers that
+# link the ROCm LibTorch backend. Explicit empty values clear a prior selection.
+if(WIN32 AND consumer_source_dir MATCHES "/(migrated|vision_tasks|data_image|sdk)_consumer$")
     load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_runtime_
         JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS)
     set(_jyppx_rocm_runtime_manifest)
@@ -95,6 +95,17 @@ if(_jyppx_consumer_http_root)
     list(APPEND config_args
         "-DJYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT=${_jyppx_consumer_http_root}")
 endif()
+foreach(variable IN ITEMS JYPPX_LIUDING_MIGRAPHX_ROOT JYPPX_LIUDING_MIGRAPHX_HIP_ROOT)
+    if(DEFINED ${variable})
+        set(_jyppx_consumer_${variable} "${${variable}}")
+    else()
+        load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_source_ "${variable}")
+        set(_jyppx_consumer_${variable} "${_jyppx_consumer_source_${variable}}")
+    endif()
+    if(_jyppx_consumer_${variable})
+        list(APPEND config_args "-D${variable}=${_jyppx_consumer_${variable}}")
+    endif()
+endforeach()
 if(JYPPX_CUDA_STANDARD)
     list(APPEND config_args "-DCMAKE_CUDA_STANDARD=${JYPPX_CUDA_STANDARD}")
 endif()
@@ -167,8 +178,23 @@ if(NOT build_result EQUAL 0)
     message(FATAL_ERROR "Building the installed API consumer failed")
 endif()
 
-if(WIN32 AND DEFINED JYPPX_TORCH_RUNTIME_DIR)
-    set(ENV{PATH} "${JYPPX_TORCH_RUNTIME_DIR};$ENV{PATH}")
+if(WIN32)
+    set(_jyppx_consumer_runtime_paths)
+    if(JYPPX_TORCH_RUNTIME_DIR)
+        list(APPEND _jyppx_consumer_runtime_paths "${JYPPX_TORCH_RUNTIME_DIR}")
+    endif()
+    if(_jyppx_consumer_JYPPX_LIUDING_MIGRAPHX_ROOT)
+        list(APPEND _jyppx_consumer_runtime_paths
+            "${_jyppx_consumer_JYPPX_LIUDING_MIGRAPHX_ROOT}/bin")
+    endif()
+    if(_jyppx_consumer_JYPPX_LIUDING_MIGRAPHX_HIP_ROOT)
+        list(APPEND _jyppx_consumer_runtime_paths
+            "${_jyppx_consumer_JYPPX_LIUDING_MIGRAPHX_HIP_ROOT}/bin")
+    endif()
+    list(JOIN _jyppx_consumer_runtime_paths ";" _jyppx_consumer_runtime_path)
+    if(_jyppx_consumer_runtime_path)
+        set(ENV{PATH} "${_jyppx_consumer_runtime_path};$ENV{PATH}")
+    endif()
 endif()
 execute_process(
     COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${consumer_build_dir}"

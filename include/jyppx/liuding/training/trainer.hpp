@@ -66,8 +66,15 @@ class OptimizerUpdateParticipant;
  * stable.
  */
 enum class AccumulationTailPolicy : std::uint8_t {
-  flush = 1,  ///< Rescales and commits the final partial accumulation window.
+  flush = 1,  ///< Commits the final partial window with the selected reduction.
   drop = 2,   ///< Clears gradients without applying a partial update.
+  carry = 3,  ///< Carries across epochs; drops any remainder at run completion.
+};
+
+/** @brief Selects the loss scaling used before gradient accumulation. */
+enum class AccumulationReduction : std::uint8_t {
+  mean = 1,  ///< Divides loss by the window size; corrects a flushed tail.
+  sum = 2,   ///< Accumulates unscaled losses, including a flushed partial tail.
 };
 
 /**
@@ -131,7 +138,9 @@ struct TrainerOptions {
   std::size_t accumulate_steps =
       1;  ///< Positive number of micro-batches per optimizer update.
   AccumulationTailPolicy accumulation_tail =
-      AccumulationTailPolicy::flush;  ///< Partial epoch/stop window policy.
+      AccumulationTailPolicy::flush;  ///< Boundary between epochs and run end.
+  AccumulationReduction accumulation_reduction =
+      AccumulationReduction::mean;  ///< Loss scaling before backward.
   PrecisionMode precision =
       PrecisionMode::full;  ///< Explicit autocast and scaling policy.
   std::optional<double>
