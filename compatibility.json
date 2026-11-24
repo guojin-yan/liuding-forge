@@ -4601,7 +4601,30 @@
             "additional_p6_s_lane": "同一f11c22d产品源新增固定Windows/W7900 yolov8s Ghost P6：显式FP32 criterion的前向与376份参数梯度逐字节匹配独立AMD PyTorch；原生动态回退合同1/1通过并在scale8完成一次更新。证据为workspace/records/amd-p6-parity-20261124/numerics-v2-validation.json；不扩展其他P6矩阵或默认autocast逐位资格。",
             "binary_sha256": "e15f058e044ff3ea20f2bc4d57eb3293b8ba4a71ca1ed44deb8e6d86a4659596",
             "test_source_sha256": "fd086356d19c65c4ac960c32a1038bf890a5f9bbbe92504097abc4e0fbd663e2",
-            "scope": "仅所列Windows/W7900固定模型/状态/输入的FP16模型、显式FP32 criterion、scale1有限更新、定向CPU/GPU回归及旧/新运行身份拒绝；不授默认上游autocast逐位等价、原scale8有限首步、收敛/任务质量、其他P6入口/形状/精度、WSL/其他设备/多卡或发布资格。旧v1图及旧criterion检查点不能直接精确续训为v2。"
+            "scope": "仅所列Windows/W7900固定模型/状态/输入的FP16模型、显式FP32 criterion、scale1有限更新、定向CPU/GPU回归及旧/新运行身份拒绝；不授默认上游autocast逐位等价、原scale8有限首步、收敛/任务质量、其他P6入口/形状/精度、WSL/其他设备/多卡或发布资格。旧v1图及旧criterion检查点不能直接精确续训为v2。",
+            "additional_p6_n_lane": "新增固定Windows/W7900 yolov8n Ghost P6：显式FP32 criterion、scale1和一次SGD更新，前向、376参数梯度及737更新后状态逐字节匹配独立AMD PyTorch；独立完整载荷审计通过。证据workspace/records/amd-p6-parity-20261124/sdk-kpack-validation.json；保留私有probe父构建dirty provenance及原失败，不扩展其他矩阵。"
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "复用原Ninja Release构建及依赖，仅重建两个运行库暂存目标、最多2任务。验证时为2943474加本提交精确CMake/测试/文档改动，随后提交；未重编模型库或宣称当前干净产品矩阵。原GTest和独立安装消费者断言及60秒内部上限保持，无下载或Actions。",
+          "id": "windows-clangcl24-rocm101-gfx1100-8ad9c28-sdk-kpacks",
+          "commit": "8ad9c2898d6aeee587aafb37b3cfd34dceac3b73",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; ROCm10.1.0/HIP7.16.26385; LibTorch2.14.0 native Windows runtime staging",
+          "tests": "8项CTest通过，零失败/跳过：含16内部场景的TorchRuntimeStagingContract、五仓库门禁、VisionTasksInstallConsumer和原GhostP6-s动态更新合同。内部场景与外层CTest不相加；只复验因本次加载失败受影响的单一GPU合同，不重跑矩阵。",
+          "quality_evidence": {
+            "cause": "可选HIP DLL导入闭包把rocblas.dll迁至应用目录，却未保留其上一级.kpack设备代码；设备枚举与基础矩阵乘法可通过，但部分MIOpen/hipblasSgemv报hipErrorInvalidKernelFile218。仅补原SDK blas归档后同二进制完成原n模型有限反向和实际更新。",
+            "staging": "合并Torch与所选SDK上一级.kpack归档并使用同一所有权清单。真实CLI、unit与独立安装consumer各7归档，全部大小和完整SHA匹配SDK。增量新增/删除/替换、关闭选项保留Torch与独立文件、冲突和修改旧归档拒绝均通过。",
+            "native_regression": "此前同二进制GhostP6-s加载控制失败，自动暂存修复后原有限更新合同通过；原60秒安装Runs通过完整YOLO/RCNN导出及ORT原数值断言。保留最初n三次加载失败和s诊断失败。",
+            "additional_p6_n": "同f11c22d产品实现的固定yolov8n GhostP6，seed7/batch2/64x64/nc3、FP16模型autocast及FP32主参数、显式FP32 criterion、scale1、SGD lr0.001一次实际更新；前向、全部376参数梯度及737更新后状态与独立AMD PyTorch逐字节一致，另用独立stdlib reader比较完整载荷。",
+            "provenance": "n对照复用私有原生probe，实际产品实现为f11c22d；父built-provenance保留3f78c81+dirty，不称干净8ad9c28训练构建。src/include相对f11c22d无差异。独立参考为现有Torch2.14.0+rocm10.1.0、锁定Ultralytics8.4.177函数和模型配置源码。",
+            "validation_receipt_sha256": "bcfb3e3aac93125c58a7f70b6de59e971d08ef1dd972e23c29be96dd5a8643bb",
+            "independent_n_comparison_sha256": "22be6275b15b9ff60f7555341551ceb98671b1e18842b0e2aa5aaa8b8a7787dd",
+            "scope": "仅Windows/W7900精确ROCm组合的可选构建树SDK归档暂存与上述n固定criterion/update对照；不授全部延迟插件/设备数据闭包、安装分发ROCm、默认上游autocast逐位、n的scale8更新、其他P6/形状/精度、收敛/质量、其他硬件/OS或发布资格。安装应用继续自行提供外部SDK。"
           }
         }
       ],
