@@ -11,7 +11,8 @@ import sys
 from types import SimpleNamespace
 
 
-def generate(torch, criterion_type, loss_type, source_root, output):
+def generate(torch, criterion_type, loss_type, source_root, output,
+             cpu2141_gradients=False):
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
     base = torch.arange(2 * 8 * 85).reshape(2, 8, 85)
@@ -73,6 +74,9 @@ def generate(torch, criterion_type, loss_type, source_root, output):
     records['tiny_loss'] = criterion(prediction, tiny)[0].sum().detach().reshape(1)
     records['empty_loss'] = criterion(prediction, empty)[0].sum().detach().reshape(1)
     assert torch.equal(records['tiny_loss'], records['empty_loss'])
+    if cpu2141_gradients:
+        assert torch.__version__ == '2.14.1+cpu', torch.__version__
+        records = {name: records[name] for name in ['many_gradient', 'one_gradient']}
     lines = [
         '// Copyright 2026 JYPPX Training Framework Contributors',
         '// Product: 六丁炼算 (Liuding Forge)',
@@ -85,14 +89,16 @@ def generate(torch, criterion_type, loss_type, source_root, output):
     for relative in ['utils/loss.py', 'utils/tal.py', 'utils/metrics.py', 'utils/ops.py']:
         lines.append('// ' + relative + ' SHA256: ' + hashlib.sha256(
             (source_root / 'ultralytics' / relative).read_bytes()).hexdigest())
-    lines += ['#pragma once', '#include <array>', 'namespace yolo26_obb_numerics_reference {']
+    namespace = ('yolo26_obb_cpu2141_reference' if cpu2141_gradients
+                 else 'yolo26_obb_numerics_reference')
+    lines += ['#pragma once', '#include <array>', 'namespace ' + namespace + ' {']
     for name, value in records.items():
         values = [format(v, '.9g') for v in value.detach().flatten().tolist()]
         values = [v + ('.0' if '.' not in v and 'e' not in v else '') + 'F' for v in values]
         lines.append(f'inline constexpr std::array<float, {len(values)}> {name}' + '{{')
         lines.extend('    ' + ', '.join(values[i:i+6]) + ',' for i in range(0, len(values), 6))
         lines.append('}};')
-    lines.append('}  // namespace yolo26_obb_numerics_reference')
+    lines.append('}  // namespace ' + namespace)
     output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print('Independent OBB E2E losses:', [float(x) for x in losses], flush=True)
 
@@ -101,12 +107,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--upstream-root', type=Path, required=True)
     parser.add_argument('--output-header', type=Path, required=True)
+    parser.add_argument('--cpu2141-gradients', action='store_true',
+                        help='Only the pinned official CPU 2.14.1 gradient fixture')
     args = parser.parse_args()
     os.environ.update(YOLO_AUTOINSTALL='false', YOLO_OFFLINE='true')
     sys.path.insert(0, str(args.upstream_root.resolve()))
     import torch
     from ultralytics.utils.loss import E2ELoss, v8OBBLoss
-    generate(torch, E2ELoss, v8OBBLoss, args.upstream_root, args.output_header)
+    generate(torch, E2ELoss, v8OBBLoss, args.upstream_root, args.output_header,
+             args.cpu2141_gradients)
 
 
 if __name__ == '__main__':

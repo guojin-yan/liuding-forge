@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 #include "yolo26_numerics_reference.hpp"
+#include "yolo26_obb_cpu2141_reference.hpp"
 #include "yolo26_obb_numerics_reference.hpp"
 #include "yolo_numerics_reference.hpp"
 
@@ -14,6 +15,7 @@
 #include <jyppx/liuding/vision/tasks/yolo_detection.hpp>
 
 #include <torch/torch.h>
+#include <torch/version.h>
 
 #include <ATen/autocast_mode.h>
 #include <array>
@@ -286,12 +288,22 @@ void CheckYolo26ObbNumerics(const Device& device, bool autocast,
       }
     }
   }
-  EXPECT_TRUE(torch::allclose(
-      many.grad(), Expected(obb::many_gradient, {2, 8, 85}, device).to(dtype),
-      1e-5, 1e-7));
-  EXPECT_TRUE(torch::allclose(
-      one.grad(), Expected(obb::one_gradient, {2, 8, 85}, device).to(dtype),
-      1e-5, 1e-7));
+  // CPU 2.14.1's unchanged official criterion differs from the CPU 2.14.0
+  // carrier near zero gradients. Bind that exact backend fixture, preserving
+  // the original tolerance; GPU references retain the AMD 2.14.0 fixture.
+  const bool cpu2141 = device.is_cpu() && TORCH_VERSION_MAJOR == 2 &&
+                       TORCH_VERSION_MINOR == 14 && TORCH_VERSION_PATCH == 1;
+  const auto expected_many =
+      cpu2141 ? Expected(yolo26_obb_cpu2141_reference::many_gradient,
+                         {2, 8, 85}, device)
+              : Expected(obb::many_gradient, {2, 8, 85}, device);
+  const auto expected_one =
+      cpu2141 ? Expected(yolo26_obb_cpu2141_reference::one_gradient, {2, 8, 85},
+                         device)
+              : Expected(obb::one_gradient, {2, 8, 85}, device);
+  EXPECT_TRUE(
+      torch::allclose(many.grad(), expected_many.to(dtype), 1e-5, 1e-7));
+  EXPECT_TRUE(torch::allclose(one.grad(), expected_one.to(dtype), 1e-5, 1e-7));
   for (bool tiny : {false, true}) {
     const auto b = tiny ? boxes.slice(0, 3, 4) : boxes.slice(0, 0, 0);
     const auto r = tiny ? oriented.slice(0, 3, 4) : oriented.slice(0, 0, 0);
