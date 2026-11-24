@@ -30,6 +30,11 @@ void ValidateOptions(const YoloDetectionOptions& options) {
   if (options.num_classes < 1 || options.num_classes > 10000 ||
       options.reg_max < 1 || options.reg_max > 32 ||
       options.assignment_topk <= 0 || options.max_targets <= 0 ||
+      options.assignment_topk2 < 0 ||
+      options.assignment_topk2 > options.assignment_topk ||
+      !std::isfinite(options.assignment_minimum_side) ||
+      options.assignment_minimum_side < 0 ||
+      options.assignment_minimum_side > 65536 ||
       options.max_assignment_pairs <= 0 ||
       options.max_prediction_elements <= 0 || options.strides.empty() ||
       options.strides.size() > 5) {
@@ -185,10 +190,18 @@ YoloAssignment Assign(const YoloDecodedPrediction& prediction,
     }
     const auto gt = selected.slice(1, 2, 6).to(torch::kFloat32);
     const auto classes = selected.select(1, 1).to(torch::kInt64);
-    const auto distances =
-        torch::cat({centers.unsqueeze(0) - gt.slice(1, 0, 2).unsqueeze(1),
-                    gt.slice(1, 2, 4).unsqueeze(1) - centers.unsqueeze(0)},
-                   -1);
+    auto candidates = gt;
+    if (options.assignment_minimum_side > 0) {
+      const auto center = (gt.slice(1, 0, 2) + gt.slice(1, 2, 4)) * .5;
+      const auto half = (gt.slice(1, 2, 4) - gt.slice(1, 0, 2))
+                            .clamp_min(options.assignment_minimum_side) *
+                        .5;
+      candidates = torch::cat({center - half, center + half}, 1);
+    }
+    const auto distances = torch::cat(
+        {centers.unsqueeze(0) - candidates.slice(1, 0, 2).unsqueeze(1),
+         candidates.slice(1, 2, 4).unsqueeze(1) - centers.unsqueeze(0)},
+        -1);
     const auto inside = std::get<0>(distances.min(-1)) > kEpsilon;
     const auto overlaps =
         CompleteIou(gt.unsqueeze(1),
@@ -211,6 +224,14 @@ YoloAssignment Assign(const YoloDecodedPrediction& prediction,
     auto single_best =
         torch::zeros_like(positive).scatter_(0, best_gt.unsqueeze(0), 1);
     positive = torch::where(conflicts.unsqueeze(0), single_best, positive);
+    if (options.assignment_topk2 > 0 &&
+        options.assignment_topk2 < options.assignment_topk) {
+      const auto secondary = std::get<1>(
+          (alignment * positive)
+              .topk((std::min)(options.assignment_topk2, anchors), 1));
+      positive =
+          positive & torch::zeros_like(positive).scatter_(1, secondary, 1);
+    }
     auto mask = positive.any(0);
     auto assigned = std::get<1>(positive.to(torch::kInt64).max(0));
     auto positive_alignment = alignment * positive;
@@ -352,8 +373,10 @@ YoloDetectionLoss yolo_detection_loss(const Tensor& raw, const Tensor& targets,
                                            static_cast<float>(image_size[1]),
                                            static_cast<float>(image_size[0])},
                         raw.options().dtype(torch::kFloat32));
-      auto error = ((values.slice(2, 0, 4) - desired) * prediction.strides /
-                    normalization)
+      // Preserve the independent normalization of the two operands in
+      // Ultralytics BboxLoss's direct-regression L1 path.
+      auto error = (values.slice(2, 0, 4) * prediction.strides / normalization -
+                    desired * prediction.strides / normalization)
                        .abs();
       dfl_loss = (error.index({mask}).mean(-1) * weight).sum() / denominator;
     }

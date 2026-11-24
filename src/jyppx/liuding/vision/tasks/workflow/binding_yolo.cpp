@@ -117,6 +117,11 @@ void bind_yolo(const RecipeSpec& r, TaskBinding& b,
       b.yolo.detection.strides = d.strides;
       b.yolo.end_to_end = d.end_to_end;
       b.yolo.generation26 = o.family == y::Family::yolo26;
+      if (b.yolo.generation26 && b.yolo.end_to_end) {
+        b.yolo.one_to_many_initial = .8;
+        b.yolo.detection.assignment_minimum_side =
+            d.strides.at(d.strides.size() > 1 ? 1 : 0);
+      }
       b.yolo.mask_channels = o.mask_channels;
       b.yolo.keypoints = o.keypoints;
       b.yolo.keypoint_dimensions = o.keypoint_dimensions;

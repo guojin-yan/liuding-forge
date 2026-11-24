@@ -2,6 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "yolo26_numerics_reference.hpp"
 #include "yolo_numerics_reference.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
@@ -16,6 +17,7 @@
 #include <ATen/autocast_mode.h>
 #include <array>
 #include <gtest/gtest.h>
+#include <limits>
 #include <memory>
 #include <span>
 
@@ -133,6 +135,129 @@ TEST(VisionYoloNumerics, CudaReferenceAndAutocastPreserveFp32) {
   CheckNumerics(Device(torch::kCUDA, 0), true, true);
 }
 
+void CheckYolo26Numerics(const Device& device, bool autocast) {
+  torch::set_num_threads(1);
+  namespace e2e = yolo26_numerics_reference;
+  const auto base =
+      torch::arange(2 * 7 * 85, torch::kInt64).reshape({2, 7, 85});
+  auto many = ((base * 37 % 251 - 125).to(torch::kFloat32) / 32).to(device);
+  auto one = ((base * 19 % 229 - 114).to(torch::kFloat32) / 32).to(device);
+  many.slice(1, 0, 4).abs_().add_(.25);
+  one.slice(1, 0, 4).abs_().add_(.5);
+  many.requires_grad_(true);
+  one.requires_grad_(true);
+  const auto targets =
+      torch::tensor({0.,  0.,  10., 10., 14., 14., 0.,  1.,  8.,  8.,
+                     30., 29., 0.,  2.,  24., 16., 50., 54., 1.,  1.,
+                     29., 29., 35., 35., 1.,  0.,  6.,  10., 42., 50.})
+          .reshape({5, 6})
+          .to(device);
+  t::YoloTaskOptions options;
+  options.end_to_end = options.generation26 = true;
+  options.one_to_many_initial = .8;
+  options.detection.num_classes = 3;
+  options.detection.reg_max = 1;
+  options.detection.strides = {8, 16, 32, 64};
+  options.detection.assignment_minimum_side = 16;
+  const std::array<Tensor, 2> raw{many, one};
+  const auto saved_many = many.detach().clone(),
+             saved_one = one.detach().clone();
+  const auto saved_targets = targets.clone();
+  const auto expected_loss = Expected(e2e::losses, {4}, device);
+  std::unique_ptr<training::amp::AutocastGuard> guard;
+  if (autocast)
+    guard = std::make_unique<training::amp::AutocastGuard>(
+        device.type(), device.is_cpu() ? torch::kBFloat16 : torch::kFloat16);
+  const std::array<std::uint64_t, 4> epochs{0, 1, 99, 100};
+  for (std::size_t i = 0; i < epochs.size(); ++i) {
+    SCOPED_TRACE(epochs[i]);
+    auto loss = t::yolo_task_loss(raw, {.boxes = targets}, {64, 64}, options,
+                                  epochs[i]);
+    EXPECT_EQ(loss.total.scalar_type(), torch::kFloat32);
+    EXPECT_TRUE(torch::allclose(loss.total, expected_loss[i], 1e-5, 1e-6));
+    if (i == 0) loss.total.backward();
+  }
+  EXPECT_TRUE(torch::allclose(many.grad(),
+                              Expected(e2e::many_gradient, {2, 7, 85}, device),
+                              1e-5, 1e-7));
+  EXPECT_TRUE(torch::allclose(
+      one.grad(), Expected(e2e::one_gradient, {2, 7, 85}, device), 1e-5, 1e-7));
+  options.schedule_epochs = 1;
+  EXPECT_TRUE(torch::allclose(
+      t::yolo_task_loss(raw, {.boxes = targets}, {64, 64}, options, 1).total,
+      Expected(e2e::single_epoch_loss, {1}, device).squeeze(), 1e-5, 1e-6));
+  for (int branch = 0; branch < 2; ++branch) {
+    auto policy = options.detection;
+    if (branch) {
+      policy.assignment_topk = 7;
+      policy.assignment_topk2 = 1;
+    }
+    const auto decoded =
+        t::decode_yolo_detection(raw[branch], {64, 64}, policy);
+    const auto assigned = t::assign_yolo_targets(decoded, targets, policy);
+    const auto scores = branch ? Expected(e2e::one_scores, {2, 85, 3}, device)
+                               : Expected(e2e::many_scores, {2, 85, 3}, device);
+    const auto fg = branch ? Expected(e2e::one_foreground, {2, 85}, device)
+                           : Expected(e2e::many_foreground, {2, 85}, device);
+    const auto ids = branch ? Expected(e2e::one_indices, {2, 85}, device)
+                            : Expected(e2e::many_indices, {2, 85}, device);
+    EXPECT_TRUE(torch::allclose(assigned.scores, scores, 1e-5, 1e-7));
+    EXPECT_TRUE(torch::equal(assigned.foreground, fg.to(torch::kBool)));
+    EXPECT_TRUE(torch::equal(assigned.target_indices, ids.to(torch::kInt64)));
+  }
+  EXPECT_TRUE(torch::equal(many, saved_many));
+  EXPECT_TRUE(torch::equal(one, saved_one));
+  EXPECT_TRUE(torch::equal(targets, saved_targets));
+}
+
+TEST(VisionYoloNumerics, Yolo26CpuMatchesIndependentE2eScheduleAndAssignments) {
+  for (bool autocast : {false, true})
+    CheckYolo26Numerics(Device(torch::kCPU), autocast);
+}
+
+TEST(VisionYoloNumerics,
+     Yolo26CudaMatchesIndependentE2eScheduleAndAssignments) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  for (bool autocast : {false, true})
+    CheckYolo26Numerics(Device(torch::kCUDA, 0), autocast);
+}
+
+TEST(VisionYoloNumerics,
+     RejectsInvalidSecondaryAssignmentAndComplementaryGains) {
+  const auto raw = torch::zeros({1, 7, 85});
+  const auto targets = torch::empty({0, 6});
+  t::YoloDetectionOptions options{
+      .num_classes = 3, .reg_max = 1, .strides = {8, 16, 32, 64}};
+  for (auto topk : {std::int64_t{-1}, std::int64_t{11}}) {
+    options.assignment_topk2 = topk;
+    EXPECT_THROW(t::yolo_detection_loss(raw, targets, {64, 64}, options),
+                 InvalidArgument);
+  }
+  options.assignment_topk2 = 0;
+  for (auto side : {-1., 65537., std::numeric_limits<double>::infinity()}) {
+    options.assignment_minimum_side = side;
+    EXPECT_THROW(t::yolo_detection_loss(raw, targets, {64, 64}, options),
+                 InvalidArgument);
+  }
+  t::YoloTaskOptions task;
+  task.generation26 = task.end_to_end = true;
+  task.detection.num_classes = 3;
+  task.detection.reg_max = 1;
+  task.detection.strides = {8, 16, 32, 64};
+  const std::array<Tensor, 2> outputs{raw, raw};
+  task.one_to_many_initial = .8;
+  task.one_to_many_final = .1;
+  EXPECT_NO_THROW(
+      t::yolo_task_loss(outputs, {.boxes = targets}, {64, 64}, task));
+  task.one_to_many_initial = 1.01;
+  EXPECT_THROW(t::yolo_task_loss(outputs, {.boxes = targets}, {64, 64}, task),
+               InvalidArgument);
+  task.one_to_many_initial = .8;
+  task.one_to_many_final = 1.01;
+  EXPECT_THROW(t::yolo_task_loss(outputs, {.boxes = targets}, {64, 64}, task),
+               InvalidArgument);
+}
+
 TEST(VisionYoloNumerics, RecipeIdentityBindsOnlyAffectedTrainingSemantics) {
   const auto hash = [](const std::string& text) {
     return sha256_hex(std::as_bytes(std::span(text)));
@@ -151,13 +276,16 @@ TEST(VisionYoloNumerics, RecipeIdentityBindsOnlyAffectedTrainingSemantics) {
     const auto canonical = t::recipe_json(recipe);
     EXPECT_NE(t::recipe_identity(recipe), hash(canonical));
     EXPECT_EQ(t::recipe_identity(recipe),
-              hash(canonical + "\nyolo-detection-fp32/v2"));
+              hash(canonical + (recipe.model.architecture.starts_with("yolo26")
+                                    ? "\nyolo26-e2e-fp32/v3"
+                                    : "\nyolo-detection-fp32/v2")));
     const auto restored =
         t::parse_recipe(canonical, std::filesystem::current_path());
     EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
   }
   for (const auto& scenario :
        {std::pair{"yolov8n", t::TaskKind::classify},
+        std::pair{"yolo26n", t::TaskKind::classify},
         std::pair{"yolov5n", t::TaskKind::detect},
         std::pair{"resnet18", t::TaskKind::classify},
         std::pair{"fcos_resnet50_fpn", t::TaskKind::detect}}) {

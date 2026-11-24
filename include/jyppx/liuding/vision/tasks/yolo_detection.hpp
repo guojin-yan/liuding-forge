@@ -46,6 +46,10 @@ struct YoloDetectionOptions {
   std::int64_t max_assignment_pairs =
       1048576;  ///< Maximum GT*anchors per image.
   std::int64_t max_prediction_elements = 67108864;  ///< Raw element bound.
+  std::int64_t assignment_topk2 = 0;  ///< Optional post-conflict top-k per GT;
+                                      ///< 0 retains the first candidate set.
+  double assignment_minimum_side = 0.;  ///< Axis-aligned candidate-box side
+                                        ///< floor in pixels; 0 disables it.
 };
 
 /** @brief Owning tensor handles for decoded dense predictions; no NMS. */

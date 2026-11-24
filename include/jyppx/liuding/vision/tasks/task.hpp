@@ -48,9 +48,12 @@ struct YoloTaskOptions {
   double visibility_gain = 1.;
   double semantic_gain = 1.;
   double flow_gain = 1.;
-  double one_to_many_initial = 1.;
+  double one_to_many_initial = 1.;  ///< YOLO26 bindings select .8. Generation26
+                                    ///< uses complementary one-to-one weight.
   double one_to_many_final = .1;
-  std::uint64_t schedule_epochs = 100;
+  std::uint64_t schedule_epochs =
+      100;  ///< Generation26 reaches its final gain
+            ///< at max(epochs-1,1); others at epochs.
   std::vector<double> keypoint_sigmas;  ///< Empty selects uniform 1/K.
   std::int64_t max_mask_elements = 67108864;
 };

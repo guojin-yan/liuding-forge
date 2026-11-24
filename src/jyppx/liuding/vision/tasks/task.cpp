@@ -64,6 +64,9 @@ void Validate(const YoloTaskOptions& o) {
         o.flow_gain, o.one_to_many_initial, o.one_to_many_final})
     if (!std::isfinite(gain) || gain < 0)
       throw InvalidArgument("Task loss gains must be finite and nonnegative");
+  if (o.generation26 && (o.one_to_many_initial > 1 || o.one_to_many_final > 1))
+    throw InvalidArgument(
+        "Generation26 complementary branch gains must be in [0,1]");
   if (!o.keypoint_sigmas.empty() &&
       o.keypoint_sigmas.size() != static_cast<std::size_t>(o.keypoints))
     throw InvalidArgument("Pose sigma count differs from keypoint count");
@@ -144,6 +147,11 @@ YoloAssignment RotatedAssignment(const Tensor& rotated,
     pos = torch::where(conflicts.unsqueeze(0),
                        torch::zeros_like(pos).scatter_(0, best.unsqueeze(0), 1),
                        pos);
+    if (d.assignment_topk2 > 0 && d.assignment_topk2 < d.assignment_topk) {
+      const auto secondary = std::get<1>(
+          (alignment * pos).topk((std::min)(d.assignment_topk2, anchors), 1));
+      pos = pos & torch::zeros_like(pos).scatter_(1, secondary, 1);
+    }
     auto selected = pos.any(0),
          matched = std::get<1>(pos.to(torch::kInt64).max(0));
     auto positive_alignment = alignment * pos;
@@ -451,15 +459,23 @@ TaskLoss yolo_task_loss(std::span<const Tensor> outputs,
       Branch(outputs[0], proto, semantic, targets, size, o, pose_flow, false);
   if (o.end_to_end) {
     auto single = o;
-    single.detection.assignment_topk = 1;
+    single.detection.assignment_topk = o.generation26 ? 7 : 1;
+    single.detection.assignment_topk2 = o.generation26 ? 1 : 0;
     auto one = Branch(outputs[1], proto, semantic, targets, size, single,
                       pose_flow, true);
+    const auto duration =
+        o.generation26 ? (std::max)(std::uint64_t{1}, o.schedule_epochs - 1)
+                       : o.schedule_epochs;
     const double fraction =
-        (std::min)(1., static_cast<double>(epoch) / o.schedule_epochs);
+        (std::min)(1., static_cast<double>(epoch) / duration);
     const double weight =
-        o.one_to_many_initial +
-        (o.one_to_many_final - o.one_to_many_initial) * fraction;
-    result.total = result.total * weight + one.total;
+        o.generation26
+            ? (1. - fraction) * (o.one_to_many_initial - o.one_to_many_final) +
+                  o.one_to_many_final
+            : o.one_to_many_initial +
+                  (o.one_to_many_final - o.one_to_many_initial) * fraction;
+    result.total =
+        result.total * weight + one.total * (o.generation26 ? 1. - weight : 1.);
     auto components = result.components;
     result.components.clear();
     for (auto& [name, value] : components)

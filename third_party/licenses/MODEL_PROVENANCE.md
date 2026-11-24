@@ -25,6 +25,8 @@ C++ 模块、head、损失、匹配、增强和解码在对照上游模块顺序
 
 `vision/tasks/yolo_detection.cpp` 的 CIoU 运算顺序及稳定项对照 Ultralytics `v8.4.177` 的 `ultralytics/utils/metrics.py::bbox_iou` 作 C++ 适配，该参考文件 SHA-256 为 `e2f216964bb0d89ac26efecb4e0a76750b554d2e670a27e6ed4a8f42d998b2a0`；分布投影对照同版 `ultralytics/utils/loss.py::v8DetectionLoss.bbox_decode`（文件 SHA-256 `8eb4e089b7c36cef13bb872f9aa37e346da5c022bcfd979e11e7a57a0666b106`）。原生入口显式保留 FP32 并共享分支转换，独立数值参考由开发测试脚本生成。上述适配继续遵守已保留的 Ultralytics 归属及 AGPL-3.0 条款，不改变其余来源审查状态。
 
+YOLO26 双分支权重与调度对照同一 `utils/loss.py::E2ELoss`，直接距离回归的归一化顺序对照 `BboxLoss`；小框候选与冲突后二次筛选对照 `utils/tal.py::TaskAlignedAssigner`（SHA-256 `c69ec67990777a4d13df219ef9b254085b2df283fbe5fd283245b76d6b461b3c`）作 C++ 适配。独立 FP32 多目标参考保留上述源码摘要，继续适用既有 Ultralytics AGPL-3.0 归属和未完成的分发审查边界。
+
 套件不附带上游预训练权重。原生 `.pt` 到 safetensors 转换只处理格式，调用者须提供源摘要并保留具体权重的来源和许可；转换成功和自动提出的键映射报告均不代表预训练模型、数值等价或任务精度资格。
 
 ## 文件声明与原始署名
