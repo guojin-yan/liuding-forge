@@ -17,6 +17,7 @@
 | 深度 | `depth_resnet50_fpn` | `depth`；数值场和有效性，不以 RGB 热图代替深度 |
 | 自监督预训练 | `simmim_swin_tiny`、`simmim_vit_tiny`、`simmim_vit_base` | `pretrain_simmim`；真实 mask token、像素重建与 masked L1 |
 | RT-DETR v1 | `rtdetr_resnet18_vd`、`rtdetr_resnet50_vd` | vd 骨干、HybridEncoder、300 queries、6 层 decoder、DN/aux；至少 256×256 |
+| RT-DETR R18 COCO 配置 | `rtdetr_resnet18_vd_coco72` | 可训练骨干 BN、半宽 CSP、3 层 decoder 与带 padding 负类的 DN/aux；独立模型与训练身份，至少 256×256 |
 | YOLO-World | `yoloworld_v8s_text` | 原生文本条件 detect profile |
 | YOLOE | `yoloe_v8s_text`、`yoloe_v8s_visual`、`yoloe_v8s_prompt_free` | detect；各名称追加 `_segment` 选择实例分割 |
 | ReID | `reid_resnet50` | `reid`；CE/triplet、P×K 采样、跨 camera mAP/rank1、归一化检索输出 |

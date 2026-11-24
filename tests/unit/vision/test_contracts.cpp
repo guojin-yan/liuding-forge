@@ -18,6 +18,7 @@
 #include <jyppx/liuding/vision/tasks/training/advanced.hpp>
 #include <jyppx/liuding/vision/tasks/training/strategy.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
+#include <jyppx/liuding/vision/tasks/rtdetr.hpp>
 
 #include <torch/torch.h>
 
@@ -593,6 +594,21 @@ TEST_F(VisionContracts, SelectionMetricsFollowTaskAndDepthAlignment) {
   EXPECT_NO_THROW(t::check_recipe(recipe));
   recipe.full_validation_metrics = false;
   EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+}
+
+TEST_F(VisionContracts, RtDetrPaddingNegativesAreExplicitAndHaveExpectedGradient) {
+  auto main = torch::zeros({1, 1, 1, 1}, torch::requires_grad());
+  auto dn = torch::zeros({1, 1, 2, 1}, torch::requires_grad());
+  auto box = torch::tensor({.5f, .5f, .25f, .25f}).view({1, 1, 1, 4});
+  std::vector<Tensor> raw{main, box, main[0], box[0], dn,
+      box.expand({1, 1, 2, 4}), torch::tensor({0, -1}, torch::kInt64).view({1, 2}),
+      torch::tensor({true, false}).view({1, 2})};
+  const auto targets = torch::tensor({0.f, 0.f, 6.f, 6.f, 10.f, 10.f}).view({1, 6});
+  const auto legacy = t::rtdetr_loss(raw, targets, {16, 16}, 1);
+  const auto coco = t::rtdetr_loss(raw, targets, {16, 16}, 1, true);
+  EXPECT_NEAR((coco.total - legacy.total).item<double>(), .1875 * std::log(2.), 1e-6);
+  coco.total.backward();
+  EXPECT_NEAR(dn.grad()[0][0][1][0].item<double>(), .09375, 1e-7);
 }
 
 TEST_F(VisionContracts, ExecutionPolicyRoundTripsAndChangesResumeIdentity) {

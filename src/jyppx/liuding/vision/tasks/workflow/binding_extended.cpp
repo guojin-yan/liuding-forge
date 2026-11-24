@@ -23,6 +23,7 @@ void catalog_extended(std::vector<CapabilityRecord>& entries){
   for(auto name:{"fcos_resnet50_fpn","retinanet_resnet50_fpn"})add(name,TaskKind::detect,"torchvision-v0.24.0/native-unqualified-v1");
   for(auto name:{"fcos_swin_tiny_fpn","fcos_swin_tiny_bifpn","fcos_resnet50_bifpn","fcos_resnet50_bifpn_softmax","fcos_convnext_tiny_bifpn","fcos_vit_tiny_token_pyramid","fcos_vit_adapter_tiny_fpn"})add(name,TaskKind::detect,"native-feature-composition/v1");
   for(auto name:{"rtdetr_resnet18_vd","rtdetr_resnet50_vd"}){add(name,TaskKind::detect,"rtdetr-v1/native-unqualified-v1","rtdetr_queries/v1");entries.back().end_to_end=true;entries.back().minimum_input_size=256;}
+  add("rtdetr_resnet18_vd_coco72",TaskKind::detect,"rtdetr-r18-coco72/native-v1","rtdetr_queries/v1");entries.back().end_to_end=true;entries.back().minimum_input_size=256;
   for(auto name:{"yoloworld_v8s_text","yoloe_v8s_text","yoloe_v8s_visual","yoloe_v8s_prompt_free"}){add(name,TaskKind::detect,"native-open-vocabulary-p5/v1","prompt_yolo/v1");if(std::string_view(name).starts_with("yoloe_"))add(std::string(name)+"_segment",TaskKind::instance_segment,"native-open-vocabulary-segment/v1","prompt_yolo_masks/v1");}
   add("ssd300_vgg16",TaskKind::detect,"torchvision-v0.24.0/native-ssd300-v1");entries.back().input_divisor=1;entries.back().fixed_input_size={300,300};
   for(auto name:{"fast_rcnn_resnet50_fpn","fast_rcnn_vgg16"}){add(name,TaskKind::detect,"native-external-proposals/v1");entries.back().requires_external_proposals=true;}
@@ -50,8 +51,9 @@ void bind_extended(const RecipeSpec& r,TaskBinding& b,const YoloDataOptions& dat
     b.image_mapper=make_prompt_image_mapper(std::move(input));b.target_mapper=make_task_target_mapper(b.yolo,data);b.step=make_prompt_step(b.yolo,o.mode==ex::PromptMode::yoloe_prompt_free);
     b.decode=[task=b.yolo](const c10::IValue& v,auto size,const ResultOptions& options){auto raw=raw_tensors(v);raw.resize(task.task==TaskKind::instance_segment?2:1);return decode_yolo_results(raw,size,task,options);};
   }else if(name.starts_with("rtdetr_")){
-    ex::RtDetrOptions o;o.num_classes=r.model.num_classes;if(name=="rtdetr_resnet18_vd")o.backbone=ex::RtDetrBackbone::resnet18_vd;
-    b.model=std::make_shared<nn::ModelAdapter>(ex::adapt(ex::RtDetr(o)));b.step=make_rtdetr_step(r.model.num_classes);b.image_mapper=make_rtdetr_image_mapper(data);
+    ex::RtDetrOptions o;o.num_classes=r.model.num_classes;if(name=="rtdetr_resnet18_vd"||name=="rtdetr_resnet18_vd_coco72")o.backbone=ex::RtDetrBackbone::resnet18_vd;
+    if(name=="rtdetr_resnet18_vd_coco72")o.profile=ex::RtDetrProfile::r18_coco72;
+    b.model=std::make_shared<nn::ModelAdapter>(ex::adapt(ex::RtDetr(o)));b.step=make_rtdetr_step(r.model.num_classes,o.profile==ex::RtDetrProfile::r18_coco72);b.image_mapper=make_rtdetr_image_mapper(data);
     b.decode=[](const c10::IValue& v,auto size,const ResultOptions& options){return decode_rtdetr(raw_tensors(v),size,options);};
   }else if(name.starts_with("fcos_")||name=="retinanet_resnet50_fpn"){
     ex::DenseDetectorOptions o;o.num_classes=r.model.num_classes;

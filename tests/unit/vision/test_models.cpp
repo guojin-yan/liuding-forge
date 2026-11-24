@@ -9,6 +9,7 @@
 #include <jyppx/liuding/training/amp/autocast.hpp>
 #include <jyppx/liuding/training/amp/grad_scaler.hpp>
 #include <jyppx/liuding/vision/models/yolo/model.hpp>
+#include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
 #include <jyppx/liuding/vision/tasks/extended.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
 
@@ -295,6 +296,7 @@ std::vector<AcceleratorCase> accelerator_cases() {
          entry.architecture == "fcos_resnet50_fpn" ||
          entry.architecture == "fcos_vit_adapter_tiny_fpn" ||
          entry.architecture == "rtdetr_resnet18_vd" ||
+         entry.architecture == "rtdetr_resnet18_vd_coco72" ||
          entry.architecture == "fcn_resnet50" ||
          entry.architecture == "depth_resnet50_fpn" ||
          entry.architecture == "simmim_vit_tiny" ||
@@ -306,6 +308,44 @@ std::vector<AcceleratorCase> accelerator_cases() {
   }
   return result;
 }
+TEST(VisionRtDetrProfile, R18CocoTopologyHasThreeDecodersAndTrainableBackboneNorm) {
+  torch::set_num_threads(1);
+  namespace ex = models::extended;
+  ex::RtDetr model(ex::RtDetrOptions{
+      .backbone = ex::RtDetrBackbone::resnet18_vd, .num_classes = 3,
+      .profile = ex::RtDetrProfile::r18_coco72});
+  const auto parameters = model->named_parameters();
+  const auto buffers = model->named_buffers();
+  EXPECT_EQ(parameters.size() + buffers.size(), 533);
+  std::int64_t count = 0;
+  for (const auto& parameter : parameters) count += parameter.value().numel();
+  EXPECT_EQ(count, 20085596);
+  EXPECT_TRUE(parameters.contains("model.backbone.stem.0.norm.weight"));
+  EXPECT_TRUE(parameters["model.backbone.stem.0.norm.weight"].requires_grad());
+  EXPECT_TRUE(buffers.contains("model.backbone.stem.0.norm.num_batches_tracked"));
+  EXPECT_TRUE(parameters.contains("model.decoder2.self_attention.packed.in_proj_weight"));
+  EXPECT_FALSE(parameters.contains("model.decoder3.self_attention.packed.in_proj_weight"));
+  EXPECT_EQ(parameters["model.encoder.fpn0.conv1.conv.weight"].size(0), 128);
+  EXPECT_TRUE(parameters.contains("model.encoder.fpn0.blocks.2.conv3.conv.weight"));
+  t::ModelSpec spec;
+  spec.architecture = "rtdetr_resnet18_vd_coco72";
+  const auto profile = t::describe_binding(spec);
+  spec.architecture = "rtdetr_resnet18_vd";
+  EXPECT_NE(profile.revision, t::describe_binding(spec).revision);
+  EXPECT_FALSE(profile.reference_qualified);
+  EXPECT_FALSE(profile.quality_qualified);
+}
+
+TEST(VisionRtDetrProfile, RejectsInvalidBackboneAndUnknownProfile) {
+  namespace ex = models::extended;
+  ex::RtDetrOptions options;
+  options.profile = ex::RtDetrProfile::r18_coco72;
+  EXPECT_THROW(ex::RtDetr model(options), InvalidArgument);
+  options.backbone = ex::RtDetrBackbone::resnet18_vd;
+  options.profile = static_cast<ex::RtDetrProfile>(99);
+  EXPECT_THROW(ex::RtDetr model(options), InvalidArgument);
+}
+
 class VisionAcceleratorTraining
     : public ::testing::TestWithParam<AcceleratorCase> {};
 TEST_P(VisionAcceleratorTraining, FiniteTaskLossGradientsAndActualUpdate) {

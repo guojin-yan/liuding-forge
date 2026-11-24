@@ -27,6 +27,7 @@
 #include <jyppx/liuding/vision/tasks/tracking/workflow.hpp>
 #ifdef VISION_CONSUMER_MODELS_VISION
 #include <jyppx/liuding/vision/models/extended/pyramid.hpp>
+#include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
 #endif
 #include <chrono>
 #include <filesystem>
@@ -50,6 +51,17 @@ int main() try {
       throw std::runtime_error("installed BF16 MuSGD update failed");
   }
   const auto catalog = tasks::vision_catalog();
+#ifdef VISION_CONSUMER_MODELS_VISION
+  {
+    namespace ex = jyppx::liuding::models::extended;
+    ex::RtDetr model(ex::RtDetrOptions{
+        .backbone = ex::RtDetrBackbone::resnet18_vd,
+        .num_classes = 3, .profile = ex::RtDetrProfile::r18_coco72});
+    if (!model->named_parameters().contains("model.decoder2.self_attention.packed.in_proj_weight") ||
+        !model->named_parameters().contains("model.backbone.stem.0.norm.weight"))
+      throw std::runtime_error("installed R18 COCO profile topology mismatch");
+  }
+#endif
 #if defined(VISION_CONSUMER_MODELS) || defined(VISION_CONSUMER_MODELS_YOLO) || \
     defined(VISION_CONSUMER_MODELS_RCNN) || defined(VISION_CONSUMER_MODELS_VISION)
   if (catalog.empty())
