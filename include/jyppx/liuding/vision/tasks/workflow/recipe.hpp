@@ -118,7 +118,8 @@ std::string recipe_json(const RecipeSpec& recipe);
  * model. */
 void check_recipe(const RecipeSpec& recipe);
 /** @brief SHA-256 of resolved recipe and applicable training-numerics revision.
- * YOLO26 object tasks bind E2E FP32 v3; other modern YOLO detection,
+ * YOLO26 OBB binds FP32 v4; its other object tasks bind E2E FP32 v3.
+ * Other modern YOLO detection,
  * segmentation, pose and OBB bind FP32 criterion v2;
  * other recipes retain the canonical JSON hash. Data contents and architecture
  * revision are bound separately by the run. */

@@ -56,6 +56,7 @@ struct YoloTaskOptions {
             ///< at max(epochs-1,1); others at epochs.
   std::vector<double> keypoint_sigmas;  ///< Empty selects uniform 1/K.
   std::int64_t max_mask_elements = 67108864;
+  double angle_gain = 1.;  ///< Generation26 OBB wrapped-angle loss gain.
 };
 /** @brief Scalar differentiable loss and unscaled named observations. */
 struct TaskLoss {

@@ -914,8 +914,10 @@ std::string recipe_identity(const RecipeSpec& r) {
   if (modern_yolo && r.model.task != TaskKind::classify &&
       static_cast<unsigned>(r.model.task) <=
           static_cast<unsigned>(TaskKind::obb))
-    s += name.starts_with("yolo26") ? "\nyolo26-e2e-fp32/v3"
-                                    : "\nyolo-detection-fp32/v2";
+    s += name.starts_with("yolo26")
+             ? (r.model.task == TaskKind::obb ? "\nyolo26-obb-fp32/v4"
+                                              : "\nyolo26-e2e-fp32/v3")
+             : "\nyolo-detection-fp32/v2";
   return sha256_hex(std::as_bytes(std::span(s)));
 }
 }  // namespace jyppx::liuding::vision::tasks

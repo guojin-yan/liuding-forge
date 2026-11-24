@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 #include "yolo26_numerics_reference.hpp"
+#include "yolo26_obb_numerics_reference.hpp"
 #include "yolo_numerics_reference.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
@@ -222,6 +223,103 @@ TEST(VisionYoloNumerics,
     CheckYolo26Numerics(Device(torch::kCUDA, 0), autocast);
 }
 
+void CheckYolo26ObbNumerics(const Device& device, bool autocast,
+                            bool half_input) {
+  torch::set_num_threads(1);
+  namespace obb = yolo26_obb_numerics_reference;
+  const auto dtype = half_input ? torch::kFloat16 : torch::kFloat32;
+  auto many = Expected(obb::raw_many, {2, 8, 85}, device)
+                  .to(dtype)
+                  .requires_grad_(true);
+  auto one =
+      Expected(obb::raw_one, {2, 8, 85}, device).to(dtype).requires_grad_(true);
+  const auto rows = Expected(obb::rows, {6, 7}, device);
+  const auto oriented = rows.slice(1, 2, 7).contiguous();
+  const auto center = oriented.slice(1, 0, 2);
+  const auto half = oriented.slice(1, 2, 4) * .5;
+  const auto boxes =
+      torch::cat({rows.slice(1, 0, 2), center - half, center + half}, 1);
+  const auto saved_many = many.detach().clone(),
+             saved_one = one.detach().clone();
+  const auto saved_boxes = boxes.clone(), saved_oriented = oriented.clone();
+  t::YoloTaskOptions options;
+  options.task = t::TaskKind::obb;
+  options.end_to_end = options.generation26 = true;
+  options.one_to_many_initial = .8;
+  options.detection.num_classes = 3;
+  options.detection.reg_max = 1;
+  options.detection.strides = {8, 16, 32, 64};
+  options.detection.assignment_minimum_side = 16;
+  const std::array<Tensor, 2> raw{many, one};
+  std::unique_ptr<training::amp::AutocastGuard> guard;
+  if (autocast)
+    guard = std::make_unique<training::amp::AutocastGuard>(
+        device.type(), device.is_cpu() ? torch::kBFloat16 : torch::kFloat16);
+  const std::array<std::uint64_t, 4> epochs{0, 1, 99, 100};
+  for (std::size_t i = 0; i < epochs.size(); ++i) {
+    SCOPED_TRACE(epochs[i]);
+    auto loss =
+        t::yolo_task_loss(raw, {.boxes = boxes, .oriented_boxes = oriented},
+                          {64, 64}, options, epochs[i]);
+    EXPECT_EQ(loss.total.scalar_type(), torch::kFloat32);
+    EXPECT_TRUE(torch::allclose(
+        loss.total, Expected(obb::losses, {4}, device)[i], 1e-5, 1e-6))
+        << loss.total;
+    if (i == 0) {
+      loss.total.backward();
+      const std::array<std::string, 4> components{"box", "classification",
+                                                  "distribution", "angle"};
+      for (int branch = 0; branch < 2; ++branch) {
+        const auto expected = branch
+                                  ? Expected(obb::one_components, {4}, device)
+                                  : Expected(obb::many_components, {4}, device);
+        for (std::size_t j = 0; j < components.size(); ++j) {
+          const auto key =
+              std::string(branch ? "one_to_one." : "one_to_many.") +
+              components[j];
+          const auto found = loss.components.find(key);
+          EXPECT_NE(found, loss.components.end()) << key;
+          if (found != loss.components.end())
+            EXPECT_TRUE(torch::allclose(found->second, expected[j], 1e-5, 1e-6))
+                << key;
+        }
+      }
+    }
+  }
+  EXPECT_TRUE(torch::allclose(
+      many.grad(), Expected(obb::many_gradient, {2, 8, 85}, device).to(dtype),
+      1e-5, 1e-7));
+  EXPECT_TRUE(torch::allclose(
+      one.grad(), Expected(obb::one_gradient, {2, 8, 85}, device).to(dtype),
+      1e-5, 1e-7));
+  for (bool tiny : {false, true}) {
+    const auto b = tiny ? boxes.slice(0, 3, 4) : boxes.slice(0, 0, 0);
+    const auto r = tiny ? oriented.slice(0, 3, 4) : oriented.slice(0, 0, 0);
+    auto loss = t::yolo_task_loss(raw, {.boxes = b, .oriented_boxes = r},
+                                  {64, 64}, options);
+    EXPECT_TRUE(torch::allclose(
+        loss.total, Expected(obb::empty_loss, {1}, device).squeeze(), 1e-5,
+        1e-6));
+  }
+  EXPECT_TRUE(torch::equal(many, saved_many));
+  EXPECT_TRUE(torch::equal(one, saved_one));
+  EXPECT_TRUE(torch::equal(boxes, saved_boxes));
+  EXPECT_TRUE(torch::equal(oriented, saved_oriented));
+}
+
+TEST(VisionYoloNumerics, Yolo26ObbCpuMatchesIndependentCriterion) {
+  for (bool autocast : {false, true})
+    for (bool half_input : {false, true})
+      CheckYolo26ObbNumerics(Device(torch::kCPU), autocast, half_input);
+}
+
+TEST(VisionYoloNumerics, Yolo26ObbCudaMatchesIndependentCriterion) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  for (bool autocast : {false, true})
+    for (bool half_input : {false, true})
+      CheckYolo26ObbNumerics(Device(torch::kCUDA, 0), autocast, half_input);
+}
+
 TEST(VisionYoloNumerics,
      RejectsInvalidSecondaryAssignmentAndComplementaryGains) {
   const auto raw = torch::zeros({1, 7, 85});
@@ -256,6 +354,12 @@ TEST(VisionYoloNumerics,
   task.one_to_many_final = 1.01;
   EXPECT_THROW(t::yolo_task_loss(outputs, {.boxes = targets}, {64, 64}, task),
                InvalidArgument);
+  task.one_to_many_final = .1;
+  for (auto gain : {-1., std::numeric_limits<double>::infinity()}) {
+    task.angle_gain = gain;
+    EXPECT_THROW(t::yolo_task_loss(outputs, {.boxes = targets}, {64, 64}, task),
+                 InvalidArgument);
+  }
 }
 
 TEST(VisionYoloNumerics, RecipeIdentityBindsOnlyAffectedTrainingSemantics) {
@@ -265,6 +369,7 @@ TEST(VisionYoloNumerics, RecipeIdentityBindsOnlyAffectedTrainingSemantics) {
   for (const auto& scenario :
        {std::pair{"yolov8n", t::TaskKind::detect},
         std::pair{"yolo26n", t::TaskKind::pose},
+        std::pair{"yolo26n", t::TaskKind::obb},
         std::pair{"yoloe_v8s_text", t::TaskKind::detect},
         std::pair{"yoloe_v8s_text_segment", t::TaskKind::instance_segment}}) {
     t::RecipeSpec recipe;
@@ -277,8 +382,13 @@ TEST(VisionYoloNumerics, RecipeIdentityBindsOnlyAffectedTrainingSemantics) {
     EXPECT_NE(t::recipe_identity(recipe), hash(canonical));
     EXPECT_EQ(t::recipe_identity(recipe),
               hash(canonical + (recipe.model.architecture.starts_with("yolo26")
-                                    ? "\nyolo26-e2e-fp32/v3"
+                                    ? (recipe.model.task == t::TaskKind::obb
+                                           ? "\nyolo26-obb-fp32/v4"
+                                           : "\nyolo26-e2e-fp32/v3")
                                     : "\nyolo-detection-fp32/v2")));
+    if (scenario.second == t::TaskKind::obb)
+      EXPECT_NE(t::recipe_identity(recipe),
+                hash(canonical + "\nyolo26-e2e-fp32/v3"));
     const auto restored =
         t::parse_recipe(canonical, std::filesystem::current_path());
     EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));

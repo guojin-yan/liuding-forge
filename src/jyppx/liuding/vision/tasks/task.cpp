@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 #include "training/class_weights.hpp"
+#include "yolo26_obb.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/vision/ops/rotated.hpp>
@@ -61,7 +62,7 @@ void Validate(const YoloTaskOptions& o) {
         "Invalid task head or generation26 dual-branch recipe");
   for (auto gain :
        {o.mask_gain, o.pose_gain, o.visibility_gain, o.semantic_gain,
-        o.flow_gain, o.one_to_many_initial, o.one_to_many_final})
+        o.flow_gain, o.one_to_many_initial, o.one_to_many_final, o.angle_gain})
     if (!std::isfinite(gain) || gain < 0)
       throw InvalidArgument("Task loss gains must be finite and nonnegative");
   if (o.generation26 && (o.one_to_many_initial > 1 || o.one_to_many_final > 1))
@@ -96,9 +97,12 @@ Tensor Rotated(const Tensor& raw, const YoloDecodedPrediction& decoded,
   auto rotated_offset = torch::stack({dx * angle.cos() - dy * angle.sin(),
                                       dx * angle.sin() + dy * angle.cos()},
                                      -1);
-  auto center = (decoded.anchor_points + rotated_offset) * decoded.strides;
-  auto wh =
-      (distances.slice(2, 0, 2) + distances.slice(2, 2, 4)) * decoded.strides;
+  auto center = decoded.anchor_points + rotated_offset;
+  auto wh = distances.slice(2, 0, 2) + distances.slice(2, 2, 4);
+  if (!o.generation26) {
+    center = center * decoded.strides;
+    wh = wh * decoded.strides;
+  }
   return torch::cat({center, wh, angle.unsqueeze(-1)}, -1);
 }
 // Rotated matching uses the target's rotated interior and probabilistic
@@ -107,7 +111,8 @@ Tensor Rotated(const Tensor& raw, const YoloDecodedPrediction& decoded,
 YoloAssignment RotatedAssignment(const Tensor& rotated,
                                  const YoloDecodedPrediction& p,
                                  const TaskTargets& t,
-                                 const YoloDetectionOptions& d) {
+                                 const YoloDetectionOptions& d,
+                                 bool generation26) {
   torch::NoGradGuard guard;
   const I batch = rotated.size(0), anchors = rotated.size(1);
   auto boxes = torch::zeros_like(p.boxes),
@@ -119,6 +124,11 @@ YoloAssignment RotatedAssignment(const Tensor& rotated,
   const auto centers = p.anchor_points * p.strides;
   for (I b = 0; b < batch; ++b) {
     auto rows = (t.boxes.select(1, 0) == b).nonzero().flatten();
+    if (generation26 && rows.numel()) {
+      const auto dimensions =
+          t.oriented_boxes.index_select(0, rows).slice(1, 2, 4);
+      rows = rows.index({(dimensions >= 2).all(1)});
+    }
     if (!rows.numel()) continue;
     if (rows.size(0) > d.max_assignment_pairs / anchors)
       throw ResourceExhausted("Rotated target/anchor matching bound exceeded");
@@ -132,9 +142,16 @@ YoloAssignment RotatedAssignment(const Tensor& rotated,
         -delta.select(2, 0) * angle.sin() + delta.select(2, 1) * angle.cos();
     auto inside = (localx.abs() < gt.select(1, 2).unsqueeze(1) * .5) &
                   (localy.abs() < gt.select(1, 3).unsqueeze(1) * .5);
-    auto overlap = vision_ops::probabilistic_box_iou(
-                       gt.unsqueeze(1), rotated[b].detach().unsqueeze(0))
-                       .clamp_min(0);
+    if (generation26)
+      inside =
+          detail::yolo26_obb_candidates(centers, gt, d.assignment_minimum_side);
+    auto overlap =
+        (generation26 ? detail::yolo26_obb_similarity(
+                            gt.unsqueeze(1), rotated[b].detach().unsqueeze(0))
+                      : vision_ops::probabilistic_box_iou(
+                            gt.unsqueeze(1), rotated[b].detach().unsqueeze(0)))
+            .clamp_min(0);
+    if (generation26) overlap = torch::where(inside, overlap, 0);
     auto score =
         p.class_scores[b].detach().index_select(1, classes).transpose(0, 1);
     auto alignment =
@@ -157,7 +174,8 @@ YoloAssignment RotatedAssignment(const Tensor& rotated,
     auto positive_alignment = alignment * pos;
     auto quality = std::get<0>(
         (positive_alignment * std::get<0>((overlap * pos).max(1, true)) /
-         (std::get<0>(positive_alignment.max(1, true)) + eps))
+         (std::get<0>(positive_alignment.max(1, true)) +
+          (generation26 ? 1e-9 : eps)))
             .max(0));
     auto anchors_selected = selected.nonzero().flatten();
     scores[b].index_put_(
@@ -184,10 +202,14 @@ TaskLoss Branch(const Tensor& raw, const Tensor& proto, const Tensor& semantic,
                                 : 0;
   if (!raw.defined() || raw.dim() != 3 || raw.size(1) != base + extra)
     throw InvalidArgument("Raw YOLO head width differs from task definition");
-  auto head = raw.slice(1, 0, base).to(torch::kFloat32);
+  // Accumulate every OBB path's adjoint in FP32 before the single cast back
+  // to the model's raw precision, including distance and angle derivatives.
+  const auto values =
+      o.generation26 && o.task == TaskKind::obb ? raw.to(torch::kFloat32) : raw;
+  auto head = values.slice(1, 0, base).to(torch::kFloat32);
   auto prediction = decode_yolo_detection(head, size, o.detection);
   TaskLoss result;
-  auto zero = raw.to(torch::kFloat32).sum() * 0;
+  auto zero = values.to(torch::kFloat32).sum() * 0;
   YoloAssignment assigned;
   Tensor rotated;
   if (o.task == TaskKind::obb) {
@@ -199,8 +221,15 @@ TaskLoss Branch(const Tensor& raw, const Tensor& proto, const Tensor& semantic,
         !(t.oriented_boxes.slice(1, 2, 4) > 0).all().item<bool>())
       throw InvalidArgument(
           "OBB targets require finite positive [T,5] rotated boxes");
-    rotated = Rotated(raw, prediction, o);
-    assigned = RotatedAssignment(rotated, prediction, t, o.detection);
+    rotated = Rotated(values, prediction, o);
+    auto assignment_boxes =
+        o.generation26
+            ? torch::cat({rotated.slice(2, 0, 4) * prediction.strides,
+                          rotated.slice(2, 4, 5)},
+                         2)
+            : rotated;
+    assigned = RotatedAssignment(assignment_boxes, prediction, t, o.detection,
+                                 o.generation26);
     auto norm = assigned.scores.sum().clamp_min(1.);
     auto class_loss = Bce(head.transpose(1, 2)
                               .slice(2, 4 * o.detection.reg_max)
@@ -212,21 +241,32 @@ TaskLoss Branch(const Tensor& raw, const Tensor& proto, const Tensor& semantic,
     result.components["classification"] = class_loss.sum() / norm;
     result.components["box"] = zero;
     result.components["distribution"] = zero;
+    if (o.generation26) result.components["angle"] = zero;
     auto mask = assigned.foreground;
     if (mask.any().item<bool>()) {
       auto target = t.oriented_boxes
                         .index_select(0, assigned.target_indices.index({mask}))
                         .to(torch::kFloat32);
       auto weights = assigned.scores.sum(-1).index({mask});
-      result.components["box"] = ((1 - vision_ops::probabilistic_box_iou(
-                                           rotated.index({mask}), target)) *
-                                  weights)
-                                     .sum() /
-                                 norm;
+      auto stride = prediction.strides.unsqueeze(0)
+                        .expand({raw.size(0), raw.size(2), 1})
+                        .index({mask});
+      if (o.generation26)
+        target = torch::cat(
+            {target.slice(1, 0, 4) / stride, target.slice(1, 4, 5)}, 1);
+      auto similarity = o.generation26 ? detail::yolo26_obb_similarity(
+                                             rotated.index({mask}), target, .01)
+                                       : vision_ops::probabilistic_box_iou(
+                                             rotated.index({mask}), target);
+      result.components["box"] = ((1 - similarity) * weights).sum() / norm;
       auto anchors = (prediction.anchor_points * prediction.strides)
                          .unsqueeze(0)
                          .expand({raw.size(0), raw.size(2), 2})
                          .index({mask});
+      if (o.generation26)
+        anchors = prediction.anchor_points.unsqueeze(0)
+                      .expand({raw.size(0), raw.size(2), 2})
+                      .index({mask});
       auto delta = target.slice(1, 0, 2) - anchors;
       auto angle = target.select(1, 4);
       auto offset = torch::stack(
@@ -234,13 +274,10 @@ TaskLoss Branch(const Tensor& raw, const Tensor& proto, const Tensor& semantic,
            -delta.select(1, 0) * angle.sin() +
                delta.select(1, 1) * angle.cos()},
           1);
-      auto stride = prediction.strides.unsqueeze(0)
-                        .expand({raw.size(0), raw.size(2), 1})
-                        .index({mask});
       auto desired = torch::cat({target.slice(1, 2, 4) * .5 - offset,
                                  target.slice(1, 2, 4) * .5 + offset},
-                                1) /
-                     stride;
+                                1);
+      if (!o.generation26) desired = desired / stride;
       auto logits = head.transpose(1, 2)
                         .slice(2, 0, 4 * o.detection.reg_max)
                         .index({mask});
@@ -262,10 +299,26 @@ TaskLoss Branch(const Tensor& raw, const Tensor& proto, const Tensor& semantic,
                 static_cast<float>(size[1]), static_cast<float>(size[0]),
                 static_cast<float>(size[1]), static_cast<float>(size[0])},
             logits.options());
-        distance_loss = ((logits - desired) * stride / canvas).abs().mean(-1);
+        distance_loss = (o.generation26 ? logits * stride / canvas -
+                                              desired * stride / canvas
+                                        : (logits - desired) * stride / canvas)
+                            .abs()
+                            .mean(-1);
       }
       result.components["distribution"] =
           (distance_loss * weights).sum() / norm;
+      if (o.generation26) {
+        const auto log_ratio =
+            ((target.select(1, 2) + 1e-9) / (target.select(1, 3) + 1e-9)).log();
+        const auto angle_weight = (-log_ratio.square() / 9).exp();
+        auto delta_angle =
+            rotated.index({mask}).select(1, 4) - target.select(1, 4);
+        const auto pi = std::acos(-1.);
+        delta_angle = delta_angle - (delta_angle / pi).round() * pi;
+        result.components["angle"] =
+            ((2 * delta_angle).sin().square() * angle_weight * weights).sum() /
+            norm;
+      }
     }
   } else {
     auto detection = yolo_detection_loss(head, t.boxes, size, o.detection);
@@ -404,6 +457,7 @@ TaskLoss Branch(const Tensor& raw, const Tensor& proto, const Tensor& semantic,
   result.total = zero;
   for (const auto& [name, value] : result.components) {
     const double gain = name == "box"              ? o.detection.box_gain
+                        : name == "angle"          ? o.angle_gain
                         : name == "classification" ? o.detection.class_gain
                         : name == "distribution"   ? o.detection.dfl_gain
                         : name == "mask"           ? o.mask_gain
