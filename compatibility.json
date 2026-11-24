@@ -4678,6 +4678,27 @@
           "architecture": "x86_64",
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
+          "id": "windows-clangcl24-rocm101-gfx1100-2cdbe0d-musgd-bf16-cpu-contracts",
+          "commit": "2cdbe0d9d528c8fb1cb987b13741123615e01e76",
+          "accelerator": "Windows W7900 ROCm10.1.0 LibTorch2.14.0 distribution; this lane executes CPU optimizer contracts only, not GPU training or performance",
+          "instrumentation": "Reused Release/Ninja/AMD clang-cl24 tree, at most two compile jobs; fixed independent official Ultralytics8.4.177 MuSGD CPU reference; no training dataset or GPU benchmark in this lane.",
+          "tests": "Five new MuSgdBf16 CPU contracts,29 existing affected VisionContracts,five repository gates and one independent installed VisionTasks consumer:40 distinct final passing contracts. Initial hygiene failure for missing test-header aliases retained; only that gate retried together with installed consumer.",
+          "quality_evidence": {
+            "arithmetic": "Explicit BF16 batched Newton-Schulz, matching official matrix grouping/row padding/split-at16x, BF16 normalization and baddbmm sequence. Native FP32 remains the default and keeps its prior recipe text.",
+            "reference": "Unchanged official Ultralytics8.4.177 optim/muon.py sha256 b2781aaf53a5e1796ae0ec628c5c15b39b1658cc3deba67d4a8a5aae5ed05a4d. Three updates,six parameters,two memory layouts,changing group rates and missing gradients; all complete CPU parameter values checked at rtol1e-6/atol1e-7.",
+            "recovery": "Full optimizer state continuation,atomic rejection in both FP32/BF16 profile directions,and rejection of aggregate batched Gram budget before parameter/momentum mutation. Recipe parsing/roundtrip includes optional Muon/SGD weights while preserving default canonical JSON.",
+            "installation": "Independent installed consumer compiles public BF16 option and performs one finite nonzero CPU update. Existing installed YOLO/RCNN/ORT contracts remain enabled in the same consumer.",
+            "source_identity": "Precommit build reports e8d51d6+dirty; all tested normalized source bytes equal2cdbe0d Git blobs. Not a clean HEAD all-library or GPU run.",
+            "validation_receipt_sha256": "2bdaf3ad6ac437f7868def042c2ef77e0fc5c402a4389186670059d59e77140b",
+            "scope": "Only the declared CPU optimizer,recipe,recovery,budget and installed-interface contracts on this exact distribution. Does not qualify GPU MuSGD,full YOLO/RT-DETR training,task accuracy,throughput,RSS/VRAM advantage,other AMD devices or release readiness."
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
           "id": "windows-clangcl24-rocm101-gfx1100-26cb219-yolo26-obb-parity",
           "commit": "26cb219e319feb6197ac063c3872ecac33fb9f87",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0/HIP7.16.26385; fixed YOLO26n P5 OBB FP16 model autocast/FP32 parameters and explicit FP32 criterion",
