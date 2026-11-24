@@ -48,7 +48,10 @@ for layout in ['contiguous', 'channels_last']:
 payload = {'source_sha256': hashlib.sha256(args.source.read_bytes()).hexdigest(),
            'torch': torch.__version__, 'shapes': shapes,
            'initial': [p.flatten().tolist() for p in initial], 'variants': variants}
-# JSON embedded as a raw literal keeps full float values and readable provenance.
+# Bound each literal below MSVC's per-literal size limit without changing JSON.
+encoded = json.dumps(payload, separators=(',', ':'))
+literals = '\n'.join('R"fixture(' + encoded[i:i+4096] + ')fixture"'
+                     for i in range(0, len(encoded), 4096))
 header = '''// Copyright 2026 JYPPX Training Framework Contributors
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
@@ -58,10 +61,11 @@ header = '''// Copyright 2026 JYPPX Training Framework Contributors
 #define JYPPX_LIUDING_VISION_MUSGD_REFERENCE_HPP
 #include <string_view>
 namespace jyppx::liuding::vision::tests {
-inline constexpr std::string_view musgd_reference = R"fixture(%s)fixture";
+inline constexpr std::string_view musgd_reference =
+%s;
 }
 #endif
-''' % json.dumps(payload, separators=(',', ':'))
+''' % literals
 args.output.write_text(header, encoding='utf-8')
 print(json.dumps({'output': str(args.output), 'source': payload['source_sha256'],
                   'torch': payload['torch'], 'steps': len(steps)}))
