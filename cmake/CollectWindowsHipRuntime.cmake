@@ -43,12 +43,19 @@ endif()
 set(CMAKE_GET_RUNTIME_DEPENDENCIES_PLATFORM windows+pe)
 set(CMAKE_GET_RUNTIME_DEPENDENCIES_TOOL objdump)
 set(CMAKE_GET_RUNTIME_DEPENDENCIES_COMMAND "${CMAKE_GET_RUNTIME_DEPENDENCIES_COMMAND}")
+# MIOpen loads device-specific CK kernels at runtime, so they are absent from
+# the PE import table. Keep the selected SDK's optional modules and scan their
+# own imports too; applications can otherwise silently fall back to other kernels.
+file(GLOB miopen_device_libraries "${hip_runtime_dir}/MIOpenCK*.dll")
 file(GET_RUNTIME_DEPENDENCIES
     LIBRARIES "${JYPPX_ROCM_TORCH_HIP_DLL}" "${JYPPX_ROCM_HIP_RUNTIME_DLL}"
+              ${miopen_device_libraries}
     DIRECTORIES "${JYPPX_ROCM_TORCH_RUNTIME_DIR}" "${JYPPX_ROCM_HIP_RUNTIME_DIR}"
     PRE_EXCLUDE_REGEXES "api-ms-.*" "ext-ms-.*"
     RESOLVED_DEPENDENCIES_VAR resolved_dependencies
     UNRESOLVED_DEPENDENCIES_VAR unresolved_dependencies)
+list(APPEND resolved_dependencies ${miopen_device_libraries})
+list(REMOVE_DUPLICATES resolved_dependencies)
 
 if(unresolved_dependencies)
     list(SORT unresolved_dependencies)

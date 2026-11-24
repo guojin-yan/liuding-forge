@@ -22,6 +22,8 @@ function(jyppx_add_torch_runtime_dependency target_name)
                 message(FATAL_ERROR "Selected ROCm SDK has no imported HIP runtime location")
             endif()
             get_filename_component(jyppx_hip_runtime_dir "${jyppx_hip_runtime}" DIRECTORY)
+            file(GLOB jyppx_miopen_device_libraries CONFIGURE_DEPENDS
+                "${jyppx_hip_runtime_dir}/MIOpenCK*.dll")
             get_filename_component(jyppx_hip_runtime_dir "${jyppx_hip_runtime_dir}" REALPATH)
             # Inspect the selected ELF files without loading them. Some SDK DSOs
             # have their own RUNPATH, which also blocks the executable's RPATH
