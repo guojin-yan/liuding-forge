@@ -1060,8 +1060,7 @@ if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo
     jyppx_add_torch_runtime_dependency(jyppx_test_vision_amp_recovery)
     gtest_discover_tests(jyppx_test_vision_amp_recovery
         DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
-        PROPERTIES RUN_SERIAL TRUE TIMEOUT 600
-            SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\]")
+        PROPERTIES RUN_SERIAL TRUE TIMEOUT 600)
     add_executable(jyppx_test_vision_reference EXCLUDE_FROM_ALL
         vision/reference_probe.cpp)
     target_link_libraries(jyppx_test_vision_reference PRIVATE
