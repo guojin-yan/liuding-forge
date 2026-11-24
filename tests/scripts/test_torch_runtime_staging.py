@@ -42,10 +42,10 @@ class TorchRuntimeStagingTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
-        # Makefile generators can compare custom-command timestamps at whole
+        # Generators and filesystems can round dependency timestamps to whole
         # seconds. Let the next input mutation land after the completed build;
         # do not force a rebuild by touching outputs or future-dating inputs.
-        if "--build" in arguments and not (os.environ.get("JYPPX_TEST_NINJA") or shutil.which("ninja")):
+        if "--build" in arguments:
             time.sleep(1.1)
         return result
 
