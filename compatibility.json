@@ -4647,6 +4647,30 @@
             "validation_receipt_sha256": "3c3d28f34e40751c4c5d9b00f6f333944ca75f6e75b11970546026f8ea0ab296",
             "scope": "仅上述Windows/W7900固定l/x显式FP32 criterion的首步溢出数值及动态回退路径一致性；不授scale8有限更新、最终完整状态逐位相同、默认上游autocast、收敛/任务质量、其他P6/输入/精度/设备/OS或发布资格。历史v1首步与回退记录保留。"
           }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "id": "windows-clangcl24-rocm101-gfx1100-2a2afd6-yolo26-e2e-parity",
+          "commit": "2a2afd6a0bf07104430a90124f5f55d9acc5e803",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0/HIP7.16.26385; YOLO26n/s/m/l/x P6 FP16 model autocast and explicit FP32 criterion",
+          "instrumentation": "主力增量库及重建私有C++采集程序，built-provenance保留724104b+dirty；已审计的产品/测试字节规范化后等于2a2afd6提交，未冒称干净HEAD训练构建。Windows/RTX3060与Linux/RTX2060各自离线同步干净2a2afd6、重配置并增量构建回归；Linux仅CMake修复后为bc5e182，原产品C++不变；两机各1编译任务，总计最多2，本机GPU串行。",
+          "tests": "主力38项CTest通过，零失败/跳过：7项YOLO数值/身份合同、7项YOLO26n CPU目录、4种对象任务各FP32/FP16/BF16实际更新、五容量原P6动态回退、检查点身份拒绝、安装消费者及五仓库门禁。另五容量各一次原生完整采集和独立AMD PyTorch更新对照；两台NVIDIA各14项不同合同最终通过；Windows零失败/跳过，Linux保留一次cuDNN加载失败及一次CTest误标跳过，修复后的所选合同无未解决失败/跳过。",
+          "quality_evidence": {
+            "workload": "五容量固定seed7/batch2/64x64/nc3、FP32主参数、FP16模型autocast、显式FP32 E2E criterion、SGD lr0.001；独立官方模型严格装入完整原生初态/输入，仅按原动态回退已观察有限scale做一次首forward实际更新。",
+            "numerics": "n/s/m/l/x双分支raw前向、各497/497/527/752/752参数梯度及962/962/1022/1472/1472更新后参数/缓冲状态逐字节一致，全部梯度有限；完整载荷由独立stdlib safetensors reader再次核验。总损失因分支标量与上游三分量向量归约顺序相差0至2个FP32间隔，原rtol1e-5/atol1e-6未改。",
+            "backoff": "原scale8初始动态合同各完成一次有限实际更新，n/s/m/l/x分别16/14/14/20/23轮、最终scale0.000244140625/0.0009765625/0.0009765625/0.0000152587890625/0.0000019073486328125。未将初始溢出改判为有限更新；独立对照不声称重复回退后的最终状态相同。",
+            "fixture": "独立Ultralytics8.4.177 E2ELoss固定两分支/五GT参考覆盖小框、重叠GT、冲突后二次top-k、全部梯度、分配分数/前景/GT索引、epoch0/1/99/100与单epoch终点，CPU/GPU均含autocast开关；输入保持不变。",
+            "reference": "复用已锁定AMD Python Torch2.14.0+rocm10.1.0及本地Ultralytics8.4.177原定义；不改模型/loss函数体。P6配置SHA256为78c459986c4482363b5fa3c0c11575bd525c1338c0681deef277c6dbf193925d，源码摘要及严格完整状态映射保留在收据。Python仅开发参考。",
+            "regression": "Windows/RTX3060与Linux/RTX2060各自14项包括7数值合同、CPU分类、nP6原回退与五仓库门禁。Linux原缓存视觉组件关闭，首次未找到目标保留；仅离线打开所需组件后复用同树。旧CMake3.22给参数名加后缀，首批12项通过后仅补两漏项：分类通过、GPU缺cuDNN路径中止；按旧包装器进程路径重试原生成功但手工skip表达式误标。bc5e182移除重复skip属性，依赖GTest默认检测后仅单项复验正确通过。全部12+2+1+1原始执行保留，不声称单批全绿。NVIDIA结果不授予AMD硬件范围。",
+            "retained_failures": "原nP6 criterion损失29.7397136688与官方15.1916599274及3662067梯度字节差异保留。首私有采集因SDK数学库路径写法在hipBLASLt崩溃，改用既有包装器Windows路径后同二进制通过；只改进程环境。私有初审总损失逐位预期不成立，明确记录归约顺序差异，未放宽仓库测试容差。",
+            "evidence": "workspace/records/amd-p6-parity-20261124/yolo26-e2e-validation.json；完整原始收据、JUnit及失败记录位于同目录。只使用局域网Git bundle与Git推送，无下载、Actions、版本修改或发布。",
+            "validation_receipt_sha256": "99565067a53aa9c2473ece11953f8b35962526d369c14c95cb9daeb8d250fe22",
+            "scope": "仅上述固定检测E2E五容量数值与所列任务执行范围；不授予实例分割/姿态/OBB全部上游损失等价、其他输入/精度、真实数据质量/收敛、其他AMD硬件/多GPU/裸机LinuxAMD、ORT ROCm/MIGraphX EP或发布资格。历史v1结果保持原范围。"
+          }
         }
       ],
       "pending_lanes": []
