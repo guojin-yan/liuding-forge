@@ -6,6 +6,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "../foundation/nested_error.hpp"
+#include "gradient_finiteness.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/random_checkpoint_participant.hpp>
@@ -901,16 +902,21 @@ struct Trainer::Impl {
   }
 
   void ensure_finite_gradients() const {
+    std::vector<Tensor> gradients;
+    std::vector<std::string> parameter_ids;
     for (const auto& optimizer : request.optimizers) {
       for (const auto& binding : optimizer.optimizer->parameter_bindings()) {
         const auto gradient = binding.parameter.grad();
-        if (gradient.defined() &&
-            !torch::isfinite(gradient).all().item<bool>()) {
-          if (request.diagnostics)
-            request.diagnostics->observe_nonfinite_gradient(false);
-          throw_numerical("optimizer.gradient", binding.parameter_id);
+        if (gradient.defined()) {
+          gradients.push_back(gradient);
+          parameter_ids.push_back(binding.parameter_id);
         }
       }
+    }
+    if (const auto failed = detail::first_nonfinite_gradient(gradients)) {
+      if (request.diagnostics)
+        request.diagnostics->observe_nonfinite_gradient(false);
+      throw_numerical("optimizer.gradient", parameter_ids[*failed]);
     }
   }
 
@@ -1005,7 +1011,10 @@ struct Trainer::Impl {
            std::move(update_metrics), stop);
       return;
     }
-    ensure_finite_gradients();
+    // Enabled scaling already checked every unscaled gradient above. No
+    // gradient mutation occurs between that check and this boundary.
+    if (!request.gradient_scaler || !request.gradient_scaler->options().enabled)
+      ensure_finite_gradients();
     if (sample_norm) {
       std::vector<Tensor> gradients;
       const auto& limits = request.diagnostics->options().gradient_norm;

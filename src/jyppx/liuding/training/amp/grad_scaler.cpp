@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../gradient_finiteness.hpp"
+
 #include <jyppx/liuding/training/amp/grad_scaler.hpp>
 
 #include <algorithm>
@@ -159,6 +161,7 @@ void GradScaler::unscale(
 
   OptimizerState state;
   const torch::NoGradGuard no_grad;
+  std::vector<Tensor> gradients;
   for (const auto& binding : optimizer->parameter_bindings()) {
     const auto& parameter = binding.parameter;
     if (!parameter.defined() || !parameter.grad().defined()) {
@@ -167,11 +170,10 @@ void GradScaler::unscale(
     auto& gradient = parameter.mutable_grad();
     if (options_.enabled) {
       gradient.div_(scale_);
-      if (!torch::isfinite(gradient).all().item<bool>()) {
-        state.found_inf = true;
-      }
+      gradients.push_back(gradient);
     }
   }
+  state.found_inf = detail::first_nonfinite_gradient(gradients).has_value();
   found_inf_ = found_inf_ || state.found_inf;
   optimizer_states_.emplace(optimizer.get(), state);
 }

@@ -295,6 +295,56 @@ TEST(GradScalerCudaTest, MultiOptimizerOverflowSkipsAllCudaUpdates) {
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
 }
 
+void check_many_gradient_flags(const Device& device) {
+  const auto options =
+      torch::TensorOptions().device(device).dtype(torch::kFloat32);
+  std::vector<Tensor> parameters;
+  for (int index = 0; index < 24; ++index)
+    parameters.push_back(torch::ones({3, 2}, options).requires_grad_(true));
+  // Missing and empty gradients are both valid and must not hide a late NaN.
+  parameters.push_back(torch::ones({1}, options).requires_grad_(true));
+  parameters.push_back(torch::empty({0}, options).requires_grad_(true));
+  auto optimizer = make_optimizer(parameters);
+  GradScaler scaler({.init_scale = 3.7, .backoff_factor = .5});
+  const auto assign = [&] {
+    for (std::size_t index = 0; index < 24; ++index)
+      parameters[index].mutable_grad() = torch::full({2, 3}, 7.4, options).t();
+    parameters.back().mutable_grad() = torch::empty({0}, options);
+  };
+  assign();
+  const auto expected = parameters.front().grad() / 3.7;
+  scaler.unscale(optimizer);
+  EXPECT_TRUE(scaler.cycle_allowed());
+  scaler.unscale(optimizer);  // Must not divide a second time.
+  for (std::size_t index = 0; index < 24; ++index) {
+    EXPECT_TRUE(torch::equal(parameters[index].grad(), expected));
+    EXPECT_FALSE(parameters[index].grad().is_contiguous());
+  }
+  EXPECT_FALSE(parameters[24].grad().defined());
+  scaler.mark_step(optimizer, true);
+  scaler.update();
+
+  assign();
+  parameters[23].grad()[2][1] = std::numeric_limits<float>::quiet_NaN();
+  const auto before = parameters[23].detach().clone();
+  EXPECT_FALSE(apply_scaler_step(scaler, optimizer));
+  EXPECT_TRUE(scaler.found_inf());
+  EXPECT_TRUE(torch::equal(parameters[23], before));
+  // All the other tensors must still be unscaled even when one overflows.
+  EXPECT_TRUE(torch::equal(parameters.front().grad(), expected));
+  scaler.update();
+  EXPECT_DOUBLE_EQ(scaler.get_scale(), 1.85);
+}
+
+TEST(GradScalerTest, ManyGradientFlagsPreserveDivisionAndDetectLateNan) {
+  check_many_gradient_flags(Device(torch::kCPU));
+}
+
+TEST(GradScalerCudaTest, ManyGradientFlagsPreserveDivisionAndDetectLateNan) {
+  if (!cuda_is_available()) GTEST_SKIP() << "CUDA not available";
+  check_many_gradient_flags(Device(torch::kCUDA));
+}
+
 TEST(GradScalerTest, UnscaleBeforeClipAndStepIsIdempotent) {
   torch::manual_seed(4);
   auto params = make_params({{4}});
