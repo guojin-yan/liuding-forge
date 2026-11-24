@@ -4699,6 +4699,25 @@
           "architecture": "x86_64",
           "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
           "build_type": "Release",
+          "id": "windows-clangcl24-rocm101-gfx1100-1577ec3-rtdetr-r18-coco-profile",
+          "commit": "1577ec36da05c30619b69fcd9cf205d2c0c60549",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0/HIP7.16.26385; explicit rtdetr_resnet18_vd_coco72 CPU and FP32/FP16/BF16 GPU execution contracts",
+          "instrumentation": "Reused native Release/Ninja/clang-cl24 build and installed consumer; local precommit evidence explicitly retains 2a23491+dirty identity. Tested profile bytes correspond to1577ec3; no clean all-library claim. Scoped remote regressions use clean1577ec3 Linux/RTX2060 and cleanff599e9 Windows/RTX3060, with unchanged profile source and one compiler job per device.",
+          "tests": "Local18 CTests plus one installed consumer passed without skips; both NVIDIA devices each passed22 scoped contracts. Windows initial MSVC C2026 reference-literal failure retained; ff599e9 splits identical MuSGD JSON bytes and the incremental retry passes. No unrelated full matrix repeated.",
+          "quality_evidence": {
+            "profile": "Separate r18_coco72 selector/revision preserves native_v1 R18/R50 selectors. Three decoders, trainable backbone BN,128-wide three-block CSP, packed MHA/SDPA, official positional order and explicit denoising padding negatives. Topology matches533 state entries,326 trainable tensors and20085596 parameters for nc3.",
+            "diagnostic": "Independent unchanged official RT-DETR revision df2a96c8c3a098567a1149bf0248da6efe6d495d, fixed CPU256 input: total training loss33.71864318847656 on both, all533 updated states within rtol1e-4/atol1e-6.21 parameter gradients exceed that diagnostic tolerance, max abs1.186877489e-5; all-gradient equivalence is not qualified. Initial score ties reorder36 of300 evaluation queries; anchor-matched boxes equal and logits max abs9.5367e-7. Positional/gradient failures retained.",
+            "evidence": "workspace/records/fair-training-20261124/rtdetr-validation.json with original local and remote JUnit/receipts; development reference only.",
+            "validation_receipt_sha256": "e4a6627e5ec871d904fed74ceb5ac4cd8ce6dd6cf9010ac6d9c4738496996336",
+            "scope": "Only the stated architecture,analytic padding-loss/gradient,CPU and three GPU-precision update execution and installed interface. No complete COCO training,mAP,convergence,throughput,RSS/VRAM advantage,full official recipe equivalence,other AMD devices or release qualification. Registry reference_qualified and quality_qualified remain false."
+          }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
           "id": "windows-clangcl24-rocm101-gfx1100-26cb219-yolo26-obb-parity",
           "commit": "26cb219e319feb6197ac063c3872ecac33fb9f87",
           "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0/HIP7.16.26385; fixed YOLO26n P5 OBB FP16 model autocast/FP32 parameters and explicit FP32 criterion",
