@@ -22,6 +22,31 @@ set(consumer_build_dir "${test_root}/b")
 file(REMOVE_RECURSE "${install_dir}")
 file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_dir}")
 set(config_args)
+# Reuse the parent's opt-in HIP import closure for the vision consumer.
+# Explicit empty values clear a prior selection in its reusable cache.
+if(WIN32 AND consumer_source_dir MATCHES "/vision_tasks_consumer$")
+    load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_runtime_
+        JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS)
+    set(_jyppx_rocm_runtime_manifest)
+    set(_jyppx_rocm_runtime_source)
+    if(_jyppx_consumer_runtime_JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS)
+        set(_jyppx_rocm_runtime_manifest
+            "${build_dir}/CMakeFiles/jyppx-windows-rocm-runtime-files.txt")
+        if(NOT EXISTS "${_jyppx_rocm_runtime_manifest}")
+            message(FATAL_ERROR "Parent Windows HIP runtime manifest is missing")
+        endif()
+        file(STRINGS "${_jyppx_rocm_runtime_manifest}" _jyppx_rocm_runtime_files)
+        if(NOT _jyppx_rocm_runtime_files)
+            message(FATAL_ERROR "Parent Windows HIP runtime manifest is empty")
+        endif()
+        list(GET _jyppx_rocm_runtime_files 0 _jyppx_rocm_runtime_first)
+        get_filename_component(_jyppx_rocm_runtime_source
+            "${_jyppx_rocm_runtime_first}" DIRECTORY)
+    endif()
+    list(APPEND config_args
+        "-DJYPPX_RUNTIME_EXTRA_DLL_LIST=${_jyppx_rocm_runtime_manifest}"
+        "-DJYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR=${_jyppx_rocm_runtime_source}")
+endif()
 # Keep installed-consumer checks on the selected toolchain, including clang-cl
 # for ROCm. A PATH default can silently select a different Windows compiler.
 load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_toolchain_

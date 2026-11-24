@@ -21,11 +21,27 @@ if(WIN32)
     if(NOT JYPPX_TORCH_RUNTIME_DIR OR NOT EXISTS "${JYPPX_RUNTIME_STAGER}")
         message(FATAL_ERROR "Windows vision consumer requires Torch runtime and stager")
     endif()
-    add_custom_command(TARGET jyppx_liuding_vision_tasks_consumer POST_BUILD
+    set(vision_runtime_extra_args)
+    if(JYPPX_RUNTIME_EXTRA_DLL_LIST OR JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR)
+        if(NOT IS_ABSOLUTE "${JYPPX_RUNTIME_EXTRA_DLL_LIST}" OR
+           NOT EXISTS "${JYPPX_RUNTIME_EXTRA_DLL_LIST}" OR
+           NOT IS_ABSOLUTE "${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}" OR
+           NOT IS_DIRECTORY "${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}")
+            message(FATAL_ERROR "Installed vision consumer ROCm runtime closure is incomplete")
+        endif()
+        list(APPEND vision_runtime_extra_args
+            "-DJYPPX_RUNTIME_EXTRA_DLL_LIST=${JYPPX_RUNTIME_EXTRA_DLL_LIST}"
+            "-DJYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR=${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}")
+    endif()
+    # Run on incremental builds too: selecting a different runtime closure
+    # must update owned DLLs even when no source or library needs relinking.
+    add_custom_target(jyppx_vision_consumer_runtime ALL
         COMMAND ${CMAKE_COMMAND}
             "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
             "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_liuding_vision_tasks_consumer>"
-            -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
+            ${vision_runtime_extra_args}
+            -P "${JYPPX_RUNTIME_STAGER}"
+        DEPENDS jyppx_liuding_vision_tasks_consumer VERBATIM)
     if(TARGET jyppx::liuding::onnx_runtime)
         file(GLOB vision_runtime_dlls "${vision_prefix}/bin/onnxruntime*.dll" "${vision_prefix}/bin/DirectML.dll")
         foreach(runtime IN LISTS vision_runtime_dlls)
