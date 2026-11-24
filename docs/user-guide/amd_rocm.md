@@ -48,6 +48,8 @@ Windows 的其余 208 个视觉目录入口已分批执行原单步合同，结�
 
 Windows FP16 的首步失败包括 YOLOv8 s/m/l/x Ghost P6、YOLO26 n/s/m/l/x P6 与 YOLOv5 l/x P6 检测；均在有限 loss 后因非有限梯度跳过更新。YOLOv8s Ghost P6 是该 Windows 批次新增的失败入口，随后在 Windows 的独立合同中经历两次溢出跳步，scale 从 8 降至 2 后完成一次 SGD 更新；WSL 的同一允许回退合同首步成功，未实际触发回退。其余十个入口的独立回退合同见上文；上述结果均不改变各自原首步记录。
 
+上述矩阵绑定各自提交。SPPF 激活与 FP32 criterion 修订后的 Windows/W7900 固定 `2×3×64×64`、三分类 Ghost P6 输入，已验证 YOLOv8 n/s/m 的 FP16 前向和参数梯度与同 AMD 后端独立 PyTorch 逐字节一致，其中 n/m 的 scale 1 SGD 更新后完整状态也逐字节一致。l/x 在 scale 8 的全部首步梯度同样一致，但双方均溢出；动态回退分别在 scale 0.25 和 0.00390625 完成一次有限更新，逐轮跳步与 scale 一致。此范围采用显式 FP32 criterion，不推导默认上游 autocast、l/x 最终完整更新状态、其他输入/精度或任务质量；修订前的矩阵资格不自动迁移。
+
 ## 运行与安装
 
 Windows 构建树会暂存所选 LibTorch 的 DLL、`.kpack` 和 AOTriton 图像；应用仍需提供匹配的 HIP 运行库、数学库和设备数据。保留 HIP SDK 自身的 `.kpack`、数学库数据目录，按 SDK 激活脚本设置 `HIPBLASLT_TENSILE_LIBPATH`、`ROCBLAS_TENSILE_LIBPATH` 及运行库搜索路径。只复制 `torch_hip.dll` 不能构成完整部署。

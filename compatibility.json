@@ -4626,6 +4626,27 @@
             "independent_n_comparison_sha256": "22be6275b15b9ff60f7555341551ceb98671b1e18842b0e2aa5aaa8b8a7787dd",
             "scope": "仅Windows/W7900精确ROCm组合的可选构建树SDK归档暂存与上述n固定criterion/update对照；不授全部延迟插件/设备数据闭包、安装分发ROCm、默认上游autocast逐位、n的scale8更新、其他P6/形状/精度、收敛/质量、其他硬件/OS或发布资格。安装应用继续自行提供外部SDK。"
           }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "instrumentation": "干净df058be主力源码上下文，复用f11c22d实现的原生GTest和私有C++ probe；src/include及原回退测试无差异。父built-provenance仍保留3f78c81+dirty，不宣称干净当前HEAD训练构建。零编译、GPU串行、离线复用原SDK/PyTorch/Ultralytics源码；原32周期与原测试断言保持。",
+          "id": "windows-clangcl24-rocm101-gfx1100-f11c22d-ghost-p6-lx-backoff-parity",
+          "commit": "f11c22ddd9f22728920c923d662e6b8311fb402f",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0/HIP7.16.26385; v2 YOLOv8l/x Ghost P6 FP16 model and explicit FP32 criterion",
+          "tests": "两个原生动态回退CTest通过，零失败/跳过；另两次独立PyTorch首步前向/全梯度比较、两次独立PyTorch动态回退通过。只覆盖尚未登记的新v2 l/x入口，未重跑其他已通过模型或矩阵。",
+          "quality_evidence": {
+            "workload": "seed7、batch2、64x64、nc3、FP32主参数、FP16模型autocast、显式FP32 criterion、SGD lr0.001、初始scale8及最多32周期；BatchNorm buffers按正常forward更新。",
+            "strict_overflow_parity": "l/x前向与各688份参数首步梯度逐字节匹配同AMD后端独立PyTorch，完整梯度载荷另用stdlib reader核对；双方非有限梯度元素分别3104700和7756805，有限/NaN/正负Inf掩码一致，loss分别4.89528751373291和3.5051064491271973。原scale8首步仍是溢出跳步，不改判更新成功。",
+            "backoff": "l共6轮/5次跳步、最终scale0.25；x共12轮/11次跳步、最终scale0.00390625。PyTorch与原生逐轮cycle/scale/allow完全相同，各自一次有限且非零梯度实际更新、跳步参数保持和更新后全部参数有限；不声明最终全部更新状态相同。",
+            "reference": "既有独立AMD Python Torch2.14.0+rocm10.1.0和锁定Ultralytics8.4.177源码AST函数，严格导入原生完整初态与相同输入；不改模型/loss函数体，不下载权重/软件，Python仅开发参考。",
+            "evidence": "workspace/records/amd-p6-parity-20261124/ghost-lx-v2-validation.json。JUnit的默认1024byte成功输出上限截断x后几轮，使用同次留存完整LastTest.log审核全部12轮，没有重跑或改写JUnit。",
+            "validation_receipt_sha256": "3c3d28f34e40751c4c5d9b00f6f333944ca75f6e75b11970546026f8ea0ab296",
+            "scope": "仅上述Windows/W7900固定l/x显式FP32 criterion的首步溢出数值及动态回退路径一致性；不授scale8有限更新、最终完整状态逐位相同、默认上游autocast、收敛/任务质量、其他P6/输入/精度/设备/OS或发布资格。历史v1首步与回退记录保留。"
+          }
         }
       ],
       "pending_lanes": []
