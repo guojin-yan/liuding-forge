@@ -7,7 +7,16 @@
 /** @file suite.hpp @brief Native train, resume, evaluate and prediction facade.
  */
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
+
+#include <functional>
+#include <string_view>
 namespace jyppx::liuding::vision::tasks {
+/** @brief Synchronous, nonpersistent workflow phase observation on the caller
+ * thread. Receives stable phase names; exceptions abort the operation. The
+ * observer must not change training state or RNG. No GPU synchronization is
+ * implied; callers choose their measurement clock and any synchronization.
+ */
+using WorkflowPhaseObserver = std::function<void(std::string_view)>;
 /** @brief Canonical, disjoint training/validation selections shared by all
  * workflows. */
 struct VisionDataSplits {
@@ -17,14 +26,18 @@ struct VisionDataSplits {
 };
 /** @brief Imports external layouts and resolves pose symmetry into the recipe.
  */
-VisionDataSplits load_vision_data(RecipeSpec& recipe,
-                                  std::stop_token stop = {});
+VisionDataSplits load_vision_data(RecipeSpec& recipe, std::stop_token stop = {},
+                                  WorkflowPhaseObserver observer = {});
 struct TrainRequest {
   RecipeSpec recipe;
   std::filesystem::path output;
   std::filesystem::path resume;
   std::uint64_t pause_after_updates = 0;
   std::stop_token stop;
+  WorkflowPhaseObserver phase_observer;  ///< Optional setup/teardown phases;
+                                         ///< excluded from recipe and restore.
+  std::function<void(const training::CallbackEvent&)> event_observer;
+  ///< Optional new Trainer events; no checkpoint or history replay.
 };
 struct TrainResult {
   training::FitResult fit;

@@ -666,6 +666,78 @@ TEST(TrainerTest, RepeatedPauseContinuesSameInstanceAndRejectsPastBoundaries) {
   trainer.close();
 }
 
+TEST(TrainerTest, EventObservationDoesNotChangeCheckpointOrResumeTopology) {
+  namespace tr = jyppx::liuding::training;
+  torch::manual_seed(20261124);
+  auto baseline = make_domain();
+  tr::Trainer continuous(options(2));
+  continuous.prepare(make_pause_request(baseline));
+  continuous.fit();
+  MemoryCheckpoint expected;
+  continuous.save_checkpoint(expected);
+  continuous.close();
+
+  for (bool observe_before_restore : {false, true}) {
+    torch::manual_seed(20261124);
+    MemoryCheckpoint boundary;
+    std::vector<tr::CallbackEvent> observed;
+    const auto observer = [&](const tr::CallbackEvent& event) {
+      observed.push_back(event);
+    };
+    {
+      auto first = make_domain();
+      auto request = make_pause_request(first);
+      if (observe_before_restore) request.event_observer = observer;
+      tr::Trainer interrupted(options(2));
+      interrupted.prepare(std::move(request));
+      ASSERT_EQ(interrupted.fit_until(2).global_step, 2U);
+      interrupted.save_checkpoint(boundary);
+      interrupted.close();
+    }
+    const auto prefix = observed.size();
+    auto rebuilt = make_domain();
+    auto request = make_pause_request(rebuilt);
+    if (!observe_before_restore) request.event_observer = observer;
+    tr::Trainer resumed(options(2));
+    resumed.prepare(std::move(request));
+    resumed.restore_checkpoint(boundary);
+    EXPECT_EQ(observed.size(), prefix);  // Restore never replays observations.
+    EXPECT_EQ(resumed.fit().global_step, 8U);
+    MemoryCheckpoint actual;
+    resumed.save_checkpoint(actual);
+    expect_same_checkpoint(expected, actual);
+    resumed.close();
+    ASSERT_FALSE(observed.empty());
+    for (std::size_t i = 1; i < observed.size(); ++i)
+      EXPECT_GT(observed[i].event_index, observed[i - 1].event_index);
+    EXPECT_TRUE(
+        std::any_of(observed.begin(), observed.end(), [](const auto& e) {
+          return e.kind == tr::CallbackEventKind::optimizer_step_finished;
+        }));
+  }
+}
+
+TEST(TrainerTest, EventObserverFailureAbortsBeforeTheFirstBatchUpdate) {
+  namespace tr = jyppx::liuding::training;
+  auto domain = make_domain();
+  auto request = make_pause_request(domain);
+  request.event_observer = [](const tr::CallbackEvent& event) {
+    if (event.kind == tr::CallbackEventKind::batch_started)
+      throw std::runtime_error("measurement output failed");
+  };
+  std::vector<Tensor> before;
+  for (const auto& parameter : domain.model->state().parameters())
+    before.push_back(parameter.detach().clone());
+  tr::Trainer trainer(options(1));
+  trainer.prepare(std::move(request));
+  EXPECT_THROW(trainer.fit(), std::runtime_error);
+  EXPECT_EQ(trainer.phase(), tr::TrainerPhase::failed);
+  std::size_t i = 0;
+  for (const auto& parameter : domain.model->state().parameters())
+    EXPECT_TRUE(torch::equal(parameter, before[i++]));
+  trainer.close();
+}
+
 TEST(TrainerTest, CancellationAndCallbackStopTakePrecedenceOverPause) {
   namespace tr = jyppx::liuding::training;
   for (const bool cancel : {false, true}) {

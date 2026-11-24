@@ -243,6 +243,11 @@ DetectionDatasetImport read_detection_dataset(
   DetectionDatasetImport result;
   image::AnnotationReadOptions read;
   read.limits = options.limits;
+  if (options.coco_detection_boxes &&
+      (options.format != DetectionDatasetFormat::coco ||
+       options.task != DatasetAnnotationTask::detect))
+    throw InvalidArgument("COCO box-only policy requires COCO detection");
+  read.coco_detection_boxes = options.coco_detection_boxes;
   if (static_cast<unsigned>(options.task) > 3)
     throw InvalidArgument("Unknown annotation task dialect");
   if (options.format == DetectionDatasetFormat::coco) {
@@ -442,6 +447,9 @@ DetectionDatasetImport read_detection_dataset(
                     std::to_string(read.keypoint_count) + ":" +
                     std::to_string(read.keypoint_dimensions);
   result.metadata_identity = Digest(state.identity);
+  if (options.coco_detection_boxes)
+    result.metadata_identity =
+        Digest(state.identity + "\ncoco-detection-boxes/v1");
   if (options.format != DetectionDatasetFormat::coco)
     result.annotations.source_sha256 = result.metadata_identity;
   CheckStop(stop);

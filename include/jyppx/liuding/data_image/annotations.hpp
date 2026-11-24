@@ -94,7 +94,7 @@ struct ObjectSourceMapping {
   std::string image_path;
   std::int64_t object_id = 0;
   double weight = 1;
-  std::array<double,9> matrix{1,0,0,0,1,0,0,0,1};
+  std::array<double, 9> matrix{1, 0, 0, 0, 1, 0, 0, 0, 1};
 };
 /** @brief One object or segment in the common annotation representation. */
 struct VisionObject {
@@ -170,6 +170,12 @@ struct AnnotationReadOptions {
   std::uint8_t keypoint_dimensions = 3;  ///< YOLO pose x/y or x/y/visibility.
   VocCoordinates voc_coordinates = VocCoordinates::one_based_inclusive;
   ///< Source VOC coordinate convention before canonical conversion.
+  bool coco_detection_boxes = false;
+  ///< Explicit COCO instances box-only policy: require finite XYWH,
+  ///< clip to the image, drop boxes with nonpositive clipped area, and
+  ///< omit segmentation/oriented geometry. IDs, classes and resource
+  ///< checks remain enforced, including for dropped objects. Strict
+  ///< geometry validation remains the default for every dialect.
 };
 
 /** @brief Fully owned index that can be read concurrently without mutation. */

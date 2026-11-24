@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <nlohmann/json.hpp>
 namespace jyppx::liuding::vision::tasks {
 namespace {
@@ -35,11 +36,61 @@ std::filesystem::path Resolve(const J& value,
 }
 constexpr std::array<std::string_view, 4> precisions{
     "full", "cpu_bfloat16", "cuda_float16", "cuda_bfloat16"};
+template <class T>
+void ReadLimit(const J& value, std::string_view name, T& result) {
+  const auto it = value.find(std::string(name));
+  if (it == value.end()) return;
+  if (!it->is_number_integer() ||
+      (it->is_number_integer() && !it->is_number_unsigned() &&
+       it->get<std::int64_t>() <= 0))
+    throw InvalidArgument("Annotation limits must be positive integers");
+  const auto number = it->get<std::uint64_t>();
+  if (number == 0 || number > (std::numeric_limits<T>::max)())
+    throw InvalidArgument("Annotation limit exceeds its native integer range");
+  result = static_cast<T>(number);
+}
+template <class F>
+void AnnotationLimitFields(data::image::AnnotationLimits& limits, F&& field) {
+  field("max_input_bytes", limits.max_input_bytes);
+  field("max_images", limits.max_images);
+  field("max_objects", limits.max_objects);
+  field("max_categories", limits.max_categories);
+  field("max_points", limits.max_points);
+  field("max_rle_runs", limits.max_rle_runs);
+  field("max_rle_bytes", limits.max_rle_bytes);
+  field("max_geometry_checks", limits.max_geometry_checks);
+  field("max_string_bytes", limits.max_string_bytes);
+  field("max_nodes", limits.max_nodes);
+  field("max_dimension", limits.max_dimension);
+  field("max_pixels", limits.max_pixels);
+  field("max_depth", limits.max_depth);
+}
+J LimitsJson(data::image::AnnotationLimits limits) {
+  J result = J::object();
+  AnnotationLimitFields(limits, [&](auto name, auto value) {
+    if (value == 0) throw InvalidArgument("Annotation limits must be positive");
+    result[name] = value;
+  });
+  return result;
+}
 DetectionDatasetOptions Source(const J& v, const std::filesystem::path& root,
                                DatasetSplit split, const ModelSpec& model) {
   Keys(v, {"format", "source", "image_root", "categories",
-           "allow_missing_labels", "split"});
+           "allow_missing_labels", "split", "limits", "coco_detection_boxes"});
   DetectionDatasetOptions d;
+  d.coco_detection_boxes = v.value("coco_detection_boxes", false);
+  if (v.contains("limits")) {
+    const auto& limits = v.at("limits");
+    if (!limits.is_object())
+      throw InvalidArgument("Dataset limits must be an object");
+    const auto known = LimitsJson(d.limits);
+    for (const auto& entry : limits.items())
+      if (!known.contains(entry.key()))
+        throw InvalidArgument("Unknown annotation limit: " + entry.key());
+    AnnotationLimitFields(d.limits, [&](auto name, auto& value) {
+      ReadLimit(limits, name, value);
+    });
+  }
   d.task = model.task == TaskKind::instance_segment
                ? DatasetAnnotationTask::instance_segment
            : model.task == TaskKind::pose ? DatasetAnnotationTask::pose
@@ -95,18 +146,24 @@ J SourceJson(const DetectionDatasetOptions& d) {
   J categories = J::array();
   for (const auto& c : d.categories)
     categories.push_back({{"source_id", c.source_id}, {"name", c.name}});
-  return {{"format", d.format == DetectionDatasetFormat::coco      ? "coco"
-                     : d.format == DetectionDatasetFormat::voc     ? "voc"
-                     : d.format == DetectionDatasetFormat::labelme ? "labelme"
-                                                                   : "yolo"},
-          {"source", Path(d.source)},
-          {"image_root", Path(d.image_root)},
-          {"categories", categories},
-          {"split", d.split == DatasetSplit::train        ? "train"
-                    : d.split == DatasetSplit::validation ? "validation"
-                                                          : "test"},
-          {"allow_missing_labels",
-           d.missing_labels == MissingLabelPolicy::empty_negative}};
+  J result = {
+      {"format", d.format == DetectionDatasetFormat::coco      ? "coco"
+                 : d.format == DetectionDatasetFormat::voc     ? "voc"
+                 : d.format == DetectionDatasetFormat::labelme ? "labelme"
+                                                               : "yolo"},
+      {"source", Path(d.source)},
+      {"image_root", Path(d.image_root)},
+      {"categories", categories},
+      {"split", d.split == DatasetSplit::train        ? "train"
+                : d.split == DatasetSplit::validation ? "validation"
+                                                      : "test"},
+      {"allow_missing_labels",
+       d.missing_labels == MissingLabelPolicy::empty_negative}};
+  const auto limits = LimitsJson(d.limits);
+  // Keep the canonical JSON of existing default recipes unchanged.
+  if (limits != LimitsJson({})) result["limits"] = limits;
+  if (d.coco_detection_boxes) result["coco_detection_boxes"] = true;
+  return result;
 }
 void Results(const J& v, ResultOptions& o) {
   Keys(v, {"confidence", "nms_iou", "mask_threshold", "max_candidates",
@@ -219,23 +276,67 @@ RecipeSpec parse_recipe(std::string_view text,
     r.data.multiscale_max_dimension = m.value("max_dimension", 2048U);
   }
   r.schema_version = j.value("schema_version", 1U);
-  if(j.contains("extension")) {
-    const auto& e=j["extension"];
-    Keys(e,{"training_manifest","validation_manifest","multilabel_thresholds","threshold_validation_identity","asymmetric_multilabel","semantic_ignore","relative_inverse_depth","depth_gradient_weight","model_patch_size","mask_patch_size","mask_ratio","triplet_margin","activation_recomputation","feature_outputs","feature_projection","teacher_architecture","teacher_weights","teacher_sha256","distillation_temperature","logits_distillation_weight","feature_distillation_weight","tokenizer_merges","tokenizer_sha256","text_encoder_weights","text_encoder_sha256"});
-    if(e.contains("training_manifest"))r.extension.training_manifest=Resolve(e["training_manifest"],root);
-    if(e.contains("validation_manifest"))r.extension.validation_manifest=Resolve(e["validation_manifest"],root);
-    r.extension.multilabel_thresholds=e.value("multilabel_thresholds",std::vector<double>{});r.extension.threshold_validation_identity=e.value("threshold_validation_identity",std::string{});
-    r.extension.asymmetric_multilabel=e.value("asymmetric_multilabel",false);
-    r.extension.semantic_ignore=e.value("semantic_ignore",255LL);
-    r.extension.relative_inverse_depth=e.value("relative_inverse_depth",false);
-    r.extension.depth_gradient_weight=e.value("depth_gradient_weight",0.);
-    r.extension.model_patch_size=e.value("model_patch_size",4LL);
-    r.extension.mask_patch_size=e.value("mask_patch_size",32LL);
-    r.extension.mask_ratio=e.value("mask_ratio",.6);
-    r.extension.triplet_margin=e.value("triplet_margin",.3);
-    auto& x=r.extension;if(e.contains("tokenizer_merges"))x.tokenizer_merges=Resolve(e["tokenizer_merges"],root);if(e.contains("text_encoder_weights"))x.text_encoder_weights=Resolve(e["text_encoder_weights"],root);x.tokenizer_sha256=e.value("tokenizer_sha256",std::string{});x.text_encoder_sha256=e.value("text_encoder_sha256",std::string{});x.activation_recomputation=e.value("activation_recomputation",false);x.feature_outputs=e.value("feature_outputs",false);x.feature_projection=e.value("feature_projection",0LL);
-    x.teacher_architecture=e.value("teacher_architecture",std::string{});if(e.contains("teacher_weights"))x.teacher_initialization.weights=Resolve(e["teacher_weights"],root);x.teacher_initialization.sha256=e.value("teacher_sha256",std::string{});
-    x.distillation_temperature=e.value("distillation_temperature",2.);x.logits_distillation_weight=e.value("logits_distillation_weight",1.);x.feature_distillation_weight=e.value("feature_distillation_weight",0.);
+  if (j.contains("extension")) {
+    const auto& e = j["extension"];
+    Keys(e, {"training_manifest",
+             "validation_manifest",
+             "multilabel_thresholds",
+             "threshold_validation_identity",
+             "asymmetric_multilabel",
+             "semantic_ignore",
+             "relative_inverse_depth",
+             "depth_gradient_weight",
+             "model_patch_size",
+             "mask_patch_size",
+             "mask_ratio",
+             "triplet_margin",
+             "activation_recomputation",
+             "feature_outputs",
+             "feature_projection",
+             "teacher_architecture",
+             "teacher_weights",
+             "teacher_sha256",
+             "distillation_temperature",
+             "logits_distillation_weight",
+             "feature_distillation_weight",
+             "tokenizer_merges",
+             "tokenizer_sha256",
+             "text_encoder_weights",
+             "text_encoder_sha256"});
+    if (e.contains("training_manifest"))
+      r.extension.training_manifest = Resolve(e["training_manifest"], root);
+    if (e.contains("validation_manifest"))
+      r.extension.validation_manifest = Resolve(e["validation_manifest"], root);
+    r.extension.multilabel_thresholds =
+        e.value("multilabel_thresholds", std::vector<double>{});
+    r.extension.threshold_validation_identity =
+        e.value("threshold_validation_identity", std::string{});
+    r.extension.asymmetric_multilabel = e.value("asymmetric_multilabel", false);
+    r.extension.semantic_ignore = e.value("semantic_ignore", 255LL);
+    r.extension.relative_inverse_depth =
+        e.value("relative_inverse_depth", false);
+    r.extension.depth_gradient_weight = e.value("depth_gradient_weight", 0.);
+    r.extension.model_patch_size = e.value("model_patch_size", 4LL);
+    r.extension.mask_patch_size = e.value("mask_patch_size", 32LL);
+    r.extension.mask_ratio = e.value("mask_ratio", .6);
+    r.extension.triplet_margin = e.value("triplet_margin", .3);
+    auto& x = r.extension;
+    if (e.contains("tokenizer_merges"))
+      x.tokenizer_merges = Resolve(e["tokenizer_merges"], root);
+    if (e.contains("text_encoder_weights"))
+      x.text_encoder_weights = Resolve(e["text_encoder_weights"], root);
+    x.tokenizer_sha256 = e.value("tokenizer_sha256", std::string{});
+    x.text_encoder_sha256 = e.value("text_encoder_sha256", std::string{});
+    x.activation_recomputation = e.value("activation_recomputation", false);
+    x.feature_outputs = e.value("feature_outputs", false);
+    x.feature_projection = e.value("feature_projection", 0LL);
+    x.teacher_architecture = e.value("teacher_architecture", std::string{});
+    if (e.contains("teacher_weights"))
+      x.teacher_initialization.weights = Resolve(e["teacher_weights"], root);
+    x.teacher_initialization.sha256 = e.value("teacher_sha256", std::string{});
+    x.distillation_temperature = e.value("distillation_temperature", 2.);
+    x.logits_distillation_weight = e.value("logits_distillation_weight", 1.);
+    x.feature_distillation_weight = e.value("feature_distillation_weight", 0.);
   }
   const auto& m = j.at("model");
   Keys(m, {"architecture", "task", "variant", "num_classes", "keypoints",
@@ -413,8 +514,9 @@ RecipeSpec parse_recipe(std::string_view text,
       j.value("save_interval_epochs", r.save_interval_epochs);
   if (j.contains("optimizer")) {
     const auto& v = j["optimizer"];
-    Keys(v, {"name", "learning_rate", "momentum", "weight_decay", "nesterov",
-             "nominal_batch", "scale_weight_decay", "muon_weight", "sgd_weight"});
+    Keys(v,
+         {"name", "learning_rate", "momentum", "weight_decay", "nesterov",
+          "nominal_batch", "scale_weight_decay", "muon_weight", "sgd_weight"});
     r.optimizer_name = v.value("name", r.optimizer_name);
     r.musgd_muon_weight = v.value("muon_weight", r.musgd_muon_weight);
     r.musgd_sgd_weight = v.value("sgd_weight", r.musgd_sgd_weight);
@@ -537,45 +639,115 @@ RecipeSpec parse_recipe(std::string_view text,
   return r;
 }
 void check_recipe(const RecipeSpec& r) {
+  for (const auto* source :
+       {&r.training, r.validation ? &*r.validation : nullptr})
+    if (source && source->coco_detection_boxes &&
+        (source->format != DetectionDatasetFormat::coco ||
+         r.model.task != TaskKind::detect))
+      throw InvalidArgument("COCO box-only policy requires COCO detection");
+  static_cast<void>(LimitsJson(r.training.limits));
+  if (r.validation) static_cast<void>(LimitsJson(r.validation->limits));
   if (!std::isfinite(r.initial_loss_scale) || r.initial_loss_scale <= 0)
     throw InvalidArgument(
         "Initial FP16 loss scale must be finite and positive");
-  if ((r.schema_version != 1 && r.schema_version != 2) || r.model.architecture.empty() ||
-      r.model.architecture.size() > 256 || r.model.num_classes < 1 ||
-      r.model.num_classes > 10000 || static_cast<unsigned>(r.model.task) > 9 ||
-      r.model.keypoints < 1 || r.model.keypoints > 256 ||
-      r.model.mask_channels < 1 || r.model.mask_channels > 256 ||
+  if ((r.schema_version != 1 && r.schema_version != 2) ||
+      r.model.architecture.empty() || r.model.architecture.size() > 256 ||
+      r.model.num_classes < 1 || r.model.num_classes > 10000 ||
+      static_cast<unsigned>(r.model.task) > 9 || r.model.keypoints < 1 ||
+      r.model.keypoints > 256 || r.model.mask_channels < 1 ||
+      r.model.mask_channels > 256 ||
       (r.model.keypoint_dimensions != 2 && r.model.keypoint_dimensions != 3))
     throw InvalidArgument("Invalid model/task recipe");
-  if(!r.extension.multilabel_thresholds.empty()){if(r.schema_version<2||r.model.task!=TaskKind::classify_multilabel||r.extension.multilabel_thresholds.size()!=static_cast<std::size_t>(r.model.num_classes)||r.extension.threshold_validation_identity.empty())throw InvalidArgument("Calibrated thresholds need schema2 multilabel vocabulary and validation identity");for(double value:r.extension.multilabel_thresholds)if(!std::isfinite(value)||value<0||value>1)throw InvalidArgument("Invalid calibrated multilabel threshold");}
-  if(!r.extension.tokenizer_merges.empty()||!r.extension.text_encoder_weights.empty()){if(r.schema_version<2||r.extension.tokenizer_merges.empty()||r.extension.text_encoder_weights.empty()||r.extension.tokenizer_sha256.size()!=64||r.extension.text_encoder_sha256.size()!=64)throw InvalidArgument("Native raw-text assets need tokenizer and text encoder with explicit digests");}
-  if(!r.extension.teacher_architecture.empty()) {
-    const auto& e=r.extension;
-    if(r.schema_version<2||(r.model.task!=TaskKind::classify&&r.model.task!=TaskKind::classify_multilabel)||e.teacher_initialization.weights.empty()||e.teacher_initialization.sha256.size()!=64||!std::isfinite(e.distillation_temperature)||e.distillation_temperature<=0||!std::isfinite(e.logits_distillation_weight)||e.logits_distillation_weight<0||!std::isfinite(e.feature_distillation_weight)||e.feature_distillation_weight<0||e.logits_distillation_weight+e.feature_distillation_weight<=0)
-      throw InvalidArgument("Distillation needs schema2 classification and a verified local teacher asset");
-    if(r.data.classification.mixup_probability||r.data.classification.cutmix_probability)throw InvalidArgument("Same-view distillation currently requires batch mixing disabled");
-    if(e.feature_distillation_weight&&(!e.feature_outputs||e.feature_projection<1))throw InvalidArgument("Feature distillation requires declared student projection");
+  if (!r.extension.multilabel_thresholds.empty()) {
+    if (r.schema_version < 2 || r.model.task != TaskKind::classify_multilabel ||
+        r.extension.multilabel_thresholds.size() !=
+            static_cast<std::size_t>(r.model.num_classes) ||
+        r.extension.threshold_validation_identity.empty())
+      throw InvalidArgument(
+          "Calibrated thresholds need schema2 multilabel vocabulary and "
+          "validation identity");
+    for (double value : r.extension.multilabel_thresholds)
+      if (!std::isfinite(value) || value < 0 || value > 1)
+        throw InvalidArgument("Invalid calibrated multilabel threshold");
   }
-  if(r.extension.feature_projection<0||r.extension.feature_projection>4096)throw InvalidArgument("Invalid distillation projection dimension");
-  if((static_cast<unsigned>(r.model.task)>4 || !r.extension.training_manifest.empty()) && r.schema_version<2)
-    throw InvalidArgument("Supplementary tasks/manifests require recipe schema_version=2");
-  if(static_cast<unsigned>(r.model.task)>4 && r.extension.training_manifest.empty())
+  if (!r.extension.tokenizer_merges.empty() ||
+      !r.extension.text_encoder_weights.empty()) {
+    if (r.schema_version < 2 || r.extension.tokenizer_merges.empty() ||
+        r.extension.text_encoder_weights.empty() ||
+        r.extension.tokenizer_sha256.size() != 64 ||
+        r.extension.text_encoder_sha256.size() != 64)
+      throw InvalidArgument(
+          "Native raw-text assets need tokenizer and text encoder with "
+          "explicit digests");
+  }
+  if (!r.extension.teacher_architecture.empty()) {
+    const auto& e = r.extension;
+    if (r.schema_version < 2 ||
+        (r.model.task != TaskKind::classify &&
+         r.model.task != TaskKind::classify_multilabel) ||
+        e.teacher_initialization.weights.empty() ||
+        e.teacher_initialization.sha256.size() != 64 ||
+        !std::isfinite(e.distillation_temperature) ||
+        e.distillation_temperature <= 0 ||
+        !std::isfinite(e.logits_distillation_weight) ||
+        e.logits_distillation_weight < 0 ||
+        !std::isfinite(e.feature_distillation_weight) ||
+        e.feature_distillation_weight < 0 ||
+        e.logits_distillation_weight + e.feature_distillation_weight <= 0)
+      throw InvalidArgument(
+          "Distillation needs schema2 classification and a verified local "
+          "teacher asset");
+    if (r.data.classification.mixup_probability ||
+        r.data.classification.cutmix_probability)
+      throw InvalidArgument(
+          "Same-view distillation currently requires batch mixing disabled");
+    if (e.feature_distillation_weight &&
+        (!e.feature_outputs || e.feature_projection < 1))
+      throw InvalidArgument(
+          "Feature distillation requires declared student projection");
+  }
+  if (r.extension.feature_projection < 0 ||
+      r.extension.feature_projection > 4096)
+    throw InvalidArgument("Invalid distillation projection dimension");
+  if ((static_cast<unsigned>(r.model.task) > 4 ||
+       !r.extension.training_manifest.empty()) &&
+      r.schema_version < 2)
+    throw InvalidArgument(
+        "Supplementary tasks/manifests require recipe schema_version=2");
+  if (static_cast<unsigned>(r.model.task) > 4 &&
+      r.extension.training_manifest.empty())
     throw InvalidArgument("This task requires extension.training_manifest");
-  if(!r.extension.validation_manifest.empty() && r.extension.training_manifest.empty())
-    throw InvalidArgument("Validation task manifest requires training task manifest");
-  if(!std::isfinite(r.extension.depth_gradient_weight)||r.extension.depth_gradient_weight<0||
-     !std::isfinite(r.extension.triplet_margin)||r.extension.triplet_margin<0||
-     !std::isfinite(r.extension.mask_ratio)||r.extension.mask_ratio<=0||r.extension.mask_ratio>1||
-     r.extension.model_patch_size<1||r.extension.model_patch_size>32||r.extension.mask_patch_size<r.extension.model_patch_size||
-     r.extension.mask_patch_size>128||r.extension.mask_patch_size%r.extension.model_patch_size)
+  if (!r.extension.validation_manifest.empty() &&
+      r.extension.training_manifest.empty())
+    throw InvalidArgument(
+        "Validation task manifest requires training task manifest");
+  if (!std::isfinite(r.extension.depth_gradient_weight) ||
+      r.extension.depth_gradient_weight < 0 ||
+      !std::isfinite(r.extension.triplet_margin) ||
+      r.extension.triplet_margin < 0 ||
+      !std::isfinite(r.extension.mask_ratio) || r.extension.mask_ratio <= 0 ||
+      r.extension.mask_ratio > 1 || r.extension.model_patch_size < 1 ||
+      r.extension.model_patch_size > 32 ||
+      r.extension.mask_patch_size < r.extension.model_patch_size ||
+      r.extension.mask_patch_size > 128 ||
+      r.extension.mask_patch_size % r.extension.model_patch_size)
     throw InvalidArgument("Invalid supplementary loss/mask policy");
-  if(!r.extension.training_manifest.empty()) {
-    const auto& a=r.data.augmentation;const auto& p=a.projective;const auto& m=a.multi_source;
-    if(p.degrees||p.shear_degrees||p.perspective||p.scale_gain||p.translate_fraction||m.mosaic_probability||m.mixup_probability||m.cutmix_probability||m.copypaste_probability||r.data.classification.mixup_probability||r.data.classification.cutmix_probability)
-      throw InvalidArgument("Supplementary targets require shared axis-aligned geometry and single-source augmentation");
+  if (!r.extension.training_manifest.empty()) {
+    const auto& a = r.data.augmentation;
+    const auto& p = a.projective;
+    const auto& m = a.multi_source;
+    if (p.degrees || p.shear_degrees || p.perspective || p.scale_gain ||
+        p.translate_fraction || m.mosaic_probability || m.mixup_probability ||
+        m.cutmix_probability || m.copypaste_probability ||
+        r.data.classification.mixup_probability ||
+        r.data.classification.cutmix_probability)
+      throw InvalidArgument(
+          "Supplementary targets require shared axis-aligned geometry and "
+          "single-source augmentation");
   }
-  if(r.model.task==TaskKind::pretrain_simmim &&
-     (r.data.letterbox.canvas.height%r.extension.mask_patch_size||r.data.letterbox.canvas.width%r.extension.mask_patch_size))
+  if (r.model.task == TaskKind::pretrain_simmim &&
+      (r.data.letterbox.canvas.height % r.extension.mask_patch_size ||
+       r.data.letterbox.canvas.width % r.extension.mask_patch_size))
     throw InvalidArgument("SimMIM image size must align to mask_patch_size");
   if (r.epochs < 1 || r.epochs > 1000000 || r.batch_size < 1 ||
       r.batch_size > 4096 || r.workers > 64 || r.accumulate_steps < 1 ||
@@ -669,9 +841,11 @@ void check_recipe(const RecipeSpec& r) {
   if (r.gradient_clip_norm &&
       (!std::isfinite(*r.gradient_clip_norm) || *r.gradient_clip_norm <= 0))
     throw InvalidArgument("Invalid gradient clipping norm");
-  if (r.model.task == TaskKind::classify && r.classification_root.empty() && r.extension.training_manifest.empty())
+  if (r.model.task == TaskKind::classify && r.classification_root.empty() &&
+      r.extension.training_manifest.empty())
     throw InvalidArgument("Classification needs classification_root");
-  if (r.model.task != TaskKind::classify && r.training.source.empty() && r.extension.training_manifest.empty())
+  if (r.model.task != TaskKind::classify && r.training.source.empty() &&
+      r.extension.training_manifest.empty())
     throw InvalidArgument("Training needs an explicit dataset source");
   if (r.precision == training::PrecisionMode::cpu_bfloat16 &&
       !r.device.is_cpu())
@@ -875,17 +1049,35 @@ std::string recipe_json(const RecipeSpec& r) {
   for (const auto& rule : r.initialization.learning_rates)
     j["initialization"]["learning_rates"].push_back(
         {{"prefix", rule.prefix}, {"multiplier", rule.multiplier}});
-  if(r.schema_version>=2) j["extension"]={
-    {"training_manifest",Path(r.extension.training_manifest)}, {"validation_manifest",Path(r.extension.validation_manifest)},
-    {"multilabel_thresholds",r.extension.multilabel_thresholds},{"threshold_validation_identity",r.extension.threshold_validation_identity},
-    {"asymmetric_multilabel",r.extension.asymmetric_multilabel},{"semantic_ignore",r.extension.semantic_ignore},
-    {"relative_inverse_depth",r.extension.relative_inverse_depth},{"depth_gradient_weight",r.extension.depth_gradient_weight},
-    {"model_patch_size",r.extension.model_patch_size},{"mask_patch_size",r.extension.mask_patch_size},
-    {"mask_ratio",r.extension.mask_ratio},{"triplet_margin",r.extension.triplet_margin},
-    {"tokenizer_merges",Path(r.extension.tokenizer_merges)},{"tokenizer_sha256",r.extension.tokenizer_sha256},{"text_encoder_weights",Path(r.extension.text_encoder_weights)},{"text_encoder_sha256",r.extension.text_encoder_sha256},
-    {"activation_recomputation",r.extension.activation_recomputation},{"feature_outputs",r.extension.feature_outputs},{"feature_projection",r.extension.feature_projection},
-    {"teacher_architecture",r.extension.teacher_architecture},{"teacher_weights",Path(r.extension.teacher_initialization.weights)},{"teacher_sha256",r.extension.teacher_initialization.sha256},
-    {"distillation_temperature",r.extension.distillation_temperature},{"logits_distillation_weight",r.extension.logits_distillation_weight},{"feature_distillation_weight",r.extension.feature_distillation_weight}};
+  if (r.schema_version >= 2)
+    j["extension"] = {
+        {"training_manifest", Path(r.extension.training_manifest)},
+        {"validation_manifest", Path(r.extension.validation_manifest)},
+        {"multilabel_thresholds", r.extension.multilabel_thresholds},
+        {"threshold_validation_identity",
+         r.extension.threshold_validation_identity},
+        {"asymmetric_multilabel", r.extension.asymmetric_multilabel},
+        {"semantic_ignore", r.extension.semantic_ignore},
+        {"relative_inverse_depth", r.extension.relative_inverse_depth},
+        {"depth_gradient_weight", r.extension.depth_gradient_weight},
+        {"model_patch_size", r.extension.model_patch_size},
+        {"mask_patch_size", r.extension.mask_patch_size},
+        {"mask_ratio", r.extension.mask_ratio},
+        {"triplet_margin", r.extension.triplet_margin},
+        {"tokenizer_merges", Path(r.extension.tokenizer_merges)},
+        {"tokenizer_sha256", r.extension.tokenizer_sha256},
+        {"text_encoder_weights", Path(r.extension.text_encoder_weights)},
+        {"text_encoder_sha256", r.extension.text_encoder_sha256},
+        {"activation_recomputation", r.extension.activation_recomputation},
+        {"feature_outputs", r.extension.feature_outputs},
+        {"feature_projection", r.extension.feature_projection},
+        {"teacher_architecture", r.extension.teacher_architecture},
+        {"teacher_weights", Path(r.extension.teacher_initialization.weights)},
+        {"teacher_sha256", r.extension.teacher_initialization.sha256},
+        {"distillation_temperature", r.extension.distillation_temperature},
+        {"logits_distillation_weight", r.extension.logits_distillation_weight},
+        {"feature_distillation_weight",
+         r.extension.feature_distillation_weight}};
   if (r.model.task == TaskKind::classify) {
     j["classification_root"] = Path(r.classification_root);
     j["classification_validation_root"] =
@@ -909,7 +1101,8 @@ std::string recipe_json(const RecipeSpec& r) {
     j["dataset"] = SourceJson(r.training);
     if (r.validation) j["validation"] = SourceJson(*r.validation);
   }
-  // Preserve the canonical JSON and restore identity of existing default recipes.
+  // Preserve the canonical JSON and restore identity of existing default
+  // recipes.
   if (r.optimizer_name == "musgd_bf16" || r.musgd_muon_weight != .5 ||
       r.musgd_sgd_weight != .5) {
     j["optimizer"]["muon_weight"] = r.musgd_muon_weight;

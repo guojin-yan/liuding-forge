@@ -45,6 +45,12 @@ liuding-forge-vision resume --recipe runs/train-1/recipe.json --checkpoint runs/
 
 配方路径相对配方所在目录解析；未知字段、错误任务组合和模型步长不匹配会报错。输出目录必须新建或为空，续训使用新的目录保存本次日志。`check` 检查配方和已安装模型选择，不读取全部数据或执行模型；`inspect`、`preview` 和 `preflight` 分别执行对应检查。`preflight` 没有任何成功候选时保留报告并返回退出码 2。
 
+大规模标注可在 `dataset.limits` 和 `validation.limits` 分别显式设置 `AnnotationLimits` 的正整数资源上限，例如 `{"max_input_bytes":629145600,"max_nodes":100000000,"max_points":100000000}`；未填写的字段沿用默认值，未知字段、零、负数、小数和整数溢出会被拒绝。默认标注文档上限仍为 64 MiB，额度变更写入解析后的配方和恢复身份，不会自动关闭几何或内容检查。
+
+COCO 检测数据可显式设置 `coco_detection_boxes: true`：读取有限 XYWH 框、裁剪到图像边界、过滤裁剪后面积非正的对象，并省略未使用的分割和旋转几何。空图片、crowd/ignore、非负源面积（包括超过图片面积的值）、类别及源 ID 保留；被过滤对象仍接受 ID 引用、唯一性和对象总量检查。该策略仅接受 COCO detect，写入数据和配方身份；低层 C++ `AnnotationReadOptions` 提供同名选择。默认严格解析继续拒绝无效几何，分割和姿态任务不使用此选择。
+
+C++ `TrainRequest.phase_observer` 可观察数据导入、划分检查、内容哈希、模型、EMA、优化器、数据管线、Trainer 准备、恢复、fit 及最终制品阶段，阶段名以 `.started`/`.finished` 成对出现；失败阶段可能只有开始事件。`event_observer` 转发 Trainer 新产生的批次、优化器更新、验证和检查点事件，`batch_started` 位于数据批次取出之后。两类函数在调用线程同步执行，不进入配方或检查点身份，续训不重放历史；不得修改训练状态或随机数，观察函数异常会中止当前操作。默认没有 GPU 同步，测量者需明确选择主机提交时间或同步完成时间，并把观察开销计入结果。`load_vision_data` 的可选第三参数提供相同的数据阶段观察。
+
 公开入口为 `<jyppx/liuding/vision/tasks/workflow/suite.hpp>` 的 `load_vision_data()`、`train_vision()`、`evaluate_vision()`、`predict_vision()`。`TaskBinding` 保留同一个模型状态，step 只执行任务 forward/loss，backward、优化器、AMP、调度和检查点由既有 Trainer 负责。
 
 ## 数据与预处理

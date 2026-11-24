@@ -2,10 +2,10 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
-#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/vision/tasks/training/musgd.hpp>
 #include <jyppx/liuding/vision/tasks/training/weight_conversion.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/export.hpp>
@@ -40,8 +40,10 @@ int main() try {
   {
     auto parameter = torch::ones({2, 2}, torch::requires_grad());
     parameter.mutable_grad() = torch::ones_like(parameter);
-    tasks::MuSgdOptimizer optimizer("installed.musgd",
-        {{.group_id = "matrix", .parameters = {{"weight", parameter}},
+    tasks::MuSgdOptimizer optimizer(
+        "installed.musgd",
+        {{.group_id = "matrix",
+          .parameters = {{"weight", parameter}},
           .options = {.learning_rate = .01, .momentum = .9}}},
         {.math = tasks::MuSgdMath::bf16_batched});
     optimizer.step();
@@ -54,16 +56,20 @@ int main() try {
 #ifdef VISION_CONSUMER_MODELS_VISION
   {
     namespace ex = jyppx::liuding::models::extended;
-    ex::RtDetr model(ex::RtDetrOptions{
-        .backbone = ex::RtDetrBackbone::resnet18_vd,
-        .num_classes = 3, .profile = ex::RtDetrProfile::r18_coco72});
-    if (!model->named_parameters().contains("model.decoder2.self_attention.packed.in_proj_weight") ||
-        !model->named_parameters().contains("model.backbone.stem.0.norm.weight"))
+    ex::RtDetr model(
+        ex::RtDetrOptions{.backbone = ex::RtDetrBackbone::resnet18_vd,
+                          .num_classes = 3,
+                          .profile = ex::RtDetrProfile::r18_coco72});
+    if (!model->named_parameters().contains(
+            "model.decoder2.self_attention.packed.in_proj_weight") ||
+        !model->named_parameters().contains(
+            "model.backbone.stem.0.norm.weight"))
       throw std::runtime_error("installed R18 COCO profile topology mismatch");
   }
 #endif
 #if defined(VISION_CONSUMER_MODELS) || defined(VISION_CONSUMER_MODELS_YOLO) || \
-    defined(VISION_CONSUMER_MODELS_RCNN) || defined(VISION_CONSUMER_MODELS_VISION)
+    defined(VISION_CONSUMER_MODELS_RCNN) ||                                    \
+    defined(VISION_CONSUMER_MODELS_VISION)
   if (catalog.empty())
     throw std::runtime_error("installed vision model catalog is empty");
 #else
@@ -76,6 +82,16 @@ int main() try {
                                        std::filesystem::current_path());
   if (tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
     throw std::runtime_error("installed recipe roundtrip mismatch");
+  recipe.training.limits.max_input_bytes = 600ULL << 20;
+  roundtrip = tasks::parse_recipe(tasks::recipe_json(recipe),
+                                  std::filesystem::current_path());
+  if (roundtrip.training.limits.max_input_bytes != (600ULL << 20) ||
+      tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
+    throw std::runtime_error("installed annotation limits roundtrip mismatch");
+  tasks::TrainRequest measured;
+  measured.phase_observer = [](std::string_view) {};
+  measured.event_observer = [](const jyppx::liuding::training::CallbackEvent&) {
+  };
   if (std::string_view(jyppx::liuding::version()) !=
       jyppx::liuding::build_info().framework_version)
     throw std::runtime_error("installed library and header version mismatch");

@@ -13,17 +13,20 @@
 #include <jyppx/liuding/vision/tasks/advanced_metrics.hpp>
 #include <jyppx/liuding/vision/tasks/data/augmentation.hpp>
 #include <jyppx/liuding/vision/tasks/data/composition.hpp>
+#include <jyppx/liuding/vision/tasks/rtdetr.hpp>
 #include <jyppx/liuding/vision/tasks/tracking/metrics.hpp>
 #include <jyppx/liuding/vision/tasks/tracking/tracker.hpp>
 #include <jyppx/liuding/vision/tasks/training/advanced.hpp>
 #include <jyppx/liuding/vision/tasks/training/strategy.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
-#include <jyppx/liuding/vision/tasks/rtdetr.hpp>
+#include <jyppx/liuding/vision/tasks/workflow/suite.hpp>
 
 #include <torch/torch.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <fstream>
 #include <functional>
 #include <gtest/gtest.h>
 #include <limits>
@@ -596,17 +599,25 @@ TEST_F(VisionContracts, SelectionMetricsFollowTaskAndDepthAlignment) {
   EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
 }
 
-TEST_F(VisionContracts, RtDetrPaddingNegativesAreExplicitAndHaveExpectedGradient) {
+TEST_F(VisionContracts,
+       RtDetrPaddingNegativesAreExplicitAndHaveExpectedGradient) {
   auto main = torch::zeros({1, 1, 1, 1}, torch::requires_grad());
   auto dn = torch::zeros({1, 1, 2, 1}, torch::requires_grad());
   auto box = torch::tensor({.5f, .5f, .25f, .25f}).view({1, 1, 1, 4});
-  std::vector<Tensor> raw{main, box, main[0], box[0], dn,
-      box.expand({1, 1, 2, 4}), torch::tensor({0, -1}, torch::kInt64).view({1, 2}),
-      torch::tensor({true, false}).view({1, 2})};
-  const auto targets = torch::tensor({0.f, 0.f, 6.f, 6.f, 10.f, 10.f}).view({1, 6});
+  std::vector<Tensor> raw{main,
+                          box,
+                          main[0],
+                          box[0],
+                          dn,
+                          box.expand({1, 1, 2, 4}),
+                          torch::tensor({0, -1}, torch::kInt64).view({1, 2}),
+                          torch::tensor({true, false}).view({1, 2})};
+  const auto targets =
+      torch::tensor({0.f, 0.f, 6.f, 6.f, 10.f, 10.f}).view({1, 6});
   const auto legacy = t::rtdetr_loss(raw, targets, {16, 16}, 1);
   const auto coco = t::rtdetr_loss(raw, targets, {16, 16}, 1, true);
-  EXPECT_NEAR((coco.total - legacy.total).item<double>(), .1875 * std::log(2.), 1e-6);
+  EXPECT_NEAR((coco.total - legacy.total).item<double>(), .1875 * std::log(2.),
+              1e-6);
   coco.total.backward();
   EXPECT_NEAR(dn.grad()[0][0][1][0].item<double>(), .09375, 1e-7);
 }
@@ -632,6 +643,129 @@ TEST_F(VisionContracts, ExecutionPolicyRoundTripsAndChangesResumeIdentity) {
     recipe.initial_loss_scale = invalid;
     EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
   }
+}
+
+TEST_F(VisionContracts, AnnotationBudgetsRoundTripAndBindResumeIdentity) {
+  t::RecipeSpec recipe;
+  recipe.training.source = std::filesystem::absolute("annotations.json");
+  recipe.validation = recipe.training;
+  const auto original = t::recipe_json(recipe);
+  const auto identity = t::recipe_identity(recipe);
+  EXPECT_EQ(original.find("\"limits\""), std::string::npos);
+  recipe.training.limits.max_input_bytes = 600ULL << 20;
+  recipe.training.limits.max_points = 100000000;
+  recipe.training.limits.max_nodes = 100000000;
+  recipe.validation->limits.max_images = 5000;
+  recipe.training.coco_detection_boxes = true;
+  EXPECT_NE(t::recipe_identity(recipe), identity);
+  const auto restored =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  EXPECT_EQ(restored.training.limits.max_input_bytes, 600ULL << 20);
+  EXPECT_EQ(restored.training.limits.max_points, 100000000U);
+  EXPECT_EQ(restored.training.limits.max_nodes, 100000000U);
+  EXPECT_TRUE(restored.training.coco_detection_boxes);
+  ASSERT_TRUE(restored.validation);
+  EXPECT_EQ(restored.validation->limits.max_images, 5000U);
+  EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
+  recipe.training.limits = {};
+  recipe.validation->limits = {};
+  recipe.training.coco_detection_boxes = false;
+  EXPECT_EQ(t::recipe_json(recipe), original);
+  EXPECT_EQ(t::recipe_identity(recipe), identity);
+  recipe.training.limits.max_input_bytes = 0;
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+}
+
+TEST_F(VisionContracts, CocoDetectionBoxPolicyRejectsOtherTasksAndFormats) {
+  t::RecipeSpec recipe;
+  recipe.training.source = "annotations.json";
+  recipe.training.coco_detection_boxes = true;
+  EXPECT_NO_THROW(t::check_recipe(recipe));
+  recipe.model.task = t::TaskKind::instance_segment;
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+  recipe.model.task = t::TaskKind::detect;
+  recipe.training.format = t::DetectionDatasetFormat::yolo;
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+}
+
+TEST_F(VisionContracts,
+       CocoBoxPolicyBindsDataIdentityWithoutChangingRawDigest) {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("liuding-coco-policy-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(root);
+  struct Cleanup {
+    std::filesystem::path root;
+    ~Cleanup() {
+      std::error_code error;
+      std::filesystem::remove_all(root, error);
+    }
+  } cleanup{root};
+  const auto source = root / "annotations.json";
+  std::ofstream(source)
+      << R"({"images":[{"id":1,"file_name":"image.jpg","width":10,"height":10}],"categories":[{"id":1,"name":"a"}],"annotations":[{"id":2,"image_id":1,"category_id":1,"bbox":[1,1,4,4],"segmentation":[[1,1,5,1,5,5,1,5]]}]})";
+  t::DetectionDatasetOptions options;
+  options.source = source;
+  options.image_root = root;
+  const auto strict = t::read_detection_dataset(options);
+  options.coco_detection_boxes = true;
+  const auto detection = t::read_detection_dataset(options);
+  EXPECT_NE(strict.metadata_identity, detection.metadata_identity);
+  EXPECT_EQ(strict.annotations.source_sha256,
+            detection.annotations.source_sha256);
+  ASSERT_EQ(detection.annotations.images[0].objects.size(), 1U);
+  EXPECT_TRUE(detection.annotations.images[0].objects[0].polygons.empty());
+  EXPECT_EQ(t::read_detection_dataset(options).metadata_identity,
+            detection.metadata_identity);
+  options.task = t::DatasetAnnotationTask::instance_segment;
+  EXPECT_THROW(t::read_detection_dataset(options), InvalidArgument);
+}
+
+TEST_F(VisionContracts, DataPhaseObservationReportsIncompleteImportAndCanFail) {
+  t::RecipeSpec recipe;
+  recipe.training.source = "missing-observation-fixture.json";
+  recipe.training.image_root = std::filesystem::current_path();
+  std::vector<std::string> phases;
+  EXPECT_THROW(t::load_vision_data(
+                   recipe, {},
+                   [&](std::string_view name) { phases.emplace_back(name); }),
+               IoError);
+  EXPECT_EQ(phases, (std::vector<std::string>{"data.read.started",
+                                              "data.training_import.started"}));
+  EXPECT_THROW(
+      t::load_vision_data(recipe, {},
+                          [](std::string_view) {
+                            throw std::runtime_error("observer failed");
+                          }),
+      std::runtime_error);
+}
+
+TEST_F(VisionContracts,
+       AnnotationBudgetsRejectUnknownAndUnrepresentableValues) {
+  const auto base = std::filesystem::current_path();
+  for (const auto invalid : {"0", "-1", "1.5", "true", "\"1024\"", "null"}) {
+    const auto json =
+        std::string(
+            R"({"model":{"architecture":"yolov8n"},"dataset":{"format":"coco","source":"annotations.json","limits":{"max_input_bytes":)") +
+        invalid + "}}}";
+    EXPECT_THROW(t::parse_recipe(json, base), InvalidArgument) << invalid;
+  }
+  EXPECT_THROW(
+      t::parse_recipe(
+          R"({"model":{"architecture":"yolov8n"},"dataset":{"format":"coco","source":"a.json","limits":{"max_dimension":4294967296}}})",
+          base),
+      InvalidArgument);
+  EXPECT_THROW(
+      t::parse_recipe(
+          R"({"model":{"architecture":"yolov8n"},"dataset":{"format":"coco","source":"a.json","limits":{"unlimited":1}}})",
+          base),
+      InvalidArgument);
+  const auto defaults = t::parse_recipe(
+      R"({"model":{"architecture":"yolov8n"},"dataset":{"format":"coco","source":"a.json","limits":{"max_input_bytes":67108864}}})",
+      base);
+  EXPECT_EQ(t::recipe_json(defaults).find("\"limits\""), std::string::npos);
 }
 
 }  // namespace

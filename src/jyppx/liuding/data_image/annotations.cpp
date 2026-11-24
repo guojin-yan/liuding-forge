@@ -114,6 +114,10 @@ AnnotationIndex parse_annotations(std::string_view bytes,
   try {
     detail::CheckStop(stop);
     const auto& l = options.limits;
+    if (options.coco_detection_boxes &&
+        format != AnnotationFormat::coco_instances)
+      throw InvalidArgument("COCO box-only policy requires instances format",
+                            detail::Details("parse.options"));
     if (annotation_format_name(format) == "unknown" ||
         l.max_input_bytes == 0U || l.max_input_bytes > (1ULL << 30U) ||
         l.max_images == 0U || l.max_categories == 0U ||

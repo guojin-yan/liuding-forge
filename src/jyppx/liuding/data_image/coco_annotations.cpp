@@ -238,20 +238,53 @@ AnnotationIndex ReadCoco(const Json& document, AnnotationFormat format,
       object.category = category->second;
       object.crowd = Flag(source, "iscrowd");
       object.ignore = Flag(source, "ignore");
-      if (source.contains("bbox"))
+      if (state.options.coco_detection_boxes) {
+        const auto& value = source.at("bbox");
+        Array(value);
+        if (value.size() != 4U) Malformed("coco.bbox");
+        const auto x = Number(value[0]), y = Number(value[1]);
+        const auto width = Number(value[2]), height = Number(value[3]);
+        if (!std::isfinite(x + width) || !std::isfinite(y + height))
+          Malformed("coco.bbox");
+        const auto clip_x = [&](double v) {
+          return std::clamp(v, 0., static_cast<double>(image.width));
+        };
+        const auto clip_y = [&](double v) {
+          return std::clamp(v, 0., static_cast<double>(image.height));
+        };
+        object.box = ImageBox{clip_x(x), clip_y(y), clip_x(x + width),
+                              clip_y(y + height)};
+      } else if (source.contains("bbox"))
         object.box = XywhBox(source.at("bbox"), image);
       if (source.contains("area")) {
         object.area = Number(source.at("area"));
         if (*object.area < 0 ||
-            *object.area > static_cast<double>(image.width) * image.height)
+            (!state.options.coco_detection_boxes &&
+             *object.area > static_cast<double>(image.width) * image.height))
           Malformed("coco.area");
+      }
+      if (state.options.coco_detection_boxes) {
+        if (object.box->x_max <= object.box->x_min ||
+            object.box->y_max <= object.box->y_min)
+          return;
+        image.objects.push_back(std::move(object));
+        return;
       }
       if (source.contains("segmentation"))
         Segmentation(source.at("segmentation"), object, image, state);
-      if(source.contains("oriented_bbox")) {
-        const auto& corners=source.at("oriented_bbox");Array(corners);if(corners.size()!=8)Malformed("coco.oriented_bbox");state.Points(4);
-        std::array<ImagePoint,4> points;for(std::size_t i=0;i<4;++i){points[i]={Number(corners[2*i]),Number(corners[2*i+1])};Point(points[i],image);}
-        ValidatePolygon(std::vector<ImagePoint>(points.begin(),points.end()),state);object.oriented_box=points;
+      if (source.contains("oriented_bbox")) {
+        const auto& corners = source.at("oriented_bbox");
+        Array(corners);
+        if (corners.size() != 8) Malformed("coco.oriented_bbox");
+        state.Points(4);
+        std::array<ImagePoint, 4> points;
+        for (std::size_t i = 0; i < 4; ++i) {
+          points[i] = {Number(corners[2 * i]), Number(corners[2 * i + 1])};
+          Point(points[i], image);
+        }
+        ValidatePolygon(std::vector<ImagePoint>(points.begin(), points.end()),
+                        state);
+        object.oriented_box = points;
       }
       if (format == AnnotationFormat::coco_keypoints) {
         const auto& points = source.at("keypoints");

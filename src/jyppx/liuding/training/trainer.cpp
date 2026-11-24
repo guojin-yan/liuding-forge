@@ -758,6 +758,7 @@ struct Trainer::Impl {
     if (request.event_outbox && options.drain_events && drain) {
       request.event_outbox->drain(stop);
     }
+    if (request.event_observer) request.event_observer(event);
     return result;
   }
 

@@ -55,6 +55,9 @@ struct DetectionDatasetOptions {
       2000000;  ///< Aggregate filesystem scan bound.
   std::size_t max_directory_depth =
       32;  ///< Maximum recursive split traversal depth.
+  bool coco_detection_boxes =
+      false;  ///< Explicit COCO detect-only clipping,
+              ///< empty-box filtering and mask omission.
 };
 
 /** @brief Owns one canonical split and its resolved image root; no new target

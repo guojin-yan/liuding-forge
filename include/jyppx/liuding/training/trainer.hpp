@@ -48,6 +48,7 @@ class GradScalerCheckpointParticipant;
 }  // namespace amp
 
 class CallbackDispatcher;
+struct CallbackEvent;
 class CheckpointCoordinator;
 struct CheckpointDescriptor;
 class CheckpointStateSink;
@@ -281,6 +282,12 @@ struct FitRequest {
   std::vector<std::shared_ptr<OptimizerUpdateParticipant>>
       optimizer_update_participants;  ///< Auto-registered successful-update
                                       ///< state.
+  std::function<void(const CallbackEvent&)>
+      event_observer;  ///< Optional synchronous observation after callback
+                       ///< dispatch and event delivery. Never checkpointed or
+                       ///< included in restore topology; receives only new
+                       ///< events, not replayed history. Must not mutate the
+                       ///< training domain. Exceptions fail the operation.
 };
 
 /** @brief Summarizes one completed, stopped, cancelled, or paused fit call. */

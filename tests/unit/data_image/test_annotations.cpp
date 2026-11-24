@@ -102,6 +102,71 @@ TEST(ImageAnnotationTest, CocoRejectsTraversalAndInvalidGeometry) {
 }
 
 TEST(ImageAnnotationTest,
+     ExplicitCocoDetectionPolicyClipsFiltersAndOmitsMasks) {
+  AnnotationReadOptions options;
+  options.coco_detection_boxes = true;
+  auto clipped =
+      parse_annotations(Replace(kCoco, "[10,5,20,15]", "[-10,40,30,20]"),
+                        AnnotationFormat::coco_instances, options);
+  ASSERT_EQ(clipped.images[0].objects.size(), 1U);
+  const auto& object = clipped.images[0].objects[0];
+  EXPECT_EQ(object.box->x_min, 0);
+  EXPECT_EQ(object.box->y_min, 40);
+  EXPECT_EQ(object.box->x_max, 20);
+  EXPECT_EQ(object.box->y_max, 50);
+  EXPECT_TRUE(object.polygons.empty());
+  EXPECT_FALSE(object.rle);
+  EXPECT_TRUE(object.crowd);
+  EXPECT_EQ(object.source_id, 22);
+  EXPECT_EQ(object.area, 280);
+  const auto large_area = Replace(kCoco, "\"area\":280", "\"area\":10000");
+  EXPECT_EQ(
+      parse_annotations(large_area, AnnotationFormat::coco_instances, options)
+          .images[0]
+          .objects[0]
+          .area,
+      10000);
+  EXPECT_THROW(parse_annotations(large_area, AnnotationFormat::coco_instances),
+               jyppx::liuding::SerializationError);
+  for (const auto box : {"[10,5,20,0]", "[10,5,-1,15]", "[100,5,20,15]"}) {
+    const auto filtered =
+        parse_annotations(Replace(kCoco, "[10,5,20,15]", box),
+                          AnnotationFormat::coco_instances, options);
+    ASSERT_EQ(filtered.images.size(), 2U);
+    EXPECT_TRUE(filtered.images[0].objects.empty());
+    EXPECT_TRUE(filtered.images[1].objects.empty());
+  }
+  EXPECT_NO_THROW(parse_annotations(
+      Replace(kCoco, "[[10,5,30,5,30,20,10,20]]", "\"unused-mask\""),
+      AnnotationFormat::coco_instances, options));
+  EXPECT_THROW(
+      parse_annotations(kCoco, AnnotationFormat::coco_keypoints, options),
+      jyppx::liuding::InvalidArgument);
+}
+
+TEST(ImageAnnotationTest, CocoDetectionFilteringStillValidatesIdsAndLimits) {
+  AnnotationReadOptions options;
+  options.coco_detection_boxes = true;
+  const auto empty = Replace(kCoco, "[10,5,20,15]", "[10,5,20,0]");
+  EXPECT_THROW(parse_annotations(
+                   Replace(empty, "\"category_id\":3", "\"category_id\":7"),
+                   AnnotationFormat::coco_instances, options),
+               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      parse_annotations(Replace(empty, "\"image_id\":17", "\"image_id\":99"),
+                        AnnotationFormat::coco_instances, options),
+      jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      parse_annotations(Replace(kCoco, "[10,5,20,15]", "[1e308,5,1e308,15]"),
+                        AnnotationFormat::coco_instances, options),
+      jyppx::liuding::SerializationError);
+  options.limits.max_objects = 0;
+  EXPECT_THROW(
+      parse_annotations(empty, AnnotationFormat::coco_instances, options),
+      jyppx::liuding::ResourceExhausted);
+}
+
+TEST(ImageAnnotationTest,
      CocoDecodesCompressedRleSignedDeltasWithoutChangingMask) {
   const std::string prefix =
       R"({"images":[{"id":1,"file_name":"x.png","width":3,"height":2}],

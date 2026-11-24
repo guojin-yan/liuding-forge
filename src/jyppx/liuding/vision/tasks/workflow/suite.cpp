@@ -8,8 +8,6 @@
 #include "history.hpp"
 #include "run_ledger.hpp"
 
-#include <ATen/Context.h>
-
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/foundation/random.hpp>
 #include <jyppx/liuding/foundation/random_checkpoint_participant.hpp>
@@ -36,6 +34,7 @@
 
 #include <torch/cuda.h>
 
+#include <ATen/Context.h>
 #include <algorithm>
 #include <fstream>
 #include <limits>
@@ -149,7 +148,12 @@ std::string ContentIdentity(const image::ImageDataset& dataset,
   }
   return sha256_digest_hex(identity.finish());
 }
-Sources Read(RecipeSpec& r, std::stop_token stop) {
+Sources Read(RecipeSpec& r, std::stop_token stop,
+             const WorkflowPhaseObserver& observer = {}) {
+  const auto phase = [&](std::string_view name) {
+    if (observer) observer(name);
+  };
+  phase("data.read.started");
   Sources s;
   image::ImageDatasetOptions decoding;
   decoding.decoded_sample_transform = [policy = r.exif_policy](
@@ -165,18 +169,67 @@ Sources Read(RecipeSpec& r, std::stop_token stop) {
       return cache->read(path, options, token);
     };
   }
-  if(!r.extension.training_manifest.empty()) {
-    auto train=read_task_dataset(r.extension.training_manifest,decoding,stop);
-    auto metadata=[&](const TaskDatasetImport& d){if(r.model.task==TaskKind::depth && d.depth_representation!=(r.extension.relative_inverse_depth?image::DepthRepresentation::relative_inverse_depth:image::DepthRepresentation::depth_meters))throw InvalidArgument("Dataset depth representation differs from recipe loss/metric profile");if(r.model.task==TaskKind::semantic_segment&&d.semantic_ignore!=r.extension.semantic_ignore)throw InvalidArgument("Semantic dataset/recipe ignore IDs differ");};metadata(train);
-    s.train=train.dataset;s.train_root=train.image_root;s.train_id=train.identity;s.classes=train.categories;s.identities=train.identity_labels;
-    if(r.rectangular_batches)for(std::size_t i=0;i<s.train->size();++i){auto sample=s.train->get(i,stop);s.extents.push_back({sample.width,sample.height});}
-    if(!r.extension.validation_manifest.empty()) {
-      auto val=read_task_dataset(r.extension.validation_manifest,decoding,stop);metadata(val);if(r.model.task!=TaskKind::reid)SameClasses(s.classes,val.categories);else{std::set<std::int64_t> ids;for(const auto& c:train.categories)ids.insert(c.source_id);for(const auto& c:val.categories)if(ids.contains(c.source_id))throw InvalidArgument("ReID train/validation identity inventories overlap");}
-      std::set<std::string> train_paths,sequence_ids(train.sequence_ids.begin(),train.sequence_ids.end());
-      for(const auto& a:train.dataset->index().records())train_paths.insert(std::filesystem::weakly_canonical(train.image_root/std::filesystem::u8path(a.path)).generic_string());
-      for(const auto& a:val.dataset->index().records())if(train_paths.contains(std::filesystem::weakly_canonical(val.image_root/std::filesystem::u8path(a.path)).generic_string()))throw InvalidArgument("Task dataset train/validation paths overlap");
-      for(const auto& id:val.sequence_ids)if(sequence_ids.contains(id))throw InvalidArgument("Task datasets share sequence IDs across splits");
-      s.val=val.dataset;s.val_root=val.image_root;s.val_id=val.identity;
+  if (!r.extension.training_manifest.empty()) {
+    auto train =
+        read_task_dataset(r.extension.training_manifest, decoding, stop);
+    auto metadata = [&](const TaskDatasetImport& d) {
+      if (r.model.task == TaskKind::depth &&
+          d.depth_representation !=
+              (r.extension.relative_inverse_depth
+                   ? image::DepthRepresentation::relative_inverse_depth
+                   : image::DepthRepresentation::depth_meters))
+        throw InvalidArgument(
+            "Dataset depth representation differs from recipe loss/metric "
+            "profile");
+      if (r.model.task == TaskKind::semantic_segment &&
+          d.semantic_ignore != r.extension.semantic_ignore)
+        throw InvalidArgument("Semantic dataset/recipe ignore IDs differ");
+    };
+    metadata(train);
+    s.train = train.dataset;
+    s.train_root = train.image_root;
+    s.train_id = train.identity;
+    s.classes = train.categories;
+    s.identities = train.identity_labels;
+    if (r.rectangular_batches)
+      for (std::size_t i = 0; i < s.train->size(); ++i) {
+        auto sample = s.train->get(i, stop);
+        s.extents.push_back({sample.width, sample.height});
+      }
+    if (!r.extension.validation_manifest.empty()) {
+      auto val =
+          read_task_dataset(r.extension.validation_manifest, decoding, stop);
+      metadata(val);
+      if (r.model.task != TaskKind::reid)
+        SameClasses(s.classes, val.categories);
+      else {
+        std::set<std::int64_t> ids;
+        for (const auto& c : train.categories) ids.insert(c.source_id);
+        for (const auto& c : val.categories)
+          if (ids.contains(c.source_id))
+            throw InvalidArgument(
+                "ReID train/validation identity inventories overlap");
+      }
+      std::set<std::string> train_paths,
+          sequence_ids(train.sequence_ids.begin(), train.sequence_ids.end());
+      for (const auto& a : train.dataset->index().records())
+        train_paths.insert(
+            std::filesystem::weakly_canonical(train.image_root /
+                                              std::filesystem::u8path(a.path))
+                .generic_string());
+      for (const auto& a : val.dataset->index().records())
+        if (train_paths.contains(
+                std::filesystem::weakly_canonical(
+                    val.image_root / std::filesystem::u8path(a.path))
+                    .generic_string()))
+          throw InvalidArgument("Task dataset train/validation paths overlap");
+      for (const auto& id : val.sequence_ids)
+        if (sequence_ids.contains(id))
+          throw InvalidArgument(
+              "Task datasets share sequence IDs across splits");
+      s.val = val.dataset;
+      s.val_root = val.image_root;
+      s.val_id = val.identity;
     }
   } else if (r.model.task == TaskKind::classify) {
     s.train_root = r.classification_root;
@@ -229,7 +282,9 @@ Sources Read(RecipeSpec& r, std::stop_token stop) {
     };
     dialect(r.training);
     if (r.validation) dialect(*r.validation);
+    phase("data.training_import.started");
     auto train = read_detection_dataset(r.training, stop);
+    phase("data.training_import.finished");
     s.train_root = train.image_root;
     s.classes = train.annotations.categories;
     s.train_id = train.metadata_identity;
@@ -250,9 +305,13 @@ Sources Read(RecipeSpec& r, std::stop_token stop) {
       auto source = *r.validation;
       if (!source.categories.empty()) SameClasses(s.classes, source.categories);
       source.categories = s.classes;
+      phase("data.validation_import.started");
       auto val = read_detection_dataset(source, stop);
+      phase("data.validation_import.finished");
       s.val_root = val.image_root;
+      phase("data.disjoint_check.started");
       require_disjoint_detection_splits(train, val, stop);
+      phase("data.disjoint_check.finished");
       s.val_id = val.metadata_identity;
       s.val = std::make_shared<image::ImageDataset>(
           val.image_root, std::move(val.annotations), decoding);
@@ -265,22 +324,30 @@ Sources Read(RecipeSpec& r, std::stop_token stop) {
         "Recipe class count differs from imported training data");
   if (r.verify_image_contents) {
     std::set<std::string> seen;
+    phase("data.content_hash.started");
     s.train_id =
         ContentIdentity(*s.train, s.train_root, s.train_id, seen, false, stop);
     if (s.val)
       s.val_id =
           ContentIdentity(*s.val, s.val_root, s.val_id, seen, true, stop);
+    phase("data.content_hash.finished");
   }
+  phase("data.read.finished");
   return s;
 }
 }  // namespace
-VisionDataSplits load_vision_data(RecipeSpec& recipe, std::stop_token stop) {
+VisionDataSplits load_vision_data(RecipeSpec& recipe, std::stop_token stop,
+                                  WorkflowPhaseObserver observer) {
   check_recipe(recipe);
-  auto source = Read(recipe, stop);
+  auto source = Read(recipe, stop, observer);
   return {source.train, source.val, source.train_id, source.val_id,
           source.classes};
 }
 TrainResult train_vision(const TrainRequest& request) {
+  const auto phase = [&](std::string_view name) {
+    if (request.phase_observer) request.phase_observer(name);
+  };
+  phase("workflow.started");
   auto r = request.recipe;
   check_recipe(r);
   if (request.output.empty())
@@ -291,14 +358,18 @@ TrainResult train_vision(const TrainRequest& request) {
         "Training needs a new or empty output directory, including resume");
   if (request.stop.stop_requested())
     throw Cancelled("Vision training cancelled before initialization");
-  auto source = Read(r, request.stop);
+  auto source = Read(r, request.stop, request.phase_observer);
   r.data.size_divisor =
       static_cast<std::uint32_t>(describe_binding(r.model).input_divisor);
   r.data.rectangular = r.rectangular_batches;
   r.data.num_classes = r.model.num_classes;
   r.data.allow_unannotated_negatives = r.model.task != TaskKind::detect;
-  r.data.classification.enabled = r.model.task == TaskKind::classify || r.model.task == TaskKind::classify_multilabel || r.model.task == TaskKind::reid;
-  if(r.model.task==TaskKind::semantic_segment)r.data.letterbox.geometry.mask_padding_id=r.extension.semantic_ignore;
+  r.data.classification.enabled =
+      r.model.task == TaskKind::classify ||
+      r.model.task == TaskKind::classify_multilabel ||
+      r.model.task == TaskKind::reid;
+  if (r.model.task == TaskKind::semantic_segment)
+    r.data.letterbox.geometry.mask_padding_id = r.extension.semantic_ignore;
   r.data.augmentation.multi_source.total_epochs = r.epochs;
   r.data.augmentation.multi_source.close_epochs =
       (std::min)(r.data.augmentation.multi_source.close_epochs, r.epochs);
@@ -310,9 +381,19 @@ TrainResult train_vision(const TrainRequest& request) {
   if (r.selection_metric == "auto") {
     r.selection_metric =
         r.full_validation_metrics
-            ? (r.model.task == TaskKind::classify ? "validation.top1" : r.model.task==TaskKind::classify_multilabel?"validation.map":r.model.task==TaskKind::semantic_segment?"validation.miou":r.model.task==TaskKind::depth?"validation.rmse":r.model.task==TaskKind::reid?"validation.rank1":r.model.task==TaskKind::pretrain_simmim?"validation.loss":"validation.map")
+            ? (r.model.task == TaskKind::classify ? "validation.top1"
+               : r.model.task == TaskKind::classify_multilabel
+                   ? "validation.map"
+               : r.model.task == TaskKind::semantic_segment ? "validation.miou"
+               : r.model.task == TaskKind::depth            ? "validation.rmse"
+               : r.model.task == TaskKind::reid             ? "validation.rank1"
+               : r.model.task == TaskKind::pretrain_simmim  ? "validation.loss"
+                                                            : "validation.map")
             : "validation.loss";
-    r.selection_maximize = r.selection_metric != "validation.loss"&&r.selection_metric!="validation.rmse"&&r.selection_metric!="validation.mae"&&r.selection_metric!="validation.absrel";
+    r.selection_maximize = r.selection_metric != "validation.loss" &&
+                           r.selection_metric != "validation.rmse" &&
+                           r.selection_metric != "validation.mae" &&
+                           r.selection_metric != "validation.absrel";
   }
   const auto recipe_id = recipe_identity(r);
   const auto run_id =
@@ -320,6 +401,7 @@ TrainResult train_vision(const TrainRequest& request) {
            describe_binding(r.model).revision);
   const DeterministicTraining deterministic(r.deterministic);
   torch::manual_seed(r.seed);
+  phase("model.started");
   auto binding = bind_task(r);
   binding.model->state().to(r.device);
   auto initialization = r.initialization;
@@ -333,13 +415,25 @@ TrainResult train_vision(const TrainRequest& request) {
   }
   const auto initialization_report = initialize_vision(
       *binding.model, initialization, r.model.architecture, request.stop);
+  phase("model.finished");
   std::shared_ptr<nn::ModelAdapter> teacher;
-  if(!r.extension.teacher_architecture.empty()) {
-    auto teacher_recipe=r;teacher_recipe.model.architecture=r.extension.teacher_architecture;teacher_recipe.extension.teacher_architecture.clear();teacher_recipe.extension.feature_projection=0;
-    teacher_recipe.extension.feature_outputs=r.extension.feature_distillation_weight>0;
-    teacher=bind_task(teacher_recipe).model;teacher->state().to(r.device);
-    initialize_vision(*teacher,r.extension.teacher_initialization,teacher_recipe.model.architecture,request.stop);
-    binding.step=make_distillation_step(binding.step,teacher,{.temperature=r.extension.distillation_temperature,.logits_weight=r.extension.logits_distillation_weight,.feature_weight=r.extension.feature_distillation_weight,.multilabel=r.model.task==TaskKind::classify_multilabel});
+  if (!r.extension.teacher_architecture.empty()) {
+    auto teacher_recipe = r;
+    teacher_recipe.model.architecture = r.extension.teacher_architecture;
+    teacher_recipe.extension.teacher_architecture.clear();
+    teacher_recipe.extension.feature_projection = 0;
+    teacher_recipe.extension.feature_outputs =
+        r.extension.feature_distillation_weight > 0;
+    teacher = bind_task(teacher_recipe).model;
+    teacher->state().to(r.device);
+    initialize_vision(*teacher, r.extension.teacher_initialization,
+                      teacher_recipe.model.architecture, request.stop);
+    binding.step = make_distillation_step(
+        binding.step, teacher,
+        {.temperature = r.extension.distillation_temperature,
+         .logits_weight = r.extension.logits_distillation_weight,
+         .feature_weight = r.extension.feature_distillation_weight,
+         .multilabel = r.model.task == TaskKind::classify_multilabel});
   }
   struct Performance {
     std::uint64_t samples = 0, batches = 0, peak_batch_bytes = 0;
@@ -363,6 +457,7 @@ TrainResult train_vision(const TrainRequest& request) {
   };
   auto eval_binding = binding;
   std::shared_ptr<ModelEma> ema;
+  phase("ema.started");
   if (r.ema) {
     const auto rng = core::get_rng_state(r.device.is_cuda());
     try {
@@ -382,6 +477,8 @@ TrainResult train_vision(const TrainRequest& request) {
             .decay = r.ema_decay,
             .ramp_updates = r.ema_ramp_updates});
   }
+  phase("ema.finished");
+  phase("optimizer.started");
   r.optimizer.effective_batch = r.batch_size * r.accumulate_steps;
   auto groups =
       make_detection_sgd_groups(binding.model->state().module(), r.optimizer);
@@ -411,11 +508,13 @@ TrainResult train_vision(const TrainRequest& request) {
     optimizer_checkpoint =
         std::make_shared<optim::AdamWOptimizerCheckpointParticipant>(concrete);
   } else if (r.optimizer_name == "musgd" || r.optimizer_name == "musgd_bf16") {
-    auto concrete = std::make_shared<MuSgdOptimizer>("optimizer.vision",
-        std::move(groups.groups), MuSgdOptions{
-            .muon = r.musgd_muon_weight, .sgd = r.musgd_sgd_weight,
-            .math = r.optimizer_name == "musgd_bf16" ? MuSgdMath::bf16_batched
-                                                      : MuSgdMath::fp32_native});
+    auto concrete = std::make_shared<MuSgdOptimizer>(
+        "optimizer.vision", std::move(groups.groups),
+        MuSgdOptions{.muon = r.musgd_muon_weight,
+                     .sgd = r.musgd_sgd_weight,
+                     .math = r.optimizer_name == "musgd_bf16"
+                                 ? MuSgdMath::bf16_batched
+                                 : MuSgdMath::fp32_native});
     optimizer = concrete;
     optimizer_checkpoint = concrete;
   } else
@@ -430,6 +529,8 @@ TrainResult train_vision(const TrainRequest& request) {
   schedule.total_updates = r.epochs * updates;
   auto scheduler = std::make_shared<training::SchedulerAdapter>(
       std::make_shared<WarmupCosineLrScheduler>(optimizer, schedule));
+  phase("optimizer.finished");
+  phase("pipeline.started");
   data::DataPipelineOptions p;
   p.pipeline_id = "vision.training";
   p.dataset_version = source.train_id;
@@ -441,7 +542,8 @@ TrainResult train_vision(const TrainRequest& request) {
   std::shared_ptr<data::samplers::Sampler> sampler =
       std::make_shared<data::samplers::RandomSampler>(source.train->size(),
                                                       r.seed);
-  if(r.model.task==TaskKind::reid) sampler=make_identity_sampler(source.identities,r.batch_size,2,r.seed);
+  if (r.model.task == TaskKind::reid)
+    sampler = make_identity_sampler(source.identities, r.batch_size, 2, r.seed);
   if (r.rectangular_batches) {
     if (r.model.task == TaskKind::classify)
       throw InvalidArgument(
@@ -476,6 +578,8 @@ TrainResult train_vision(const TrainRequest& request) {
                           ? training::callbacks::EarlyStoppingMode::maximize
                           : training::callbacks::EarlyStoppingMode::minimize}));
   }
+  phase("pipeline.finished");
+  phase("run_artifacts.started");
   std::filesystem::create_directories(request.output);
   Save(request.output / "recipe.json", recipe_json(r));
   Save(request.output / "initialization.json", initialization_report);
@@ -504,6 +608,7 @@ TrainResult train_vision(const TrainRequest& request) {
   options.precision = r.precision;
   options.gradient_clip_norm = r.gradient_clip_norm;
   training::FitRequest fit;
+  fit.event_observer = request.event_observer;
   fit.model = binding.model;
   fit.optimizers = {{optimizer, optimizer_checkpoint, scheduler}};
   std::shared_ptr<training::TrainingDiagnostics> diagnostics;
@@ -536,7 +641,9 @@ TrainResult train_vision(const TrainRequest& request) {
           J::parse(evaluate_vision(eval_binding, *dataset, r, identity, stop));
       Save(path / "validation.json", report.dump(2));
       std::map<std::string, double> metrics;
-      for (auto key : {"map", "ap50", "top1", "top5", "macro_f1", "micro_f1", "miou", "pixel_accuracy", "mae", "rmse", "absrel", "delta1", "rank1"})
+      for (auto key :
+           {"map", "ap50", "top1", "top5", "macro_f1", "micro_f1", "miou",
+            "pixel_accuracy", "mae", "rmse", "absrel", "delta1", "rank1"})
         if (report.contains(key) && report[key].is_number())
           metrics[std::string("validation.") + key] = report[key].get<double>();
       return metrics;
@@ -559,7 +666,11 @@ TrainResult train_vision(const TrainRequest& request) {
   fit.rng_checkpoint = std::make_shared<core::RngCheckpointParticipant>(
       core::RngCheckpointParticipantOptions{.include_cuda =
                                                 r.device.is_cuda()});
-  if(teacher)fit.additional_participants.push_back(std::make_shared<nn::ModelCheckpointParticipant>(*teacher,nn::ModelCheckpointParticipantOptions{.participant_id="model.teacher"}));
+  if (teacher)
+    fit.additional_participants.push_back(
+        std::make_shared<nn::ModelCheckpointParticipant>(
+            *teacher, nn::ModelCheckpointParticipantOptions{
+                          .participant_id = "model.teacher"}));
   if (ema) fit.optimizer_update_participants.push_back(ema);
   if (selection)
     fit.checkpoint_action = [selection, path = request.output, binding,
@@ -588,17 +699,23 @@ TrainResult train_vision(const TrainRequest& request) {
       c.save(store);
     };
   training::Trainer trainer(options);
+  phase("run_artifacts.finished");
+  phase("trainer.prepare.started");
   trainer.prepare(std::move(fit));
+  phase("trainer.prepare.finished");
   if (!request.resume.empty()) {
+    phase("checkpoint.restore.started");
     training::FileCheckpointStore store(request.resume,
                                         VisionCheckpointOptions());
     trainer.restore_checkpoint(store);
+    phase("checkpoint.restore.finished");
   }
   if (r.diagnostics && r.device.is_cuda())
     torch::cuda::synchronize(r.device.index());
   const auto fit_start = r.diagnostics
                              ? std::chrono::steady_clock::now()
                              : std::chrono::steady_clock::time_point{};
+  phase("fit.started");
   auto result = [&] {
     // A completed checkpoint can republish its artifacts without entering fit
     // or emitting training callbacks again.
@@ -610,12 +727,14 @@ TrainResult train_vision(const TrainRequest& request) {
   }();
   if (r.diagnostics && r.device.is_cuda())
     torch::cuda::synchronize(r.device.index());
+  phase("fit.finished");
   const auto fit_seconds =
       r.diagnostics ? std::chrono::duration<double>(
                           std::chrono::steady_clock::now() - fit_start)
                           .count()
                     : 0.;
   auto last = request.output / "last.checkpoint";
+  phase("final_artifacts.started");
   training::FileCheckpointStore store(last, VisionCheckpointOptions());
   trainer.save_checkpoint(store);
   trainer.close();
@@ -712,6 +831,8 @@ TrainResult train_vision(const TrainRequest& request) {
                                           {"disk_bytes", stats.disk_bytes}}
                                             .dump(2));
   }
+  phase("final_artifacts.finished");
+  phase("workflow.finished");
   return {std::move(result), run_id, last, binding.model, eval_binding.model};
 }
 std::vector<ImageResult> predict_vision(
@@ -736,11 +857,16 @@ ProfiledPrediction predict_vision_profiled(
   sync();
   const auto start = std::chrono::steady_clock::now();
   auto data = yolo_evaluation_options(recipe.data);
-  data.size_divisor = static_cast<std::uint32_t>(binding.capability.input_divisor);
+  data.size_divisor =
+      static_cast<std::uint32_t>(binding.capability.input_divisor);
   data.num_classes = recipe.model.num_classes;
   data.allow_unannotated_negatives = true;
-  if(data.augmentation.dataset_id.empty())data.augmentation.dataset_id="vision.predict:"+recipe_identity(recipe);
-  data.classification.enabled = recipe.model.task == TaskKind::classify || recipe.model.task == TaskKind::classify_multilabel || recipe.model.task == TaskKind::reid;
+  if (data.augmentation.dataset_id.empty())
+    data.augmentation.dataset_id = "vision.predict:" + recipe_identity(recipe);
+  data.classification.enabled =
+      recipe.model.task == TaskKind::classify ||
+      recipe.model.task == TaskKind::classify_multilabel ||
+      recipe.model.task == TaskKind::reid;
   std::vector<image::ImageBatchKey> keys;
   for (const auto& s : samples) keys.push_back({.id = s.image_path});
   auto batch = prepare_yolo_batch(samples, keys, data, stop);
@@ -784,7 +910,11 @@ ProfiledPrediction predict_vision_profiled(
                      recipe.prediction);
   for (std::size_t i = 0; i < result.size(); ++i) {
     result[i].source_id = samples[i].image_path;
-    if (restore && (recipe.model.task==TaskKind::detect || recipe.model.task==TaskKind::instance_segment || recipe.model.task==TaskKind::pose || recipe.model.task==TaskKind::obb || is_dense_task(recipe.model.task))) {
+    if (restore && (recipe.model.task == TaskKind::detect ||
+                    recipe.model.task == TaskKind::instance_segment ||
+                    recipe.model.task == TaskKind::pose ||
+                    recipe.model.task == TaskKind::obb ||
+                    is_dense_task(recipe.model.task))) {
       if (!batch.items[i].geometry)
         throw InvalidArgument("Predictive inverse geometry is missing");
       result[i] = restore_result(result[i], *batch.items[i].geometry,
@@ -811,7 +941,9 @@ std::string evaluate_vision(TaskBinding& binding,
   torch::NoGradGuard guard;
   Modes modes(*binding.model);
   auto r = recipe;
-  if(static_cast<unsigned>(r.model.task)>4)return evaluate_extended_task(binding,dataset,r,std::move(dataset_id),stop);
+  if (static_cast<unsigned>(r.model.task) > 4)
+    return evaluate_extended_task(binding, dataset, r, std::move(dataset_id),
+                                  stop);
   r.prediction = r.evaluation;
   const auto class_id =
       Hash(std::to_string(r.model.num_classes) + ":" + dataset_id);
