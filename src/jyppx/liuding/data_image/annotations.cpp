@@ -52,6 +52,7 @@ class BoundedJsonSax final : public nlohmann::json_sax<Json> {
     std::unordered_set<std::string> seen;
     std::string field;
     std::size_t depth = 0;
+    bool object = false, discard = false;
   };
 
  public:
@@ -68,15 +69,14 @@ class BoundedJsonSax final : public nlohmann::json_sax<Json> {
   }
   bool string(string_t& value) override {
     Node(frames_.size());
-    const auto owner =
-        std::find_if(frames_.rbegin(), frames_.rend(),
-                     [](const Frame& f) { return f.value.is_object(); });
+    const auto owner = std::find_if(frames_.rbegin(), frames_.rend(),
+                                    [](const Frame& f) { return f.object; });
     const bool rle = owner != frames_.rend() && owner->field == "counts" &&
                      frames_.size() == owner->depth + 1;
     const auto maximum = rle ? state_.options.limits.max_rle_bytes
                              : state_.options.limits.max_string_bytes;
     if (value.size() > maximum) Resource("json.string_bytes");
-    Attach(Json(std::move(value)));
+    if (!DiscardValue()) Attach(Json(std::move(value)));
     return true;
   }
   bool binary(binary_t&) override { Malformed("json.parse"); }
@@ -85,7 +85,7 @@ class BoundedJsonSax final : public nlohmann::json_sax<Json> {
   bool key(string_t& value) override {
     Node(frames_.size());
     Text(value, state_.options.limits);
-    if (frames_.empty() || !frames_.back().value.is_object() ||
+    if (frames_.empty() || !frames_.back().object ||
         !frames_.back().seen.insert(value).second)
       Malformed("json.duplicate_key");
     frames_.back().field = std::move(value);
@@ -109,9 +109,10 @@ class BoundedJsonSax final : public nlohmann::json_sax<Json> {
     Add(nodes_, 1U, state_.options.limits.max_nodes, "json.nodes");
   }
   void Attach(Json value) {
+    if (DiscardValue()) return;
     if (frames_.empty())
       root_ = std::move(value);
-    else if (frames_.back().value.is_array())
+    else if (!frames_.back().object)
       frames_.back().value.push_back(std::move(value));
     else
       frames_.back().value[frames_.back().field] = std::move(value);
@@ -119,13 +120,20 @@ class BoundedJsonSax final : public nlohmann::json_sax<Json> {
   template <class T>
   bool Value(T value) {
     Node(frames_.size());
-    Attach(Json(value));
+    if (!DiscardValue()) Attach(Json(value));
     return true;
   }
   bool Start(bool object) {
     Node(frames_.size());
-    frames_.push_back(
-        {object ? Json::object() : Json::array(), {}, {}, frames_.size()});
+    const bool discard = DiscardValue();
+    frames_.push_back({discard  ? Json()
+                       : object ? Json::object()
+                                : Json::array(),
+                       {},
+                       {},
+                       frames_.size(),
+                       object,
+                       discard});
     return true;
   }
   bool End() {
@@ -135,6 +143,15 @@ class BoundedJsonSax final : public nlohmann::json_sax<Json> {
     frames_.pop_back();
     Attach(std::move(value));
     return true;
+  }
+  bool DiscardValue() const {
+    if (!frames_.empty() && frames_.back().discard) return true;
+    // Box-only COCO already omits segmentation in ReadCoco. Consume its full
+    // syntax and budgets here without allocating a temporary mask DOM.
+    return state_.options.coco_detection_boxes && frames_.size() == 3 &&
+           frames_[0].object && frames_[0].field == "annotations" &&
+           !frames_[1].object && frames_[2].object &&
+           frames_[2].field == "segmentation";
   }
   ParseState& state_;
   std::size_t nodes_ = 0;

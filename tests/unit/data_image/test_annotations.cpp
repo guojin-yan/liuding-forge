@@ -233,6 +233,40 @@ TEST(ImageAnnotationTest, CocoDetectionFilteringStillValidatesIdsAndLimits) {
 }
 
 TEST(ImageAnnotationTest,
+     CocoBoxOnlyDiscardedMasksKeepJsonValidationAndBudgets) {
+  AnnotationReadOptions options;
+  options.coco_detection_boxes = true;
+  const auto mask = std::string("[[10,5,30,5,30,20,10,20]]");
+  const auto parsed =
+      parse_annotations(kCoco, AnnotationFormat::coco_instances, options);
+  ASSERT_EQ(parsed.images[0].objects.size(), 1U);
+  EXPECT_TRUE(parsed.images[0].objects[0].polygons.empty());
+  for (const auto* invalid : {R"({"a":1,"a":2})", "[1e9999]", "[0,]"}) {
+    EXPECT_THROW(parse_annotations(Replace(kCoco, mask, invalid),
+                                   AnnotationFormat::coco_instances, options),
+                 jyppx::liuding::SerializationError);
+  }
+  options.limits.max_string_bytes = 16;
+  EXPECT_THROW(parse_annotations(
+                   Replace(kCoco, mask, "[\"" + std::string(17, 'A') + "\"]"),
+                   AnnotationFormat::coco_instances, options),
+               jyppx::liuding::ResourceExhausted);
+  options.limits.max_rle_bytes = 16;
+  EXPECT_THROW(
+      parse_annotations(
+          Replace(kCoco, mask, "{\"counts\":\"" + std::string(17, 'A') + "\"}"),
+          AnnotationFormat::coco_instances, options),
+      jyppx::liuding::ResourceExhausted);
+  options.limits.max_nodes = 100;
+  std::string many = "[0";
+  for (int i = 0; i < 100; ++i) many += ",0";
+  many += ']';
+  EXPECT_THROW(parse_annotations(Replace(kCoco, mask, many),
+                                 AnnotationFormat::coco_instances, options),
+               jyppx::liuding::ResourceExhausted);
+}
+
+TEST(ImageAnnotationTest,
      CocoDecodesCompressedRleSignedDeltasWithoutChangingMask) {
   const std::string prefix =
       R"({"images":[{"id":1,"file_name":"x.png","width":3,"height":2}],
