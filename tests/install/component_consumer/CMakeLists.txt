@@ -67,7 +67,7 @@ target_compile_definitions(jyppx_component_consumer
     PRIVATE JYPPX_CONSUMER_${JYPPX_LIUDING_COMPONENT_MACRO}=1
 )
 foreach(JYPPX_ENTITY_COMPONENT IN ITEMS
-        foundation core interop data data_image vision_render nn optim training experiment models onnx_export onnx_runtime onnx_serving bundle_signing serving)
+        foundation core interop data data_image vision_render nn optim training experiment models migraphx_runtime migraphx_serving onnx_export onnx_runtime onnx_serving bundle_signing serving)
     string(TOUPPER "${JYPPX_ENTITY_COMPONENT}" JYPPX_ENTITY_COMPONENT_UPPER)
     if(TARGET jyppx::liuding::${JYPPX_ENTITY_COMPONENT})
         target_compile_definitions(jyppx_component_consumer PRIVATE
@@ -108,11 +108,33 @@ if(WIN32)
     if(NOT EXISTS "${JYPPX_RUNTIME_STAGER}")
         message(FATAL_ERROR "Windows consumer requires StageTorchRuntime.cmake")
     endif()
-    add_custom_command(TARGET jyppx_component_consumer POST_BUILD
-        COMMAND ${CMAKE_COMMAND}
-            "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
-            "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_component_consumer>"
-            -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
+    if(JYPPX_CONSUMER_COMPONENT MATCHES "^(data_image|sdk)$")
+        set(image_runtime_extra_args)
+        if(JYPPX_RUNTIME_EXTRA_DLL_LIST OR JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR)
+            if(NOT IS_ABSOLUTE "${JYPPX_RUNTIME_EXTRA_DLL_LIST}" OR
+               NOT EXISTS "${JYPPX_RUNTIME_EXTRA_DLL_LIST}" OR
+               NOT IS_ABSOLUTE "${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}" OR
+               NOT IS_DIRECTORY "${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}")
+                message(FATAL_ERROR "Installed component consumer ROCm runtime closure is incomplete")
+            endif()
+            list(APPEND image_runtime_extra_args
+                "-DJYPPX_RUNTIME_EXTRA_DLL_LIST=${JYPPX_RUNTIME_EXTRA_DLL_LIST}"
+                "-DJYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR=${JYPPX_RUNTIME_EXTRA_DLL_SOURCE_DIR}")
+        endif()
+        add_custom_target(jyppx_image_consumer_runtime ALL
+            COMMAND ${CMAKE_COMMAND}
+                "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+                "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_component_consumer>"
+                ${image_runtime_extra_args}
+                -P "${JYPPX_RUNTIME_STAGER}"
+            DEPENDS jyppx_component_consumer VERBATIM)
+    else()
+        add_custom_command(TARGET jyppx_component_consumer POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+                "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_component_consumer>"
+                -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
+    endif()
 endif()
 
 if(WIN32 AND JYPPX_CONSUMER_COMPONENT MATCHES "^onnx_(runtime|serving)$")

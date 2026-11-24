@@ -21,6 +21,7 @@
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
 #include <jyppx/liuding/core/device.hpp>
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/data_image/annotation_files.hpp>
@@ -68,6 +69,7 @@
 #elif defined(JYPPX_CONSUMER_ALL)
 #include <jyppx/liuding/foundation/version.hpp>
 #elif defined(JYPPX_CONSUMER_SDK)
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/liuding.hpp>
 #else
 #error "Exactly one installed component consumer must be selected"
@@ -120,7 +122,7 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
 #endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
-  constexpr std::array<std::pair<std::string_view, bool>, 16U> kExpected{{
+  constexpr std::array<std::pair<std::string_view, bool>, 18U> kExpected{{
       {"bundle_signing", JYPPX_EXPECT_COMPONENT_BUNDLE_SIGNING != 0},
       {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
       {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
@@ -128,6 +130,8 @@ bool BuildCapabilityInventoryMatchesPackage() {
       {"experiment", JYPPX_EXPECT_COMPONENT_EXPERIMENT != 0},
       {"foundation", JYPPX_EXPECT_COMPONENT_FOUNDATION != 0},
       {"interop", JYPPX_EXPECT_COMPONENT_INTEROP != 0},
+      {"migraphx_runtime", JYPPX_EXPECT_COMPONENT_MIGRAPHX_RUNTIME != 0},
+      {"migraphx_serving", JYPPX_EXPECT_COMPONENT_MIGRAPHX_SERVING != 0},
       {"models", JYPPX_EXPECT_COMPONENT_MODELS != 0},
       {"nn", JYPPX_EXPECT_COMPONENT_NN != 0},
       {"onnx_export", JYPPX_EXPECT_COMPONENT_ONNX_EXPORT != 0},
@@ -139,7 +143,12 @@ bool BuildCapabilityInventoryMatchesPackage() {
       {"vision_render", JYPPX_EXPECT_COMPONENT_VISION_RENDER != 0},
   }};
   const auto manifest = jyppx::liuding::current_capability_manifest();
-  if (manifest.features.size() != kExpected.size()) return false;
+  if (manifest.features.size() != kExpected.size()) {
+    std::cerr << "Installed capability inventory size differs: "
+              << manifest.features.size() << " versus " << kExpected.size()
+              << '\n';
+    return false;
+  }
   for (std::size_t index = 0; index < kExpected.size(); ++index) {
     const auto& [component, enabled] = kExpected[index];
     const auto& feature = manifest.features[index];
@@ -147,7 +156,8 @@ bool BuildCapabilityInventoryMatchesPackage() {
         component == "models" || component == "serving" ||
         component == "data_image" || component == "vision_render" ||
         component == "onnx_export" || component == "onnx_runtime" ||
-        component == "onnx_serving" || component == "bundle_signing";
+        component == "onnx_serving" || component == "bundle_signing" ||
+        component == "migraphx_runtime" || component == "migraphx_serving";
     const auto expected_status =
         enabled ? (preview ? jyppx::liuding::CapabilityStatus::experimental
                            : jyppx::liuding::CapabilityStatus::available)
@@ -156,6 +166,7 @@ bool BuildCapabilityInventoryMatchesPackage() {
         feature.status != expected_status ||
         (feature.implementation ==
          jyppx::liuding::CapabilityImplementation::native) != enabled) {
+      std::cerr << "Installed capability mismatch: " << component << '\n';
       return false;
     }
   }
@@ -165,6 +176,9 @@ bool BuildCapabilityInventoryMatchesPackage() {
 }  // namespace
 
 int main() {
+#if defined(JYPPX_CONSUMER_DATA_IMAGE) || defined(JYPPX_CONSUMER_SDK)
+  jyppx::liuding::initialize_runtime();
+#endif
   if (!BuildCapabilityInventoryMatchesPackage()) return 1;
 #if defined(JYPPX_CONSUMER_FOUNDATION)
   const auto fingerprint = jyppx::liuding::current_build_fingerprint();
@@ -205,6 +219,11 @@ int main() {
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
+  const auto failed = [](int line) {
+    std::cerr << "Installed image consumer contract failed at line " << line
+              << '\n';
+    return 1;
+  };
   const auto metadata =
       jyppx::liuding::data::image::parse_yolo_dataset_yaml("names: [cat]");
   jyppx::liuding::data::image::AnnotationReadOptions options;
@@ -229,9 +248,9 @@ int main() {
   try {
     static_cast<void>(jyppx::liuding::data::image::decode_image(
         std::as_bytes(std::span(pgm)), decode_options));
-    return 1;
+    return failed(__LINE__);
   } catch (const jyppx::liuding::ResourceExhausted& error) {
-    if (error.details().operation != "decode.working") return 1;
+    if (error.details().operation != "decode.working") return failed(__LINE__);
   }
   decode_options.max_working_bytes = 1U << 30U;
   const auto image = jyppx::liuding::data::image::decode_image(
@@ -255,7 +274,7 @@ int main() {
       tensor_sample.target_path != "installed-paired" ||
       !tensor_sample.geometry ||
       tensor_sample.geometry->source_extent().width != 2)
-    return 1;
+    return failed(__LINE__);
   const auto encoded =
       jyppx::liuding::data::image::encode_image(image.tensor, image.pixels);
   const auto trace = jyppx::liuding::data::image::GeometryTrace({20, 10})
@@ -296,7 +315,7 @@ int main() {
       sink_options.resource_budget
               ->usage(ImageResourceKind::encoded_queue_bytes)
               .current != 0)
-    return 1;
+    return failed(__LINE__);
   VisionSample sample;
   sample.image = image.tensor;
   sample.pixels = image.pixels;
@@ -317,7 +336,7 @@ int main() {
       sample, sample_geometry({1, 1}, geometry_options, random), cubic_options);
   if (cubic.width != 3 || cubic.height != 2 ||
       !torch::equal(cubic.mask_target->ids, transformed.mask_target->ids))
-    return 1;
+    return failed(__LINE__);
   VisionAnnotationRecord segments;
   segments.width = segments.height = 1;
   segments.panoptic_mask_path = "source.png";
@@ -351,15 +370,16 @@ int main() {
     if (!received.images.is_cuda() || !received.masks->is_cuda() ||
         !torch::equal(received.images.cpu(), batch.images) ||
         !torch::equal(received.masks->cpu(), *batch.masks))
-      return 1;
+      return failed(__LINE__);
     transfer.wait();
-    if (copies.pending() != 0 || !transfer.timeline().copy_complete) return 1;
+    if (copies.pending() != 0 || !transfer.timeline().copy_complete)
+      return failed(__LINE__);
     copies.close();
     std::cout << "installed image copy device=cuda:0\n";
   } else {
     try {
       ImageBatchCopyStream copies(copy_memory);
-      return 1;
+      return failed(__LINE__);
     } catch (const jyppx::liuding::DeviceError&) {
     }
   }
@@ -400,7 +420,7 @@ int main() {
       pipeline.state().next_cursor != 1 ||
       !torch::equal(image_batch_from_value(envelope->value).images,
                     numeric.images))
-    return 1;
+    return failed(__LINE__);
   const auto decoded = image_batch_from_value(envelope->value);
   jyppx::liuding::data::validate_batch_value(
       image_batch_value(decoded), image_batch_schema(decoded, torch::kCPU));
@@ -437,7 +457,7 @@ int main() {
                  transformed.mask_target->ids[1][2].item<std::int64_t>() ==
                      65535
              ? 0
-             : 1;
+             : failed(__LINE__);
 #elif defined(JYPPX_CONSUMER_VISION_RENDER)
   using namespace jyppx::liuding::data::image;
   using namespace jyppx::liuding::visualization;
