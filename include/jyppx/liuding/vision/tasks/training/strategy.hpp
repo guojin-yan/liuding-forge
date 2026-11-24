@@ -16,6 +16,12 @@
 
 namespace jyppx::liuding::vision::tasks {
 
+/** @brief Absolute weight decay for an exact parameter or module subtree. */
+struct ParameterDecayRule {
+  std::string prefix;        ///< Longest matching dot-delimited prefix wins.
+  double weight_decay = 0.;  ///< Finite nonnegative value, after batch scaling.
+};
+
 /** @brief Explicit SGD recipe, resolved before constructing an optimizer. */
 struct DetectionSgdOptions {
   double learning_rate =
@@ -29,6 +35,8 @@ struct DetectionSgdOptions {
       64;  ///< Configured batch*accumulation, positive.
   std::uint64_t nominal_batch =
       64;  ///< Positive reference batch for decay scaling.
+  std::vector<ParameterDecayRule> weight_decay_overrides;
+  ///< Optional overrides of the default bias/normalization grouping.
 };
 
 /** @brief Resolved disjoint groups; tensor handles remain owned by the model.
@@ -46,6 +54,8 @@ struct DetectionSgdGroups {
  * @return Biases, normalization parameters and <=1D parameters have zero decay;
  * all other parameters use the resolved decay. Known LibTorch BatchNorm,
  * InstanceNorm, GroupNorm and LayerNorm modules are recognized by type.
+ * Explicit decay rules override these defaults after nominal batch scaling;
+ * each rule must win for at least one trainable parameter.
  * @throws InvalidArgument Invalid options or no trainable parameters.
  * @throws ResourceExhausted Trainable element count overflows int64.
  * @note Keep the model topology/placement fixed after binding. Custom

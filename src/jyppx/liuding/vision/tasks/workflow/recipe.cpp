@@ -517,9 +517,9 @@ RecipeSpec parse_recipe(std::string_view text,
       j.value("save_interval_epochs", r.save_interval_epochs);
   if (j.contains("optimizer")) {
     const auto& v = j["optimizer"];
-    Keys(v,
-         {"name", "learning_rate", "momentum", "weight_decay", "nesterov",
-          "nominal_batch", "scale_weight_decay", "muon_weight", "sgd_weight"});
+    Keys(v, {"name", "learning_rate", "momentum", "weight_decay", "nesterov",
+             "nominal_batch", "scale_weight_decay", "muon_weight", "sgd_weight",
+             "weight_decay_overrides"});
     r.optimizer_name = v.value("name", r.optimizer_name);
     r.musgd_muon_weight = v.value("muon_weight", r.musgd_muon_weight);
     r.musgd_sgd_weight = v.value("sgd_weight", r.musgd_sgd_weight);
@@ -530,6 +530,18 @@ RecipeSpec parse_recipe(std::string_view text,
     o.nesterov = v.value("nesterov", o.nesterov);
     o.nominal_batch = v.value("nominal_batch", o.nominal_batch);
     o.scale_weight_decay = v.value("scale_weight_decay", o.scale_weight_decay);
+    if (v.contains("weight_decay_overrides")) {
+      if (!v["weight_decay_overrides"].is_array())
+        throw InvalidArgument("Weight-decay overrides must be an array");
+      for (const auto& rule : v["weight_decay_overrides"]) {
+        Keys(rule, {"prefix", "weight_decay"});
+        if (!rule.at("weight_decay").is_number())
+          throw InvalidArgument("Weight-decay override must be numeric");
+        o.weight_decay_overrides.push_back(
+            {rule.at("prefix").get<std::string>(),
+             rule.at("weight_decay").get<double>()});
+      }
+    }
   }
   if (j.contains("scheduler")) {
     const auto& v = j["scheduler"];
@@ -790,6 +802,14 @@ void check_recipe(const RecipeSpec& r) {
       r.scheduler.warmup_start_factor <= 0 ||
       r.scheduler.warmup_start_factor > 1)
     throw InvalidArgument("Invalid optimizer/scheduler recipe");
+  if (r.optimizer.weight_decay_overrides.size() > 256)
+    throw InvalidArgument("Too many parameter weight-decay overrides");
+  std::set<std::string> decay_prefixes;
+  for (const auto& rule : r.optimizer.weight_decay_overrides)
+    if (rule.prefix.empty() || rule.prefix.size() > 256 ||
+        !decay_prefixes.insert(rule.prefix).second ||
+        !std::isfinite(rule.weight_decay) || rule.weight_decay < 0)
+      throw InvalidArgument("Invalid parameter weight-decay override");
   if (r.cache.ram_bytes > (64ULL << 30U) ||
       r.cache.disk_bytes > (1ULL << 40U) ||
       (r.cache.disk_bytes && r.cache.directory.empty()) ||
@@ -1057,6 +1077,12 @@ std::string recipe_json(const RecipeSpec& r) {
   for (const auto& rule : r.initialization.learning_rates)
     j["initialization"]["learning_rates"].push_back(
         {{"prefix", rule.prefix}, {"multiplier", rule.multiplier}});
+  if (!r.optimizer.weight_decay_overrides.empty()) {
+    j["optimizer"]["weight_decay_overrides"] = J::array();
+    for (const auto& rule : r.optimizer.weight_decay_overrides)
+      j["optimizer"]["weight_decay_overrides"].push_back(
+          {{"prefix", rule.prefix}, {"weight_decay", rule.weight_decay}});
+  }
   if (r.schema_version >= 2)
     j["extension"] = {
         {"training_manifest", Path(r.extension.training_manifest)},

@@ -678,6 +678,90 @@ TEST_F(VisionContracts, RtDetrEncoderBudgetRoundTripAndBinding) {
   }
 }
 
+TEST_F(VisionContracts, ParameterDecayOverridesApplyToActualUpdates) {
+  auto model = std::make_shared<torch::nn::Module>();
+  model->register_module(
+      "block", torch::nn::Sequential(
+                   torch::nn::Linear(2, 2),
+                   torch::nn::LayerNorm(std::vector<std::int64_t>{2})));
+  model->register_module("blocks", torch::nn::Linear(2, 2));
+  t::DetectionSgdOptions options;
+  options.learning_rate = .1;
+  options.momentum = 0;
+  options.weight_decay = .1;
+  options.effective_batch = 128;
+  options.weight_decay_overrides = {{"block", .2}, {"block.1.weight", .3}};
+  auto groups = t::make_detection_sgd_groups(*model, options);
+  EXPECT_DOUBLE_EQ(groups.effective_weight_decay, .2);
+  const auto parameters = model->named_parameters();
+  std::set<std::string> grouped;
+  {
+    torch::NoGradGuard no_grad;
+    for (const auto& parameter : parameters) {
+      parameter.value().fill_(1);
+      parameter.value().mutable_grad() = torch::zeros_like(parameter.value());
+    }
+  }
+  for (const auto& group : groups.groups)
+    for (const auto& parameter : group.parameters)
+      EXPECT_TRUE(grouped.insert(parameter.parameter_id).second);
+  ASSERT_EQ(grouped.size(), parameters.size());
+  optim::SgdOptimizerAdapter optimizer("decay-test", std::move(groups.groups));
+  optimizer.step();
+  for (const auto& parameter : parameters) {
+    const auto decay = parameter.key() == "block.1.weight" ? .3
+                       : parameter.key() == "blocks.bias"  ? 0.
+                                                           : .2;
+    EXPECT_TRUE(
+        torch::allclose(parameter.value(),
+                        torch::full_like(parameter.value(), 1 - .1 * decay)));
+  }
+  for (const auto& rules : std::vector<std::vector<t::ParameterDecayRule>>{
+           {{"bloc", .1}},
+           {{"block", .1}, {"block", .2}},
+           {{"", .1}},
+           {{"block", -1}},
+           {{"block", std::numeric_limits<double>::infinity()}}}) {
+    options.weight_decay_overrides = rules;
+    EXPECT_THROW(t::make_detection_sgd_groups(*model, options),
+                 InvalidArgument);
+  }
+}
+
+TEST_F(VisionContracts, ParameterDecayOverridesRoundTripAndBindResumeIdentity) {
+  t::RecipeSpec recipe;
+  recipe.training.source = std::filesystem::absolute("a.json");
+  const auto original = t::recipe_json(recipe);
+  EXPECT_EQ(original.find("weight_decay_overrides"), std::string::npos);
+  const auto identity = t::recipe_identity(recipe);
+  recipe.optimizer.weight_decay_overrides = {
+      {"model.encoder.input0.norm.weight", .0001}};
+  EXPECT_NE(t::recipe_identity(recipe), identity);
+  const auto restored =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  ASSERT_EQ(restored.optimizer.weight_decay_overrides.size(), 1U);
+  EXPECT_EQ(restored.optimizer.weight_decay_overrides[0].prefix,
+            recipe.optimizer.weight_decay_overrides[0].prefix);
+  EXPECT_DOUBLE_EQ(restored.optimizer.weight_decay_overrides[0].weight_decay,
+                   .0001);
+  EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
+  for (
+      const auto* invalid :
+      {"null", "{}", R"([{"prefix":"x","weight_decay":true}])",
+       R"([{"prefix":"x","weight_decay":-1}])",
+       R"([{"prefix":"","weight_decay":0}])",
+       R"([{"prefix":"x","weight_decay":0,"unknown":1}])",
+       R"([{"prefix":"x","weight_decay":0},{"prefix":"x","weight_decay":1}])"}) {
+    const auto json =
+        std::string(
+            R"({"model":{"architecture":"yolo26n"},"dataset":{"format":"coco","source":"a.json"},"optimizer":{"weight_decay_overrides":)") +
+        invalid + "}}";
+    EXPECT_THROW(t::parse_recipe(json, std::filesystem::current_path()),
+                 InvalidArgument)
+        << invalid;
+  }
+}
+
 TEST_F(VisionContracts, AnnotationBudgetsRoundTripAndBindResumeIdentity) {
   t::RecipeSpec recipe;
   recipe.training.source = std::filesystem::absolute("annotations.json");

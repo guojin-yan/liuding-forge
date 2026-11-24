@@ -15,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <set>
 #include <utility>
 
@@ -52,6 +53,14 @@ DetectionSgdGroups make_detection_sgd_groups(
       options.weight_decay < 0 || options.effective_batch == 0 ||
       options.nominal_batch == 0 || (options.nesterov && options.momentum == 0))
     throw InvalidArgument("Invalid detection SGD parameter-group recipe");
+  if (options.weight_decay_overrides.size() > 256)
+    throw InvalidArgument("Too many parameter weight-decay overrides");
+  std::set<std::string> prefixes;
+  for (const auto& rule : options.weight_decay_overrides)
+    if (rule.prefix.empty() || rule.prefix.size() > 256 ||
+        !prefixes.insert(rule.prefix).second ||
+        !std::isfinite(rule.weight_decay) || rule.weight_decay < 0)
+      throw InvalidArgument("Invalid parameter weight-decay override");
   DetectionSgdGroups result;
   result.effective_weight_decay = options.weight_decay;
   if (options.scale_weight_decay)
@@ -102,6 +111,48 @@ DetectionSgdGroups make_detection_sgd_groups(
     if (!group.parameters.empty()) result.groups.push_back(std::move(group));
   if (result.groups.empty())
     throw InvalidArgument("Detection model has no trainable parameters");
+  if (!options.weight_decay_overrides.empty()) {
+    std::vector<bool> used(options.weight_decay_overrides.size(), false);
+    std::vector<optim::SgdParameterGroup> resolved;
+    for (const auto& group : result.groups) {
+      std::map<std::size_t, optim::SgdParameterGroup> split;
+      for (const auto& parameter : group.parameters) {
+        std::size_t selected = options.weight_decay_overrides.size(),
+                    longest = 0;
+        for (std::size_t i = 0; i < options.weight_decay_overrides.size();
+             ++i) {
+          const auto& prefix = options.weight_decay_overrides[i].prefix;
+          const auto& name = parameter.parameter_id;
+          if ((name == prefix ||
+               (name.size() > prefix.size() && name.starts_with(prefix) &&
+                name[prefix.size()] == '.')) &&
+              prefix.size() > longest) {
+            selected = i;
+            longest = prefix.size();
+          }
+        }
+        auto [it, inserted] = split.try_emplace(selected);
+        auto& output = it->second;
+        if (inserted) {
+          output.options = group.options;
+          output.group_id = group.group_id;
+          if (selected != options.weight_decay_overrides.size()) {
+            output.group_id += ".decay-" + std::to_string(selected);
+            output.options.weight_decay =
+                options.weight_decay_overrides[selected].weight_decay;
+          }
+        }
+        if (selected != options.weight_decay_overrides.size())
+          used[selected] = true;
+        output.parameters.push_back(parameter);
+      }
+      for (auto& [index, output] : split) resolved.push_back(std::move(output));
+    }
+    if (std::find(used.begin(), used.end(), false) != used.end())
+      throw InvalidArgument(
+          "Weight-decay override matches no trainable parameter");
+    result.groups = std::move(resolved);
+  }
   return result;
 }
 

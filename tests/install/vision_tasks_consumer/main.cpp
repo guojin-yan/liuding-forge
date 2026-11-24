@@ -84,11 +84,14 @@ int main() try {
   if (tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
     throw std::runtime_error("installed recipe roundtrip mismatch");
   recipe.training.limits.max_input_bytes = 600ULL << 20;
+  recipe.optimizer.weight_decay_overrides = {{"model.example.weight", .0001}};
   roundtrip = tasks::parse_recipe(tasks::recipe_json(recipe),
                                   std::filesystem::current_path());
   if (roundtrip.training.limits.max_input_bytes != (600ULL << 20) ||
+      roundtrip.optimizer.weight_decay_overrides.size() != 1 ||
       tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
     throw std::runtime_error("installed annotation limits roundtrip mismatch");
+  recipe.optimizer.weight_decay_overrides.clear();
   tasks::TrainRequest measured;
   measured.phase_observer = [](std::string_view) {};
   measured.event_observer = [](const jyppx::liuding::training::CallbackEvent&) {

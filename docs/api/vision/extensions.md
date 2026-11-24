@@ -55,6 +55,8 @@ schema2 的 `extension.training_manifest`、`validation_manifest` 指向 `vision
 
 ## 训练策略
 
+`optimizer.weight_decay_overrides` 可显式覆盖指定参数或模块子树的权重衰减，例如 `[{"prefix":"model.enc_norm.weight","weight_decay":0.0001}]`。最长的点分隔前缀匹配生效，覆盖值为 batch 缩放后的绝对值，每条规则必须匹配至少一个可训练参数。规则参与配方和检查点身份；空规则列表沿用既有分组。
+
 `selection_metric` 与调参 `objective` 使用同一份任务指标约束，指标名称带 `validation.` 前缀，并要求开启 `full_validation_metrics`；`validation.loss` 适用于全部任务。
 
 | 任务 | 可用的任务指标 |
