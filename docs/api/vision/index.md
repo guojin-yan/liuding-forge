@@ -14,6 +14,8 @@
 
 模型选择以 `catalog` 返回的 architecture/task/variant 为准。Fast R-CNN、开放词汇、跟踪与新增训练策略的具体原生 profile 见[扩展任务](extensions.md)；任意骨干/Neck/Head 自由组合不在支持范围。已有骨干各自的输入尺寸、预训练与资格约束继续适用，注册表可查询不代表任意尺寸都能训练。
 
+旧版短 SPPF 配置的首个投影保留 SiLU 激活，与冻结上游解析器一致；带扩展参数的 YOLO26 SPPF 首个投影不激活。修复前旧版配置曾遗漏该激活，相关原生图现使用 `native-yolo-graph/v2/<配置SHA>`，其余图保持 v1；套件按架构 revision 绑定恢复与交付身份，旧 v1 训练检查点不能直接作为修复后图的精确续训检查点。
+
 代码按 `vision/models`、`vision/ops`、`vision/tasks/data`、`vision/tasks/training`、`vision/tasks/workflow` 集中组织。五个默认关闭的组件分别导出 `jyppx::liuding::vision_ops`、`models_yolo`、`models_rcnn`、`models_vision`、`vision_tasks`；RCNN 还依赖既有 `models`。统一工具使用独立开关 `JYPPX_LIUDING_BUILD_VISION_CLI`，不需要开启其他全部 CLI。
 
 在已有依赖的兼容构建配置中启用所需组件：

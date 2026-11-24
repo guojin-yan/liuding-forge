@@ -63,6 +63,8 @@
 
 ### 模型与视觉套件
 
+- 修复 YOLO 旧版短 SPPF 配置遗漏首层 SiLU 激活的问题，与冻结上游图解析一致；YOLO26 扩展配置保留无激活语义。受影响模型使用新的架构 revision，区分修复前的恢复身份。
+
 - 提供分类骨干、ViT/Swin、DINOv2/v3、统一特征提取、分类头替换与显式 safetensors 权重导入。
 - 提供原始 YOLOv5 P5/P6、YOLOv8/11/12/26、Faster/Fast R-CNN、FCOS、RetinaNet、SSD、RT-DETR 与开放词汇模型的原生组件和统一 CLI。
 - 提供分类、多标签、检测、实例分割、姿态、旋转框、语义分割、深度、SimMIM、ReID、蒸馏及序列跟踪工作流。

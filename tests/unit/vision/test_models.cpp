@@ -3,15 +3,19 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
+#include "../../../src/jyppx/liuding/vision/models/yolo/blocks.hpp"
+
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #include <jyppx/liuding/training/amp/autocast.hpp>
 #include <jyppx/liuding/training/amp/grad_scaler.hpp>
+#include <jyppx/liuding/vision/models/yolo/model.hpp>
 #include <jyppx/liuding/vision/tasks/extended.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
 
 #include <torch/torch.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <gtest/gtest.h>
@@ -37,6 +41,56 @@ using I = std::int64_t;
 
 class VisionModelTraining
     : public ::testing::TestWithParam<t::CapabilityRecord> {};
+
+TEST(VisionModelGraph, SppfActivationFollowsFrozenLegacyAndExtendedConfigs) {
+  namespace y = models::yolo;
+  namespace d = models::yolo::detail;
+  torch::set_num_threads(1);
+  struct Case {
+    y::Family family;
+    y::Variant variant;
+    bool first_active;
+  };
+  for (const auto& scenario :
+       {Case{y::Family::v8, y::Variant::p5, true},
+        Case{y::Family::v8, y::Variant::ghost_p6, true},
+        Case{y::Family::yolo26, y::Variant::p5, false}}) {
+    const y::ModelOptions options{.family = scenario.family,
+                                  .variant = scenario.variant,
+                                  .num_classes = 3};
+    EXPECT_TRUE(y::describe_model(options).revision.starts_with(
+        scenario.first_active ? "native-yolo-graph/v2/"
+                              : "native-yolo-graph/v1/"));
+    auto model = y::create_model(options);
+    bool found = false;
+    for (const auto& item : model.state().module().named_modules()) {
+      auto sppf = std::dynamic_pointer_cast<d::Sppf>(item.value());
+      if (!sppf) continue;
+      found = true;
+      SCOPED_TRACE(item.key());
+      auto first = std::dynamic_pointer_cast<d::Conv>(sppf->a);
+      ASSERT_TRUE(first);
+      EXPECT_EQ(first->activation, scenario.first_active);
+      // With zeroed projections and a negative BN bias, the first output is
+      // SiLU(-1) for the legacy graph and exactly -1 for the extended graph.
+      sppf->eval();
+      {
+        torch::NoGradGuard guard;
+        first->conv->weight.zero_();
+        first->bn->weight.zero_();
+        first->bn->bias.fill_(-1);
+      }
+      const auto input =
+          torch::zeros({1, first->conv->options.in_channels(), 3, 3});
+      const auto output = sppf->a->run(input);
+      const auto expected =
+          scenario.first_active ? -1.0 / (1.0 + std::exp(1.0)) : -1.0;
+      EXPECT_TRUE(torch::allclose(output, torch::full_like(output, expected),
+                                  1e-6, 1e-7));
+    }
+    EXPECT_TRUE(found);
+  }
+}
 
 c10::IValue on_device(const c10::IValue& value, const Device& device) {
   if (value.isTensor()) return value.toTensor().to(device);

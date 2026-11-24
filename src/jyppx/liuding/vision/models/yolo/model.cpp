@@ -372,7 +372,13 @@ ModelDefinition describe_model(const ModelOptions& o) {
     d.id += "." + VariantSuffix(o.variant).substr(1);
   d.reference_path = graph.path;
   d.reference_sha256 = graph.sha;
-  d.revision = "native-yolo-graph/v1/" + graph.sha;
+  const bool legacy_sppf = std::any_of(
+      graph.layers.begin(), graph.layers.end(), [](const LayerSpec& layer) {
+        return layer.kind == "SPPF" && layer.args.size() <= 2;
+      });
+  d.revision = std::string(legacy_sppf ? "native-yolo-graph/v2/"
+                                       : "native-yolo-graph/v1/") +
+               graph.sha;
   d.reg_max = o.reg_max ? o.reg_max : o.family == Family::yolo26 ? 1 : 16;
   d.end_to_end = o.family == Family::yolo26 && o.task != Task::classify;
   if (o.task == Task::classify)
@@ -476,8 +482,11 @@ struct ModelImpl::Impl {
               in, out, n, true, l.kind, a(2, .5),
               a(1, 0) != 0 || CapacityIndex(o.capacity) >= 2, a(3, 0) != 0);
         else if (l.kind == "SPPF")
+          // Upstream restores the first activation for legacy short rows;
+          // the extended YOLO26 row keeps its unactivated first projection.
           unit = std::make_shared<Sppf>(in, out, static_cast<I>(a(1, 5)),
-                                        static_cast<I>(a(2, 3)), a(3, 0) != 0);
+                                        static_cast<I>(a(2, 3)), a(3, 0) != 0,
+                                        l.args.size() <= 2);
         else if (l.kind == "C2PSA")
           unit = std::make_shared<C2Psa>(in, out, n);
         else if (l.kind == "A2C2f")
