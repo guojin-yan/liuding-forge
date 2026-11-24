@@ -4671,6 +4671,31 @@
             "validation_receipt_sha256": "99565067a53aa9c2473ece11953f8b35962526d369c14c95cb9daeb8d250fe22",
             "scope": "仅上述固定检测E2E五容量数值与所列任务执行范围；不授予实例分割/姿态/OBB全部上游损失等价、其他输入/精度、真实数据质量/收敛、其他AMD硬件/多GPU/裸机LinuxAMD、ORT ROCm/MIGraphX EP或发布资格。历史v1结果保持原范围。"
           }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "id": "windows-clangcl24-rocm101-gfx1100-26cb219-yolo26-obb-parity",
+          "commit": "26cb219e319feb6197ac063c3872ecac33fb9f87",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0/HIP7.16.26385; fixed YOLO26n P5 OBB FP16 model autocast/FP32 parameters and explicit FP32 criterion",
+          "instrumentation": "主力增量库及私有C++采集程序保留b24f7cd+dirty来源，受测产品/测试字节规范化后等于26cb219 Git blobs；不冒称干净当前HEAD训练构建。Windows/RTX3060及Linux/RTX2060分别离线同步干净26cb219、复用各自构建；后续仅CPU参考测试更新至bbaf458，产品src/include未变，两机各1编译任务、总计最多2，本机GPU串行。",
+          "tests": "本机20项不同合同完成：最终7项包含扩展CPU/GPU独立OBB参考、CPU目录、FP32/FP16/BF16实际更新及安装消费者，其他13项为同批未变路径的检测数值/身份拒绝/仓库门禁；原第一阶段结果保留。另一次完整原生更新与独立AMD PyTorch全梯度/更新状态对照；两台NVIDIA各18项不同合同最终通过、零未解决失败/跳过；各自保留1次CPU旧参考失败，只补测该单项。",
+          "quality_evidence": {
+            "criterion": "YOLO26 OBB筛除宽或高小于2px的目标，候选w/h按第二stride扩张并含边界；真实回归目标不扩张。匹配使用无floor ProbIoU与1e-9归一化，网格单位回归使用0.01协方差floor；直接距离两操作数各自归一化，并加入按长宽比加权、以π为周期的角度项。全部敏感分支共用一次FP32 raw转换后再汇总梯度至模型精度。",
+            "identity": "仅YOLO26 OBB配方更换为yolo26-obb-fp32/v4；其旧v3检查点不能精确续训，可按权重初始化新训练。检测/实例分割/姿态保留v3，其余旧OBB及公共probabilistic_box_iou实现保持原范围。",
+            "fixture": "独立不改函数体的Ultralytics8.4.177 E2ELoss(v8OBBLoss)，固定两分支2x8x85、六目标含小框/重叠/角度/精确边界和sub2px过滤；核对四分量、两份完整梯度、epoch0/1/99/100、tiny与empty一致及输入不变。CPU/GPU各覆盖FP32/FP16 raw及autocast开关，rtol1e-5/atol1e-6、梯度atol1e-7未放宽。",
+            "full_model": "固定YOLO26nP5 OBB、seed7/batch2/64x64/nc3、FP32参数/FP16模型autocast、显式FP32 criterion、scale1及SGDlr0.001一次更新；官方独立模型严格导入完整初态和同一输入。两分支前向、全部414份有限参数梯度及792份更新后参数/缓冲状态逐字节一致，独立stdlib safetensors reader再次审核全载荷；381份参数实际改变。",
+            "loss": "原生14.646369934082031、官方14.646368980407715，相差一个FP32间隔9.5367431640625e-7；标量分支与官方分量向量归约顺序不同，保留原容差，不称loss逐位相同。",
+            "retained_failures": "原固定参考首损失233.926773对174.084778、缺角度及梯度超差保留。第一阶段修复通过FP32输入参考，但完整FP16模型仍有2574380梯度字节/2906305更新状态字节差异，最大梯度差0.258056640625；合并FP32转换后相同完整初态和输入对照全等，并新增FP16 raw参考。原始失败及阶段通过均未覆盖或改判。",
+            "regression": "Windows/RTX3060与Linux/RTX2060各18项：9数值/身份合同、CPU OBB、三GPU精度实际更新及五门禁。同一干净26cb219产品源，Linux复用原cuDNN进程库路径并兼容CMake3.22参数名后缀；两机首批17/18通过，原CPU2.14.0冻结梯度在原生CPU2.14.1超差；两台各自独立官方Python Torch2.14.1+cpu亦有同样差异。bbaf458新增锁定CPU2.14.1完整梯度参考并只为该精确CPU版本选择，原rtol1e-5/atol1e-7保持，原始CPU2.14.0/GPU参考不改；各仅复验失败CPU单项通过，未重复GPU通过项。零下载及系统环境修改。NVIDIA结果不扩展AMD硬件资格。",
+            "reference": "现有AMD Python Torch2.14.0+rocm10.1.0及锁定Ultralytics8.4.177原定义；完整模型/criterion函数体未改写。配置、源码、状态映射、二进制与参考摘要均保留于私有收据；Python仅开发参考。",
+            "evidence": "workspace/records/amd-p6-parity-20261124/yolo26-obb-validation.json及同目录完整JUnit/原始失败/载荷审计。只用局域网Git bundle与正常Git推送，无下载、Actions、版本修改或发布。",
+            "validation_receipt_sha256": "ac076ac6de159b3ef52c3f526a51c1b187239e514ba26b3c3b68cd98cc8ca917",
+            "scope": "仅所列固定YOLO26nP5 OBB完整数值/一次更新和CPU/GPU criterion参考、三精度执行；不授其他容量/输入/真实数据精度/收敛、全部任务上游等价、其他AMD硬件/多GPU/裸机LinuxAMD、ORT ROCm/MIGraphX EP或发布资格。上一检测五容量登记和历史失败保持原范围。"
+          }
         }
       ],
       "pending_lanes": []
