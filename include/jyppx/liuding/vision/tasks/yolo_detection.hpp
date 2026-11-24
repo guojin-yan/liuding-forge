@@ -24,8 +24,9 @@ namespace jyppx::liuding::vision::tasks {
 /** @brief Explicit P5 detection recipe and logical allocation/work bounds.
  *
  * Plain value options own no training state. Bounds exclude allocator/backend
- * workspace and do not claim a process RSS/VRAM ceiling. This development
- * criterion has not been qualified against an independent upstream reference.
+ * workspace and do not claim a process RSS/VRAM ceiling. Numerical
+ * qualification of this development criterion is limited to the explicit
+ * fixed recipes in compatibility.json, including their loss precision policy.
  */
 struct YoloDetectionOptions {
   std::int64_t num_classes = 80;

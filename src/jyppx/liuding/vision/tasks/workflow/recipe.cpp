@@ -905,7 +905,16 @@ std::string recipe_json(const RecipeSpec& r) {
 }
 std::string recipe_identity(const RecipeSpec& r) {
   check_recipe(r);
-  const auto s = recipe_json(r);
+  auto s = recipe_json(r);
+  const auto& name = r.model.architecture;
+  const bool modern_yolo =
+      name.starts_with("yolov8") || name.starts_with("yolo11") ||
+      name.starts_with("yolo12") || name.starts_with("yolo26") ||
+      name.starts_with("yoloworld_") || name.starts_with("yoloe_");
+  if (modern_yolo && r.model.task != TaskKind::classify &&
+      static_cast<unsigned>(r.model.task) <=
+          static_cast<unsigned>(TaskKind::obb))
+    s += "\nyolo-detection-fp32/v2";
   return sha256_hex(std::as_bytes(std::span(s)));
 }
 }  // namespace jyppx::liuding::vision::tasks

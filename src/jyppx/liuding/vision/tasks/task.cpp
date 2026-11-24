@@ -12,6 +12,7 @@
 #include <torch/nn/functional/loss.h>
 #include <torch/nn/functional/upsampling.h>
 
+#include <ATen/autocast_mode.h>
 #include <algorithm>
 #include <cmath>
 #include <tuple>
@@ -71,12 +72,15 @@ void Validate(const YoloTaskOptions& o) {
       throw InvalidArgument("Pose sigmas must be positive finite");
 }
 Tensor Distances(const Tensor& raw, const YoloDetectionOptions& d) {
+  const c10::impl::ExcludeDispatchKeyGuard no_autocast(
+      at::autocast::get_autocast_dispatch_key_from_device_type(
+          raw.device().type()));
   auto values =
       raw.to(torch::kFloat32).transpose(1, 2).slice(2, 0, 4 * d.reg_max);
   if (d.reg_max == 1) return values;
-  return (values.reshape({raw.size(0), raw.size(2), 4, d.reg_max}).softmax(-1) *
-          torch::arange(d.reg_max, values.options()))
-      .sum(-1);
+  return values.reshape({raw.size(0), raw.size(2), 4, d.reg_max})
+      .softmax(-1)
+      .matmul(torch::arange(d.reg_max, values.options()));
 }
 Tensor Rotated(const Tensor& raw, const YoloDecodedPrediction& decoded,
                const YoloTaskOptions& o) {
@@ -172,7 +176,7 @@ TaskLoss Branch(const Tensor& raw, const Tensor& proto, const Tensor& semantic,
                                 : 0;
   if (!raw.defined() || raw.dim() != 3 || raw.size(1) != base + extra)
     throw InvalidArgument("Raw YOLO head width differs from task definition");
-  auto head = raw.slice(1, 0, base);
+  auto head = raw.slice(1, 0, base).to(torch::kFloat32);
   auto prediction = decode_yolo_detection(head, size, o.detection);
   TaskLoss result;
   auto zero = raw.to(torch::kFloat32).sum() * 0;

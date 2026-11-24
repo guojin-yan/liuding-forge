@@ -117,8 +117,10 @@ std::string recipe_json(const RecipeSpec& recipe);
 /** @brief Validates values and task/augmentation contracts without creating a
  * model. */
 void check_recipe(const RecipeSpec& recipe);
-/** @brief SHA-256 of resolved recipe; data contents are bound separately by the
- * run. */
+/** @brief SHA-256 of resolved recipe and applicable training-numerics revision.
+ * Modern YOLO detection, segmentation, pose and OBB bind FP32 criterion v2;
+ * other recipes retain the canonical JSON hash. Data contents and architecture
+ * revision are bound separately by the run. */
 std::string recipe_identity(const RecipeSpec& recipe);
 }  // namespace jyppx::liuding::vision::tasks
 #endif  // JYPPX_LIUDING_VISION_TASKS_WORKFLOW_RECIPE_HPP

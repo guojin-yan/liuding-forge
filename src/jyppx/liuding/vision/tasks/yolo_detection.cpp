@@ -13,6 +13,7 @@
 
 #include <torch/nn/functional/loss.h>
 
+#include <ATen/autocast_mode.h>
 #include <algorithm>
 #include <cmath>
 #include <tuple>
@@ -104,32 +105,26 @@ std::pair<Tensor, Tensor> AnchorGrid(const Tensor& raw,
 }
 
 Tensor CompleteIou(const Tensor& left, const Tensor& right) {
-  const auto left_min = left.slice(-1, 0, 2), left_max = left.slice(-1, 2, 4);
-  const auto right_min = right.slice(-1, 0, 2),
-             right_max = right.slice(-1, 2, 4);
-  const auto left_size = (left_max - left_min).clamp_min(0);
-  const auto right_size = (right_max - right_min).clamp_min(0);
-  const auto overlap = (torch::minimum(left_max, right_max) -
-                        torch::maximum(left_min, right_min))
-                           .clamp_min(0);
-  const auto intersection = overlap.select(-1, 0) * overlap.select(-1, 1);
-  const auto union_area = left_size.select(-1, 0) * left_size.select(-1, 1) +
-                          right_size.select(-1, 0) * right_size.select(-1, 1) -
-                          intersection;
-  const auto iou = intersection / (union_area + kEpsilon);
-  const auto enclosing =
-      torch::maximum(left_max, right_max) - torch::minimum(left_min, right_min);
-  const auto diagonal = enclosing.square().sum(-1) + kEpsilon;
-  const auto center_distance =
-      ((left_min + left_max - right_min - right_max) * 0.5).square().sum(-1);
-  const auto angle = torch::atan(left_size.select(-1, 0) /
-                                 (left_size.select(-1, 1) + kEpsilon)) -
-                     torch::atan(right_size.select(-1, 0) /
-                                 (right_size.select(-1, 1) + kEpsilon));
-  const auto aspect =
-      angle.square() * (4.0 / (std::acos(-1.0) * std::acos(-1.0)));
-  const auto alpha = (aspect / (1.0 - iou + aspect + kEpsilon)).detach();
-  return iou - center_distance / diagonal - alpha * aspect;
+  // FP32 order and stabilization follow Ultralytics 8.4.177
+  // utils/metrics.py::bbox_iou; see MODEL_PROVENANCE.md for the pinned source.
+  constexpr double epsilon = 1e-7;
+  const auto l = left.chunk(4, -1), r = right.chunk(4, -1);
+  const auto lw = l[2] - l[0], lh = l[3] - l[1] + epsilon;
+  const auto rw = r[2] - r[0], rh = r[3] - r[1] + epsilon;
+  const auto intersection =
+      (torch::minimum(l[2], r[2]) - torch::maximum(l[0], r[0])).clamp_min(0) *
+      (torch::minimum(l[3], r[3]) - torch::maximum(l[1], r[1])).clamp_min(0);
+  const auto iou = intersection / (lw * lh + rw * rh - intersection + epsilon);
+  const auto cw = torch::maximum(l[2], r[2]) - torch::minimum(l[0], r[0]);
+  const auto ch = torch::maximum(l[3], r[3]) - torch::minimum(l[1], r[1]);
+  const auto diagonal = cw.square() + ch.square() + epsilon;
+  const auto center_distance = ((r[0] + r[2] - l[0] - l[2]).square() +
+                                (r[1] + r[3] - l[1] - l[3]).square()) /
+                               4;
+  const auto aspect = (4 / (std::acos(-1.0) * std::acos(-1.0))) *
+                      (torch::atan(rw / rh) - torch::atan(lw / lh)).square();
+  const auto alpha = (aspect / (1 - iou + aspect + epsilon)).detach();
+  return (iou - (center_distance / diagonal + aspect * alpha)).squeeze(-1);
 }
 
 void ValidateTargets(const Tensor& targets, const Tensor& raw,
@@ -258,6 +253,10 @@ YoloDecodedPrediction decode_yolo_detection(
     const Tensor& raw, std::array<std::int64_t, 2> image_size,
     const YoloDetectionOptions& options) {
   ValidateRaw(raw, image_size, options);
+  // The public decoder returns FP32 even inside a caller's autocast scope.
+  const c10::impl::ExcludeDispatchKeyGuard no_autocast(
+      at::autocast::get_autocast_dispatch_key_from_device_type(
+          raw.device().type()));
   auto values = raw.to(torch::kFloat32).transpose(1, 2);
   auto [anchors, strides] = AnchorGrid(raw, image_size, options);
   const auto bins =
@@ -266,11 +265,10 @@ YoloDecodedPrediction decode_yolo_detection(
   const auto distances =
       options.reg_max == 1
           ? values.slice(2, 0, 4)
-          : (values.slice(2, 0, options.reg_max * 4)
-                 .reshape({raw.size(0), raw.size(2), 4, options.reg_max})
-                 .softmax(-1) *
-             bins)
-                .sum(-1);
+          : values.slice(2, 0, options.reg_max * 4)
+                .reshape({raw.size(0), raw.size(2), 4, options.reg_max})
+                .softmax(-1)
+                .matmul(bins);
   auto boxes = torch::cat({anchors.unsqueeze(0) - distances.slice(2, 0, 2),
                            anchors.unsqueeze(0) + distances.slice(2, 2, 4)},
                           2) *
@@ -282,10 +280,14 @@ YoloDecodedPrediction decode_yolo_detection(
 YoloDetectionLoss yolo_detection_loss(const Tensor& raw, const Tensor& targets,
                                       std::array<std::int64_t, 2> image_size,
                                       const YoloDetectionOptions& options) {
-  auto prediction = decode_yolo_detection(raw, image_size, options);
+  ValidateRaw(raw, image_size, options);
+  // Share one cast across all criterion branches. Casting each branch back
+  // to FP16 separately rounds its adjoint before the branches accumulate.
+  const auto fp32 = raw.to(torch::kFloat32);
+  auto prediction = decode_yolo_detection(fp32, image_size, options);
   ValidateTargets(targets, raw, image_size, options);
   auto assigned = Assign(prediction, targets, options);
-  auto values = raw.to(torch::kFloat32).transpose(1, 2);
+  auto values = fp32.transpose(1, 2);
   const auto denominator = assigned.scores.sum().clamp_min(1.0);
   auto classification =
       torch::nn::functional::binary_cross_entropy_with_logits(
@@ -301,11 +303,15 @@ YoloDetectionLoss yolo_detection_loss(const Tensor& raw, const Tensor& targets,
   const auto count = mask.sum().item<std::int64_t>();
   if (count > 0) {
     const auto weight = assigned.scores.sum(-1).index({mask});
-    box_loss = ((1.0 - CompleteIou(prediction.boxes.index({mask}),
-                                   assigned.boxes.index({mask}))) *
-                weight)
-                   .sum() /
-               denominator;
+    // Stabilization is defined in feature-grid coordinates for regression;
+    // assignment above still compares boxes in canvas coordinates.
+    box_loss =
+        ((1.0 -
+          CompleteIou((prediction.boxes / prediction.strides).index({mask}),
+                      (assigned.boxes / prediction.strides).index({mask}))) *
+         weight)
+            .sum() /
+        denominator;
     if (options.reg_max > 1) {
       const auto anchor_grid = prediction.anchor_points.unsqueeze(0).expand(
           {raw.size(0), raw.size(2), 2});

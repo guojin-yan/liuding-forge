@@ -754,6 +754,36 @@ TEST(TrainerTest, CheckpointParticipantLimitRejectsBeforeCapture) {
   EXPECT_EQ(trainer.global_step(), 0U);
 }
 
+TEST(TrainerTest, ChangedRunIdentityRejectsCheckpointWithoutMutatingDomain) {
+  for (bool reverse : {false, true}) {
+    SCOPED_TRACE(reverse);
+    auto source_domain = make_domain();
+    auto source_options = options(1);
+    source_options.run_id = reverse ? "run.vision.fp32v2" : "run.vision.legacy";
+    jyppx::liuding::training::Trainer source(source_options);
+    source.prepare(make_request(source_domain));
+    ASSERT_EQ(source.fit_until(1).global_step, 1U);
+    MemoryCheckpoint saved;
+    source.save_checkpoint(saved);
+    source.close();
+
+    auto target_domain = make_domain();
+    auto target_options = options(1);
+    target_options.run_id = reverse ? "run.vision.legacy" : "run.vision.fp32v2";
+    jyppx::liuding::training::Trainer target(target_options);
+    target.prepare(make_request(target_domain));
+    MemoryCheckpoint before;
+    target.save_checkpoint(before);
+    EXPECT_THROW(target.restore_checkpoint(saved),
+                 jyppx::liuding::CompatibilityError);
+    MemoryCheckpoint after;
+    target.save_checkpoint(after);
+    expect_same_checkpoint(before, after);
+    EXPECT_EQ(target.global_step(), 0U);
+    EXPECT_EQ(target_domain.optimizer->completed_steps(), 0U);
+  }
+}
+
 TEST(TrainerTest, ExactRollbackBudgetRestoresAndOneByteShortPreservesState) {
   auto domain = make_domain();
   jyppx::liuding::training::Trainer source(options(1));
