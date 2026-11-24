@@ -85,6 +85,8 @@ YOLO split 支持图片目录或 UTF-8 图片列表；最后一个 `images` 路�
 
 支持梯度累积、裁剪、成功更新驱动的预热/余弦调度、显式 nominal/effective batch 的 decay 缩放、EMA、best/last/周期保存和早停。固定 `class_weights` 仅用于训练，验证损失清除类权重；数据统计只应来自训练集。调度器和 EMA 不随 AMP 跳步推进。
 
+现代 YOLO 的分布解码、目标匹配和检测损失显式使用 FP32，即使模型处于 FP16 autocast。与上游对照时须同时核对损失精度策略；上游默认 autocast 的解码与相同输入下的 FP32 损失不保证逐位一致。该开发预览 criterion 的完整梯度及更新等价资格仍须按模型和配方分别验收。
+
 `deterministic` 默认开启，在训练作用域要求确定性算法并关闭 cuDNN benchmark，结束后恢复调用方设置；缺少确定性实现的操作会明确失败，可显式关闭以运行此类模型。同一软硬件环境下的精确 CUDA 恢复还需设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`。`initial_loss_scale` 控制 CUDA FP16 的初始动态损失缩放，默认 65536；较短训练可显式降低它，避免初始化阶段多次溢出而尚未完成有效更新。两项设置都进入配方与恢复身份。
 
 `full_validation_metrics` 默认开启，验证损失之外再完整执行任务评估。自动选优使用分类 top1、检测/多标签 AP、语义 mIoU、深度 RMSE、ReID rank1 或重建 loss；关闭完整指标时使用验证损失。各任务分别使用框 AP、实例 mask AP、OKS AP 和精确四边形 AP，报告逐类与 PR 数据。诊断混淆矩阵另用明确的 box IoU/置信度口径，不将其当作 mask/pose/OBB AP。

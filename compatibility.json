@@ -4592,6 +4592,9 @@
             "full_criterion_gap": "独立完整v8DetectionLoss为3.5297482013702393，原生3.529590129852295；532份梯度比较有11850345字节差异、133处有限掩码差异，上游/原生非有限元素37655/37760。双方初始scale8均溢出，仅模型/VJP一致，完整损失/梯度等价仍未获资格。原失败和独立动态回退记录保留。",
             "reference_config_sha256": "73b6189c43f1dafaf01e36e0af8a3f43d7ff348d97d5dc7632b2e8f7178ebd77",
             "validation_receipt_sha256": "b297ba215c3c2840e9087aed78034982d936882106f4e84ba5b63c01cf09df86",
+            "followup_v2_backoff": "另在干净b6bb7b5产品源及现有库上仅重建原AMP恢复目标，单一GhostP6-m v2合同14.16秒通过、零跳过；scale8/4/2参数不变且跳步，scale1完成一次实际SGD更新，原32轮/数值断言不变。独立PyTorch的默认autocast损失和显式FP32损失均以相同8/4/2/1序列完成一次有限更新。不改写原scale8首步失败，也不推导更新参数等价。",
+            "followup_criterion_policy": "复用固定raw预测，原生显式FP32总loss3.529590129852295，独立上游显式FP32为3.5295908451080322；20个正样本及GT匹配一致，FP32输出梯度最大差1.1175870895385742e-7。完整模型scale1虽双方全部梯度有限，532份中仅145份满足原参考rtol1e-3/atol1e-5，完整1049状态中仅811份满足该容差；不得登记完整criterion或更新等价。无阈值放宽。",
+            "followup_validation_receipt_sha256": "aee9523d3c765e939a98bd21ad279741b53f03d9d8ee348a01f009d323e37736",
             "binary_sha256": "e15f058e044ff3ea20f2bc4d57eb3293b8ba4a71ca1ed44deb8e6d86a4659596",
             "test_source_sha256": "fd086356d19c65c4ac960c32a1038bf890a5f9bbbe92504097abc4e0fbd663e2",
             "scope": "仅所列Windows/W7900固定模型/状态/输入的FP16模型前向及固定输出梯度VJP、定向CPU/GPU回归；不授完整criterion、有限首步、收敛/任务质量、其他P6入口/形状/精度、WSL/其他设备/多卡或发布资格。旧v1目录成绩不自动转授改变计算的v2图，旧v1检查点不能直接精确续训为v2。"
