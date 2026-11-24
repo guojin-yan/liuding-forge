@@ -4595,6 +4595,9 @@
             "followup_v2_backoff": "另在干净b6bb7b5产品源及现有库上仅重建原AMP恢复目标，单一GhostP6-m v2合同14.16秒通过、零跳过；scale8/4/2参数不变且跳步，scale1完成一次实际SGD更新，原32轮/数值断言不变。独立PyTorch的默认autocast损失和显式FP32损失均以相同8/4/2/1序列完成一次有限更新。不改写原scale8首步失败，也不推导更新参数等价。",
             "followup_criterion_policy": "最终固定raw与完整模型对照使用相同显式FP32策略；20个正样本及GT匹配一致，完整532份参数梯度和scale1更新后的1049份状态逐字节一致。独立数值合同同时覆盖CPU/CUDA autocast作用域、FP16输入、无效预测拒绝和调用方autocast恢复。",
             "followup_validation_receipt_sha256": "aee9523d3c765e939a98bd21ad279741b53f03d9d8ee348a01f009d323e37736",
+            "consumer_closure_fix_commit": "e7027aa",
+            "consumer_closure_validation_receipt_sha256": "d6c328fb76f1f2b07368623d8eba8cea92c97c0e1f85dd1854a6eec00a98e75b",
+            "consumer_closure_scope": "安装视觉消费者在父构建显式开启JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS时复用同一16项HIP导入闭包；原60秒测试上限保持，YOLO/RCNN CPU导出、ORT/nativer numeric assertions通过。关闭/切换暂存只移除其拥有且未修改的旧DLL，独立文件保持。安装包运行时策略未改变。",
             "binary_sha256": "e15f058e044ff3ea20f2bc4d57eb3293b8ba4a71ca1ed44deb8e6d86a4659596",
             "test_source_sha256": "fd086356d19c65c4ac960c32a1038bf890a5f9bbbe92504097abc4e0fbd663e2",
             "scope": "仅所列Windows/W7900固定模型/状态/输入的FP16模型、显式FP32 criterion、scale1有限更新、定向CPU/GPU回归及旧/新运行身份拒绝；不授默认上游autocast逐位等价、原scale8有限首步、收敛/任务质量、其他P6入口/形状/精度、WSL/其他设备/多卡或发布资格。旧v1图及旧criterion检查点不能直接精确续训为v2。"
