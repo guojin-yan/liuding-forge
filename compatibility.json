@@ -4573,6 +4573,29 @@
             "incompatible_mode": "false到true及true到false两种启动模式不匹配均抛CompatibilityError；目标优化器组率、scheduler计数、完整检查点字段字节保持不变，模式对应描述符指纹不同。",
             "scope": "仅该Windows ROCm分发的CPU StepLR控制与当前schema3检查点合同，补齐显式PyTorch启动选项的恢复边界；不授GPU计算/其他精度数值、其他调度器、完整训练任务质量、性能、其他设备/系统或发布资格。既有FP32 Fashion同后端parity和独立质量失败分别保留。"
           }
+        },
+        {
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "AMD Clang 24.0.0git clang-cl (d6f6cb691863e9258034ab48c1dfce21689d5606), MSVC toolset 14.52.37025",
+          "build_type": "Release",
+          "id": "windows-clangcl24-rocm101-gfx1100-f25ed62-legacy-sppf-model-vjp",
+          "commit": "f25ed6284890ab2954751fa87add3139f7945715",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; native LibTorch2.14.0+rocm10.1.0 and byte-identical AMD Python PyTorch runtime DLLs; FP16 autocast with FP32 parameters",
+          "instrumentation": "复用Release Ninja及现有依赖，至多2编译任务，只重建视觉模型/合同目标。独立参考在既有AMD Python中离线加载冻结Ultralytics8.4.177的未改写AST定义并记录完整源码SHA，不宣称完整安装Ultralytics。实际GPU运行复用完整HIP动态库和同卷kpack；无依赖下载或已完成208项矩阵复跑。",
+          "tests": "最终9项CTest及3项原生GPU GTest全通过、零跳过：SPPF激活/revision、v8n P5/GhostP6 CPU实际更新、目录revision、YOLO26n P5 FP32/FP16/BF16实际更新及五仓库门禁。另固定GhostP6-m模型前向和给定相同输出梯度的全部参数反向与独立AMD PyTorch逐字节一致；完整上游criterion比较仍不一致。",
+          "quality_evidence": {
+            "source_identity": "f25ed62恢复短SPPF首层SiLU并将受影响图revision提升到v2；扩展YOLO26仍v1。最终回归在dbeb267加该相同补丁上构建；较早独立捕获使用同样的2/4参数冻结行行为，最终将判定由<=3收紧为正确的<=2。全部冻结SPPF行只有2或4项，不将该捕获称为提交后干净构建。",
+            "original_divergence": "固定GhostP6-m前11层FP16逐字节相同，第11号SPPF首次差异max_abs0.20458984375；原生工厂漏传first_active。上游parse_model在加入输入通道后对len(args)<=3恢复激活，对应原始YAML参数<=2。",
+            "model_vjp": "固定2x3x64x64输入、seed7、3类、1049份初始状态严格双射映射。修复后完整raw[2,67,85]共11390个FP16元素逐字节一致；给定相同原始输出scaled-adjoint、scale8后，532份参数梯度共17943444元素逐字节一致，双方37760非有限元素及有限掩码也相同。未执行有限首步更新。",
+            "full_criterion_gap": "独立完整v8DetectionLoss为3.5297482013702393，原生3.529590129852295；532份梯度比较有11850345字节差异、133处有限掩码差异，上游/原生非有限元素37655/37760。双方初始scale8均溢出，仅模型/VJP一致，完整损失/梯度等价仍未获资格。原失败和独立动态回退记录保留。",
+            "reference_config_sha256": "73b6189c43f1dafaf01e36e0af8a3f43d7ff348d97d5dc7632b2e8f7178ebd77",
+            "validation_receipt_sha256": "b297ba215c3c2840e9087aed78034982d936882106f4e84ba5b63c01cf09df86",
+            "binary_sha256": "e15f058e044ff3ea20f2bc4d57eb3293b8ba4a71ca1ed44deb8e6d86a4659596",
+            "test_source_sha256": "fd086356d19c65c4ac960c32a1038bf890a5f9bbbe92504097abc4e0fbd663e2",
+            "scope": "仅所列Windows/W7900固定模型/状态/输入的FP16模型前向及固定输出梯度VJP、定向CPU/GPU回归；不授完整criterion、有限首步、收敛/任务质量、其他P6入口/形状/精度、WSL/其他设备/多卡或发布资格。旧v1目录成绩不自动转授改变计算的v2图，旧v1检查点不能直接精确续训为v2。"
+          }
         }
       ],
       "pending_lanes": []
