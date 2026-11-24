@@ -4598,6 +4598,7 @@
             "consumer_closure_fix_commit": "e7027aa",
             "consumer_closure_validation_receipt_sha256": "d6c328fb76f1f2b07368623d8eba8cea92c97c0e1f85dd1854a6eec00a98e75b",
             "consumer_closure_scope": "安装视觉消费者在父构建显式开启JYPPX_LIUDING_STAGE_ROCM_RUNTIME_DLLS时复用同一16项HIP导入闭包；原60秒测试上限保持，YOLO/RCNN CPU导出、ORT/nativer numeric assertions通过。关闭/切换暂存只移除其拥有且未修改的旧DLL，独立文件保持。安装包运行时策略未改变。",
+            "additional_p6_s_lane": "同一f11c22d产品源新增固定Windows/W7900 yolov8s Ghost P6：显式FP32 criterion的前向与376份参数梯度逐字节匹配独立AMD PyTorch；原生动态回退合同1/1通过并在scale8完成一次更新。证据为workspace/records/amd-p6-parity-20261124/numerics-v2-validation.json；不扩展其他P6矩阵或默认autocast逐位资格。",
             "binary_sha256": "e15f058e044ff3ea20f2bc4d57eb3293b8ba4a71ca1ed44deb8e6d86a4659596",
             "test_source_sha256": "fd086356d19c65c4ac960c32a1038bf890a5f9bbbe92504097abc4e0fbd663e2",
             "scope": "仅所列Windows/W7900固定模型/状态/输入的FP16模型、显式FP32 criterion、scale1有限更新、定向CPU/GPU回归及旧/新运行身份拒绝；不授默认上游autocast逐位等价、原scale8有限首步、收敛/任务质量、其他P6入口/形状/精度、WSL/其他设备/多卡或发布资格。旧v1图及旧criterion检查点不能直接精确续训为v2。"
