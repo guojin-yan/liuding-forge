@@ -55,6 +55,8 @@ schema2 的 `extension.training_manifest`、`validation_manifest` 指向 `vision
 
 ## 训练策略
 
+YOLO26 检测配方可用 `yolo26_loss` 显式指定 `box_gain`、`class_gain`、`dfl_gain` 和 `one_to_one_topk`。`fixed_branch_gains:true` 使用独立的 `fixed_many_gain`、`fixed_one_gain`（均默认 1），不随 epoch 递变；不设置该策略时沿用原互补权重调度。该节参与训练和恢复身份，只适用于 YOLO26 检测，不能由权重文件名推断训练配方。
+
 `optimizer.weight_decay_overrides` 可显式覆盖指定参数或模块子树的权重衰减，例如 `[{"prefix":"model.enc_norm.weight","weight_decay":0.0001}]`。最长的点分隔前缀匹配生效，覆盖值为 batch 缩放后的绝对值，每条规则必须匹配至少一个可训练参数。规则参与配方和检查点身份；空规则列表沿用既有分组。
 
 `selection_metric` 与调参 `objective` 使用同一份任务指标约束，指标名称带 `validation.` 前缀，并要求开启 `full_validation_metrics`；`validation.loss` 适用于全部任务。

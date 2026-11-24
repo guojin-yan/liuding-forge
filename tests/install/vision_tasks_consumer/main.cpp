@@ -92,6 +92,21 @@ int main() try {
       tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
     throw std::runtime_error("installed annotation limits roundtrip mismatch");
   recipe.optimizer.weight_decay_overrides.clear();
+  auto criterion_recipe = recipe;
+  criterion_recipe.model.architecture = "yolo26n";
+  criterion_recipe.yolo26_loss =
+      tasks::Yolo26LossRecipe{.box_gain = 5.62767,
+                              .class_gain = .56099,
+                              .dfl_gain = 9.03871,
+                              .one_to_one_topk = 8,
+                              .fixed_branch_gains = true};
+  const auto criterion_roundtrip = tasks::parse_recipe(
+      tasks::recipe_json(criterion_recipe), std::filesystem::current_path());
+  if (!criterion_roundtrip.yolo26_loss ||
+      criterion_roundtrip.yolo26_loss->one_to_one_topk != 8 ||
+      tasks::recipe_identity(criterion_recipe) !=
+          tasks::recipe_identity(criterion_roundtrip))
+    throw std::runtime_error("installed YOLO26 criterion roundtrip mismatch");
   tasks::TrainRequest measured;
   measured.phase_observer = [](std::string_view) {};
   measured.event_observer = [](const jyppx::liuding::training::CallbackEvent&) {

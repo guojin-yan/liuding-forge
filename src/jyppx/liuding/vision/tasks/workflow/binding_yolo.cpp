@@ -126,6 +126,16 @@ void bind_yolo(const RecipeSpec& r, TaskBinding& b,
       b.yolo.keypoints = o.keypoints;
       b.yolo.keypoint_dimensions = o.keypoint_dimensions;
       b.yolo.schedule_epochs = r.epochs;
+      if (r.yolo26_loss) {
+        const auto& loss = *r.yolo26_loss;
+        b.yolo.detection.box_gain = loss.box_gain;
+        b.yolo.detection.class_gain = loss.class_gain;
+        b.yolo.detection.dfl_gain = loss.dfl_gain;
+        b.yolo.one_to_one_topk = loss.one_to_one_topk;
+        b.yolo.fixed_branch_gains = loss.fixed_branch_gains;
+        b.yolo.fixed_many_gain = loss.fixed_many_gain;
+        b.yolo.fixed_one_gain = loss.fixed_one_gain;
+      }
       b.yolo.keypoint_sigmas = r.keypoint_sigmas;
       if (r.model.task != TaskKind::classify) {
         PoseLogProbability flow;

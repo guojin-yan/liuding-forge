@@ -2,6 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "yolo26_coco245_reference.hpp"
 #include "yolo26_numerics_reference.hpp"
 #include "yolo26_obb_cpu2141_reference.hpp"
 #include "yolo26_obb_numerics_reference.hpp"
@@ -138,9 +139,11 @@ TEST(VisionYoloNumerics, CudaReferenceAndAutocastPreserveFp32) {
   CheckNumerics(Device(torch::kCUDA, 0), true, true);
 }
 
-void CheckYolo26Numerics(const Device& device, bool autocast) {
+void CheckYolo26Numerics(const Device& device, bool autocast,
+                         bool original_coco = false) {
   torch::set_num_threads(1);
   namespace e2e = yolo26_numerics_reference;
+  namespace coco = yolo26_coco245_reference;
   const auto base =
       torch::arange(2 * 7 * 85, torch::kInt64).reshape({2, 7, 85});
   auto many = ((base * 37 % 251 - 125).to(torch::kFloat32) / 32).to(device);
@@ -162,16 +165,27 @@ void CheckYolo26Numerics(const Device& device, bool autocast) {
   options.detection.reg_max = 1;
   options.detection.strides = {8, 16, 32, 64};
   options.detection.assignment_minimum_side = 16;
+  if (original_coco) {
+    options.detection.box_gain = 5.62767;
+    options.detection.class_gain = .56099;
+    options.detection.dfl_gain = 9.03871;
+    options.one_to_one_topk = 8;
+    options.fixed_branch_gains = true;
+    options.schedule_epochs = 245;
+  }
   const std::array<Tensor, 2> raw{many, one};
   const auto saved_many = many.detach().clone(),
              saved_one = one.detach().clone();
   const auto saved_targets = targets.clone();
-  const auto expected_loss = Expected(e2e::losses, {4}, device);
+  const auto expected_loss = original_coco ? Expected(coco::losses, {4}, device)
+                                           : Expected(e2e::losses, {4}, device);
   std::unique_ptr<training::amp::AutocastGuard> guard;
   if (autocast)
     guard = std::make_unique<training::amp::AutocastGuard>(
         device.type(), device.is_cpu() ? torch::kBFloat16 : torch::kFloat16);
-  const std::array<std::uint64_t, 4> epochs{0, 1, 99, 100};
+  const auto epochs = original_coco
+                          ? std::array<std::uint64_t, 4>{0, 1, 244, 245}
+                          : std::array<std::uint64_t, 4>{0, 1, 99, 100};
   for (std::size_t i = 0; i < epochs.size(); ++i) {
     SCOPED_TRACE(epochs[i]);
     auto loss = t::yolo_task_loss(raw, {.boxes = targets}, {64, 64}, options,
@@ -180,30 +194,49 @@ void CheckYolo26Numerics(const Device& device, bool autocast) {
     EXPECT_TRUE(torch::allclose(loss.total, expected_loss[i], 1e-5, 1e-6));
     if (i == 0) loss.total.backward();
   }
-  EXPECT_TRUE(torch::allclose(many.grad(),
-                              Expected(e2e::many_gradient, {2, 7, 85}, device),
-                              1e-5, 1e-7));
   EXPECT_TRUE(torch::allclose(
-      one.grad(), Expected(e2e::one_gradient, {2, 7, 85}, device), 1e-5, 1e-7));
+      many.grad(),
+      original_coco ? Expected(coco::many_gradient, {2, 7, 85}, device)
+                    : Expected(e2e::many_gradient, {2, 7, 85}, device),
+      1e-5, 1e-7));
+  EXPECT_TRUE(torch::allclose(
+      one.grad(),
+      original_coco ? Expected(coco::one_gradient, {2, 7, 85}, device)
+                    : Expected(e2e::one_gradient, {2, 7, 85}, device),
+      1e-5, 1e-7));
   options.schedule_epochs = 1;
   EXPECT_TRUE(torch::allclose(
       t::yolo_task_loss(raw, {.boxes = targets}, {64, 64}, options, 1).total,
-      Expected(e2e::single_epoch_loss, {1}, device).squeeze(), 1e-5, 1e-6));
+      (original_coco ? Expected(coco::single_epoch_loss, {1}, device)
+                     : Expected(e2e::single_epoch_loss, {1}, device))
+          .squeeze(),
+      1e-5, 1e-6));
   for (int branch = 0; branch < 2; ++branch) {
     auto policy = options.detection;
     if (branch) {
-      policy.assignment_topk = 7;
+      policy.assignment_topk = original_coco ? 8 : 7;
       policy.assignment_topk2 = 1;
     }
     const auto decoded =
         t::decode_yolo_detection(raw[branch], {64, 64}, policy);
     const auto assigned = t::assign_yolo_targets(decoded, targets, policy);
-    const auto scores = branch ? Expected(e2e::one_scores, {2, 85, 3}, device)
-                               : Expected(e2e::many_scores, {2, 85, 3}, device);
-    const auto fg = branch ? Expected(e2e::one_foreground, {2, 85}, device)
-                           : Expected(e2e::many_foreground, {2, 85}, device);
-    const auto ids = branch ? Expected(e2e::one_indices, {2, 85}, device)
-                            : Expected(e2e::many_indices, {2, 85}, device);
+    const auto scores =
+        original_coco
+            ? (branch ? Expected(coco::one_scores, {2, 85, 3}, device)
+                      : Expected(coco::many_scores, {2, 85, 3}, device))
+            : (branch ? Expected(e2e::one_scores, {2, 85, 3}, device)
+                      : Expected(e2e::many_scores, {2, 85, 3}, device));
+    const auto fg =
+        original_coco
+            ? (branch ? Expected(coco::one_foreground, {2, 85}, device)
+                      : Expected(coco::many_foreground, {2, 85}, device))
+            : (branch ? Expected(e2e::one_foreground, {2, 85}, device)
+                      : Expected(e2e::many_foreground, {2, 85}, device));
+    const auto ids =
+        original_coco ? (branch ? Expected(coco::one_indices, {2, 85}, device)
+                                : Expected(coco::many_indices, {2, 85}, device))
+                      : (branch ? Expected(e2e::one_indices, {2, 85}, device)
+                                : Expected(e2e::many_indices, {2, 85}, device));
     EXPECT_TRUE(torch::allclose(assigned.scores, scores, 1e-5, 1e-7));
     EXPECT_TRUE(torch::equal(assigned.foreground, fg.to(torch::kBool)));
     EXPECT_TRUE(torch::equal(assigned.target_indices, ids.to(torch::kInt64)));
@@ -223,6 +256,17 @@ TEST(VisionYoloNumerics,
   if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
   for (bool autocast : {false, true})
     CheckYolo26Numerics(Device(torch::kCUDA, 0), autocast);
+}
+
+TEST(VisionYoloNumerics, Yolo26Coco245CpuMatchesOriginalLossAndGradients) {
+  for (bool autocast : {false, true})
+    CheckYolo26Numerics(Device(torch::kCPU), autocast, true);
+}
+
+TEST(VisionYoloNumerics, Yolo26Coco245CudaMatchesOriginalLossAndGradients) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  for (bool autocast : {false, true})
+    CheckYolo26Numerics(Device(torch::kCUDA, 0), autocast, true);
 }
 
 void CheckYolo26ObbNumerics(const Device& device, bool autocast,

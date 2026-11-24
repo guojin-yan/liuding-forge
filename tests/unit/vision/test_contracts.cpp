@@ -762,6 +762,51 @@ TEST_F(VisionContracts, ParameterDecayOverridesRoundTripAndBindResumeIdentity) {
   }
 }
 
+TEST_F(VisionContracts, Yolo26ExplicitLossRecipeRoundTripAndBinding) {
+  t::RecipeSpec recipe;
+  recipe.model.architecture = "yolo26n";
+  recipe.training.source = std::filesystem::absolute("a.json");
+  const auto identity = t::recipe_identity(recipe);
+  EXPECT_EQ(t::recipe_json(recipe).find("yolo26_loss"), std::string::npos);
+  recipe.yolo26_loss = t::Yolo26LossRecipe{.box_gain = 5.62767,
+                                           .class_gain = .56099,
+                                           .dfl_gain = 9.03871,
+                                           .one_to_one_topk = 8,
+                                           .fixed_branch_gains = true};
+  EXPECT_NE(t::recipe_identity(recipe), identity);
+  const auto restored =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  ASSERT_TRUE(restored.yolo26_loss);
+  EXPECT_EQ(t::recipe_identity(recipe), t::recipe_identity(restored));
+  const auto binding = t::bind_task(restored);
+  EXPECT_DOUBLE_EQ(binding.yolo.detection.box_gain, 5.62767);
+  EXPECT_DOUBLE_EQ(binding.yolo.detection.class_gain, .56099);
+  EXPECT_DOUBLE_EQ(binding.yolo.detection.dfl_gain, 9.03871);
+  EXPECT_EQ(binding.yolo.one_to_one_topk, 8);
+  EXPECT_TRUE(binding.yolo.fixed_branch_gains);
+  EXPECT_DOUBLE_EQ(binding.yolo.fixed_many_gain, 1.);
+  EXPECT_DOUBLE_EQ(binding.yolo.fixed_one_gain, 1.);
+  recipe.model.architecture = "yolov8n";
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+  recipe.model.architecture = "yolo26n";
+  recipe.model.task = t::TaskKind::pose;
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+  for (const auto* invalid :
+       {"null", R"({"one_to_one_topk":true})", R"({"one_to_one_topk":0})",
+        R"({"one_to_one_topk":10001})", R"({"one_to_one_topk":1.5})",
+        R"({"box_gain":-1})", R"({"class_gain":true})", R"({"dfl_gain":"1"})",
+        R"({"fixed_branch_gains":1})", R"({"fixed_one_gain":2})",
+        R"({"unknown":1})"}) {
+    const auto json =
+        std::string(
+            R"({"model":{"architecture":"yolo26n"},"dataset":{"format":"coco","source":"a.json"},"yolo26_loss":)") +
+        invalid + "}";
+    EXPECT_THROW(t::parse_recipe(json, std::filesystem::current_path()),
+                 InvalidArgument)
+        << invalid;
+  }
+}
+
 TEST_F(VisionContracts, AnnotationBudgetsRoundTripAndBindResumeIdentity) {
   t::RecipeSpec recipe;
   recipe.training.source = std::filesystem::absolute("annotations.json");

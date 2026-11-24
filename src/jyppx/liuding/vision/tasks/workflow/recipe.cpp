@@ -209,6 +209,7 @@ RecipeSpec parse_recipe(std::string_view text,
   const auto j = J::parse(text);
   Keys(j, {"schema_version",
            "model",
+           "yolo26_loss",
            "extension",
            "dataset",
            "validation",
@@ -350,6 +351,30 @@ RecipeSpec parse_recipe(std::string_view text,
   r.model.keypoint_dimensions =
       m.value("keypoint_dimensions", r.model.keypoint_dimensions);
   r.model.mask_channels = m.value("mask_channels", r.model.mask_channels);
+  if (j.contains("yolo26_loss")) {
+    const auto& loss = j["yolo26_loss"];
+    Keys(loss, {"box_gain", "class_gain", "dfl_gain", "one_to_one_topk",
+                "fixed_branch_gains", "fixed_many_gain", "fixed_one_gain"});
+    for (const auto* field : {"box_gain", "class_gain", "dfl_gain",
+                              "fixed_many_gain", "fixed_one_gain"})
+      if (loss.contains(field) && !loss[field].is_number())
+        throw InvalidArgument("YOLO26 loss gains must be numeric");
+    if (loss.contains("fixed_branch_gains") &&
+        !loss["fixed_branch_gains"].is_boolean())
+      throw InvalidArgument("YOLO26 fixed branch policy must be boolean");
+    Yolo26LossRecipe options;
+    options.box_gain = loss.value("box_gain", options.box_gain);
+    options.class_gain = loss.value("class_gain", options.class_gain);
+    options.dfl_gain = loss.value("dfl_gain", options.dfl_gain);
+    ReadLimit(loss, "one_to_one_topk", options.one_to_one_topk);
+    options.fixed_branch_gains =
+        loss.value("fixed_branch_gains", options.fixed_branch_gains);
+    options.fixed_many_gain =
+        loss.value("fixed_many_gain", options.fixed_many_gain);
+    options.fixed_one_gain =
+        loss.value("fixed_one_gain", options.fixed_one_gain);
+    r.yolo26_loss = options;
+  }
   ReadLimit(m, "rtdetr_max_encoder_elements",
             r.model.rtdetr_max_encoder_elements);
   r.keypoint_sigmas = j.value("keypoint_sigmas", r.keypoint_sigmas);
@@ -678,6 +703,21 @@ void check_recipe(const RecipeSpec& r) {
       (r.model.rtdetr_max_encoder_elements != 16777216 &&
        !r.model.architecture.starts_with("rtdetr_")))
     throw InvalidArgument("Invalid RT-DETR encoder allocation bound");
+  if (r.yolo26_loss) {
+    const auto& loss = *r.yolo26_loss;
+    if (!r.model.architecture.starts_with("yolo26") ||
+        r.model.task != TaskKind::detect || loss.one_to_one_topk < 1 ||
+        loss.one_to_one_topk > 10000 ||
+        (!loss.fixed_branch_gains &&
+         (loss.fixed_many_gain != 1. || loss.fixed_one_gain != 1.)))
+      throw InvalidArgument(
+          "Invalid or inapplicable YOLO26 detection loss recipe");
+    for (const auto gain : {loss.box_gain, loss.class_gain, loss.dfl_gain,
+                            loss.fixed_many_gain, loss.fixed_one_gain})
+      if (!std::isfinite(gain) || gain < 0)
+        throw InvalidArgument(
+            "YOLO26 loss gains must be finite and nonnegative");
+  }
   if (!r.extension.multilabel_thresholds.empty()) {
     if (r.schema_version < 2 || r.model.task != TaskKind::classify_multilabel ||
         r.extension.multilabel_thresholds.size() !=
@@ -1115,6 +1155,16 @@ std::string recipe_json(const RecipeSpec& r) {
   if (r.model.rtdetr_max_encoder_elements != 16777216)
     j["model"]["rtdetr_max_encoder_elements"] =
         r.model.rtdetr_max_encoder_elements;
+  if (r.yolo26_loss) {
+    const auto& loss = *r.yolo26_loss;
+    j["yolo26_loss"] = {{"box_gain", loss.box_gain},
+                        {"class_gain", loss.class_gain},
+                        {"dfl_gain", loss.dfl_gain},
+                        {"one_to_one_topk", loss.one_to_one_topk},
+                        {"fixed_branch_gains", loss.fixed_branch_gains},
+                        {"fixed_many_gain", loss.fixed_many_gain},
+                        {"fixed_one_gain", loss.fixed_one_gain}};
+  }
   if (r.model.task == TaskKind::classify) {
     j["classification_root"] = Path(r.classification_root);
     j["classification_validation_root"] =

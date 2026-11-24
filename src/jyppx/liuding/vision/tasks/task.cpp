@@ -57,12 +57,15 @@ void Validate(const YoloTaskOptions& o) {
       o.keypoints > 256 ||
       (o.keypoint_dimensions != 2 && o.keypoint_dimensions != 3) ||
       o.max_mask_elements < 1 || o.schedule_epochs < 1 ||
+      o.one_to_one_topk < 1 || o.one_to_one_topk > 10000 ||
+      (o.fixed_branch_gains && !o.generation26) ||
       (o.generation26 && (!o.end_to_end || o.detection.reg_max != 1)))
     throw InvalidArgument(
         "Invalid task head or generation26 dual-branch recipe");
   for (auto gain :
        {o.mask_gain, o.pose_gain, o.visibility_gain, o.semantic_gain,
-        o.flow_gain, o.one_to_many_initial, o.one_to_many_final, o.angle_gain})
+        o.flow_gain, o.one_to_many_initial, o.one_to_many_final, o.angle_gain,
+        o.fixed_many_gain, o.fixed_one_gain})
     if (!std::isfinite(gain) || gain < 0)
       throw InvalidArgument("Task loss gains must be finite and nonnegative");
   if (o.generation26 && (o.one_to_many_initial > 1 || o.one_to_many_final > 1))
@@ -513,7 +516,7 @@ TaskLoss yolo_task_loss(std::span<const Tensor> outputs,
       Branch(outputs[0], proto, semantic, targets, size, o, pose_flow, false);
   if (o.end_to_end) {
     auto single = o;
-    single.detection.assignment_topk = o.generation26 ? 7 : 1;
+    single.detection.assignment_topk = o.generation26 ? o.one_to_one_topk : 1;
     single.detection.assignment_topk2 = o.generation26 ? 1 : 0;
     auto one = Branch(outputs[1], proto, semantic, targets, size, single,
                       pose_flow, true);
@@ -529,7 +532,10 @@ TaskLoss yolo_task_loss(std::span<const Tensor> outputs,
             : o.one_to_many_initial +
                   (o.one_to_many_final - o.one_to_many_initial) * fraction;
     result.total =
-        result.total * weight + one.total * (o.generation26 ? 1. - weight : 1.);
+        o.fixed_branch_gains
+            ? result.total * o.fixed_many_gain + one.total * o.fixed_one_gain
+            : result.total * weight +
+                  one.total * (o.generation26 ? 1. - weight : 1.);
     auto components = result.components;
     result.components.clear();
     for (auto& [name, value] : components)

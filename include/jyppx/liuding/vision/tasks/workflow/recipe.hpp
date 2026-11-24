@@ -29,6 +29,14 @@ struct ModelSpec {
   std::int64_t rtdetr_max_encoder_elements = 16777216;
   ///< RT-DETR encoder allocation bound; nondefault values bind run identity.
 };
+/** @brief Optional explicit YOLO26 detection criterion; no upstream defaults
+ * are inferred from a weight filename. */
+struct Yolo26LossRecipe {
+  double box_gain = 7.5, class_gain = .5, dfl_gain = 1.5;
+  std::int64_t one_to_one_topk = 7;
+  bool fixed_branch_gains = false;
+  double fixed_many_gain = 1., fixed_one_gain = 1.;
+};
 /** @brief Version-2 task policy; all defaults are serialized in run identity. */
 struct ExtensionRecipe {
   std::filesystem::path training_manifest, validation_manifest;
@@ -54,6 +62,7 @@ struct ExtensionRecipe {
 struct RecipeSpec {
   std::uint32_t schema_version = 1;
   ModelSpec model;
+  std::optional<Yolo26LossRecipe> yolo26_loss;
   ExtensionRecipe extension;
   DetectionDatasetOptions training;
   std::optional<DetectionDatasetOptions> validation;

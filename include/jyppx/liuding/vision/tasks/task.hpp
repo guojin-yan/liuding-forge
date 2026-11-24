@@ -17,9 +17,16 @@
 namespace jyppx::liuding::vision::tasks {
 /** @brief Task identity is independent of model packages. */
 enum class TaskKind {
-  detect = 0, classify = 1, instance_segment = 2, pose = 3, obb = 4,
-  classify_multilabel = 5, semantic_segment = 6, depth = 7,
-  pretrain_simmim = 8, reid = 9
+  detect = 0,
+  classify = 1,
+  instance_segment = 2,
+  pose = 3,
+  obb = 4,
+  classify_multilabel = 5,
+  semantic_segment = 6,
+  depth = 7,
+  pretrain_simmim = 8,
+  reid = 9
 };
 /** @brief Stable serialized task names, independent of enum ordinals. */
 std::string_view task_name(TaskKind task);
@@ -57,6 +64,9 @@ struct YoloTaskOptions {
   std::vector<double> keypoint_sigmas;  ///< Empty selects uniform 1/K.
   std::int64_t max_mask_elements = 67108864;
   double angle_gain = 1.;  ///< Generation26 OBB wrapped-angle loss gain.
+  std::int64_t one_to_one_topk = 7;  ///< Generation26 secondary assignment.
+  bool fixed_branch_gains = false;   ///< Generation26 fixed independent gains.
+  double fixed_many_gain = 1., fixed_one_gain = 1.;
 };
 /** @brief Scalar differentiable loss and unscaled named observations. */
 struct TaskLoss {
