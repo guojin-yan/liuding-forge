@@ -84,6 +84,19 @@ int main() try {
   if (tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
     throw std::runtime_error("installed recipe roundtrip mismatch");
   {
+    auto jpeg = recipe;
+    jpeg.jpeg_backend =
+        jyppx::liuding::data::image::JpegDecodeBackend::libjpeg_turbo;
+    if (jyppx::liuding::data::image::jpeg_decode_backend_available(
+            jpeg.jpeg_backend)) {
+      const auto restored = tasks::parse_recipe(
+          tasks::recipe_json(jpeg), std::filesystem::current_path());
+      if (restored.jpeg_backend != jpeg.jpeg_backend ||
+          tasks::recipe_identity(jpeg) != tasks::recipe_identity(restored))
+        throw std::runtime_error("installed JPEG backend recipe mismatch");
+    }
+  }
+  {
     auto deferred = recipe;
     deferred.data.numeric_on_consumer = true;
     deferred.non_blocking_transfer = true;

@@ -256,6 +256,24 @@ int main() {
   const auto image = jyppx::liuding::data::image::decode_image(
       std::as_bytes(std::span(pgm)), decode_options);
   jyppx::liuding::data::image::validate_pixels(image.tensor, image.pixels);
+  {
+    namespace im = jyppx::liuding::data::image;
+    if (!im::jpeg_decode_backend_available(im::JpegDecodeBackend::stb))
+      return failed(__LINE__);
+    if (im::jpeg_decode_backend_available(im::JpegDecodeBackend::libjpeg_turbo)) {
+      im::ImageEncodeOptions encode;
+      encode.format = im::ImageEncodeFormat::jpeg;
+      const auto encoded = im::encode_image(
+          torch::full({3, 8, 8}, 113, torch::kUInt8), {}, encode);
+      im::ImageDecodeOptions accelerated;
+      accelerated.channels = im::ImageChannels::rgb;
+      accelerated.jpeg_backend = im::JpegDecodeBackend::libjpeg_turbo;
+      const auto decoded = im::decode_image(encoded.bytes, accelerated);
+      if (decoded.tensor.sizes() != torch::IntArrayRef({3, 8, 8}) ||
+          (decoded.tensor.to(torch::kInt16) - 113).abs().max().item<int>() > 1)
+        return failed(__LINE__);
+    }
+  }
   auto tensor_record = jyppx::liuding::data::image::TensorImageRecord{
       image.tensor, image.pixels, "installed-tensor", {}};
   tensor_record.paired_target = image.tensor;

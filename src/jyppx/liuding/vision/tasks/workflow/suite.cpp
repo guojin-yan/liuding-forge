@@ -181,6 +181,7 @@ Sources Read(RecipeSpec& r, std::stop_token stop,
     return orient_vision_sample(std::move(sample), path, policy, stop);
   };
   decoding.image.channels = image::ImageChannels::rgb;
+  decoding.image.jpeg_backend = r.jpeg_backend;
   if (r.cache.ram_bytes || r.cache.disk_bytes) {
     s.cache = std::make_shared<ImageDecodeCache>(r.cache);
     decoding.image_reader = [cache = s.cache](const auto& path,
@@ -341,6 +342,11 @@ Sources Read(RecipeSpec& r, std::stop_token stop,
   if (s.classes.size() != static_cast<std::size_t>(r.model.num_classes))
     throw InvalidArgument(
         "Recipe class count differs from imported training data");
+  if (r.jpeg_backend != image::JpegDecodeBackend::stb) {
+    s.train_id = Hash(s.train_id + ":libjpeg-turbo-3.1.2-accurate-rgb/v1");
+    if (s.val)
+      s.val_id = Hash(s.val_id + ":libjpeg-turbo-3.1.2-accurate-rgb/v1");
+  }
   if (r.verify_image_contents) {
     std::set<std::string> seen;
     phase("data.content_hash.started");

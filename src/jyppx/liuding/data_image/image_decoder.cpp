@@ -6,6 +6,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "stb_resource_scope.hpp"
+#include "turbojpeg_decoder.hpp"
 
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 
@@ -287,6 +288,16 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
 
   const auto detected = detect_image_format(bytes);
   CheckFormat(options.format, detected);
+  if (options.jpeg_backend != JpegDecodeBackend::stb &&
+      options.jpeg_backend != JpegDecodeBackend::libjpeg_turbo)
+    Invalid("decode.jpeg_backend", "stb or libjpeg-turbo");
+  if (!jpeg_decode_backend_available(options.jpeg_backend))
+    Invalid("decode.jpeg_backend", "a backend enabled at build time");
+  if (detected == ImageFormat::jpeg &&
+      options.jpeg_backend == JpegDecodeBackend::libjpeg_turbo) {
+    static_cast<void>(DesiredChannels(options.channels));
+    return codec_detail::decode_turbojpeg(bytes, options, stop);
+  }
   if (detected == ImageFormat::png) {
     constexpr std::array<unsigned char, 8> kIhdr{0,   0,   0,   13,
                                                  'I', 'H', 'D', 'R'};

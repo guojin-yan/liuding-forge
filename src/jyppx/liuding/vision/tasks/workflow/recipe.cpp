@@ -257,11 +257,21 @@ RecipeSpec parse_recipe(std::string_view text,
            "initialization",
            "normalization",
            "preprocessing",
+           "jpeg_backend",
            "rtdetr_data",
            "rtdetr_training_sizes",
            "horizontal_keypoint_permutations",
            "vertical_keypoint_permutations"});
   RecipeSpec r;
+  if (j.contains("jpeg_backend")) {
+    if (!j["jpeg_backend"].is_string())
+      throw InvalidArgument("jpeg_backend must be stb or libjpeg-turbo");
+    const auto backend = j["jpeg_backend"].get<std::string>();
+    if (backend == "libjpeg-turbo")
+      r.jpeg_backend = data::image::JpegDecodeBackend::libjpeg_turbo;
+    else if (backend != "stb")
+      throw InvalidArgument("jpeg_backend must be stb or libjpeg-turbo");
+  }
   if (j.contains("rtdetr_training_sizes")) {
     const auto& sizes = j.at("rtdetr_training_sizes");
     if (!sizes.is_array() || sizes.size() > 256)
@@ -782,6 +792,8 @@ RecipeSpec parse_recipe(std::string_view text,
   return r;
 }
 void check_recipe(const RecipeSpec& r) {
+  if (!data::image::jpeg_decode_backend_available(r.jpeg_backend))
+    throw InvalidArgument("Recipe JPEG backend was not enabled at build time");
   for (const auto* source :
        {&r.training, r.validation ? &*r.validation : nullptr})
     if (source && source->coco_detection_boxes &&
@@ -1362,6 +1374,8 @@ std::string recipe_json(const RecipeSpec& r) {
   if (!r.rtdetr_training_sizes.empty())
     j["rtdetr_training_sizes"] = r.rtdetr_training_sizes;
   if (r.drop_last_training_batch) j["drop_last_training_batch"] = true;
+  if (r.jpeg_backend == data::image::JpegDecodeBackend::libjpeg_turbo)
+    j["jpeg_backend"] = "libjpeg-turbo";
   if (r.data.rtdetr.enabled) {
     const auto& d = r.data.rtdetr;
     j["rtdetr_data"] = {

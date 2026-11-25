@@ -83,6 +83,8 @@ struct RecipeSpec {
   std::filesystem::path classification_root;
   std::filesystem::path classification_validation_root;
   YoloDataOptions data;
+  data::image::JpegDecodeBackend jpeg_backend =
+      data::image::JpegDecodeBackend::stb;
   DetectionSgdOptions optimizer;
   WarmupCosineOptions scheduler;
   std::string optimizer_name = "sgd";

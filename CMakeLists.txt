@@ -32,6 +32,11 @@ option(JYPPX_LIUDING_BUILD_VISION_TASKS "Build optional native vision training t
 option(JYPPX_LIUDING_BUILD_INTEROP "Build interoperability formats and manifests" ON)
 option(JYPPX_LIUDING_BUILD_DATA "Build data pipelines, datasets, and samplers" ON)
 option(JYPPX_LIUDING_BUILD_DATA_IMAGE "Build the optional built-in image/annotation adapters" OFF)
+option(JYPPX_LIUDING_DATA_IMAGE_TURBOJPEG
+    "Enable the explicit libjpeg-turbo 3.1.2 static JPEG decoder" OFF)
+if(JYPPX_LIUDING_DATA_IMAGE_TURBOJPEG AND NOT JYPPX_LIUDING_BUILD_DATA_IMAGE)
+    message(FATAL_ERROR "DATA_IMAGE_TURBOJPEG requires DATA_IMAGE")
+endif()
 option(JYPPX_LIUDING_BUILD_VISION_RENDER "Build the optional headless CPU image renderer" OFF)
 option(JYPPX_LIUDING_BUILD_NN "Build neural-network adapters and losses" ON)
 option(JYPPX_LIUDING_BUILD_OPTIM "Build optimizer and scheduler adapters" ON)
@@ -592,6 +597,7 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         src/jyppx/liuding/data_image/manifests.cpp
         src/jyppx/liuding/data_image/yolo_dataset_yaml.cpp
         src/jyppx/liuding/data_image/image_decoder.cpp
+        src/jyppx/liuding/data_image/turbojpeg_decoder.cpp
         src/jyppx/liuding/data_image/image_encoder.cpp
         src/jyppx/liuding/data_image/image_output_sink.cpp
         src/jyppx/liuding/data_image/mask_decoder.cpp
@@ -628,6 +634,14 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
     target_compile_definitions(jyppx_liuding_data_image PRIVATE YAML_CPP_STATIC_DEFINE)
     target_link_libraries(jyppx_liuding_data_image
         PUBLIC jyppx_liuding_foundation jyppx_liuding_core jyppx_liuding_data)
+    if(JYPPX_LIUDING_DATA_IMAGE_TURBOJPEG)
+        find_package(libjpeg-turbo 3.1.2 EXACT CONFIG REQUIRED)
+        if(NOT TARGET libjpeg-turbo::turbojpeg-static)
+            message(FATAL_ERROR "The selected libjpeg-turbo SDK needs turbojpeg-static")
+        endif()
+        target_link_libraries(jyppx_liuding_data_image PRIVATE libjpeg-turbo::turbojpeg-static)
+        target_compile_definitions(jyppx_liuding_data_image PRIVATE JYPPX_LIUDING_HAS_TURBOJPEG=1)
+    endif()
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_data_image)
     list(APPEND JYPPX_ENABLED_COMPONENTS data_image)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS data_image)
@@ -1342,6 +1356,11 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         third_party/licenses/stb_image-2.30-LICENSE.txt
         third_party/licenses/stb_image_write-1.16-LICENSE.txt
         DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+    if(JYPPX_LIUDING_DATA_IMAGE_TURBOJPEG)
+        install(FILES third_party/licenses/libjpeg-turbo-3.1.2-LICENSE.md
+            third_party/licenses/libjpeg-turbo-3.1.2-README.ijg
+            DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+    endif()
 endif()
 if(JYPPX_LIUDING_BUILD_EXPERIMENT)
     install(FILES

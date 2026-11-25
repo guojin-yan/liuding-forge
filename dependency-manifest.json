@@ -1381,6 +1381,35 @@
       ],
       "linkage": "private-external-dynamic-sdk-not-bundled",
       "support_status": "optional-native-gpu-preview-and-fixed-fixture-development-tests"
+    },
+    {
+      "id": "libjpeg-turbo",
+      "scope": "optional-data-image-jpeg-decoder",
+      "version": "3.1.2",
+      "source": {
+        "type": "source-archive",
+        "url": "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/zip/refs/tags/3.1.2",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "6e00419fda381550de184da3c662041e7be11202f80a3ec177954d55221c2757",
+        "size_bytes": 2986864
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause",
+          "IJG",
+          "Zlib"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64"
+      ],
+      "linkage": "static-private-optional",
+      "support_status": "development-candidate"
     }
   ]
 }

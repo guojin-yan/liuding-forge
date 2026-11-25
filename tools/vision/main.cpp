@@ -161,9 +161,11 @@ t::TaskBinding Binding(t::RecipeSpec& recipe, Arguments& args) {
 }
 im::VisionSample Image(
     const std::filesystem::path& path,
-    t::ExifPolicy policy = t::ExifPolicy::reject_non_identity) {
+    t::ExifPolicy policy = t::ExifPolicy::reject_non_identity,
+    im::JpegDecodeBackend jpeg_backend = im::JpegDecodeBackend::stb) {
   im::ImageDecodeOptions options;
   options.channels = im::ImageChannels::rgb;
+  options.jpeg_backend = jpeg_backend;
   auto decoded = im::read_image_file(path, options);
   im::VisionSample sample;
   sample.image = std::move(decoded.tensor);
@@ -334,7 +336,7 @@ int Run(const std::vector<std::string>& argv) {
     auto configuration = t::parse_recipe(
         J::parse(Read(bundle / "manifest.json")).at("recipe").dump(), bundle);
     auto sample =
-        Image(Path(args.require("source")), configuration.exif_policy);
+        Image(Path(args.require("source")), configuration.exif_policy, configuration.jpeg_backend);
     auto context=args.take("sample-data");if(!context.empty())sample.task_payload=t::parse_input_context(Read(Path(context)));
     auto output = args.take("output");
     args.check();
@@ -347,7 +349,7 @@ int Run(const std::vector<std::string>& argv) {
   if(command=="extract-encoder"){auto binding=Binding(recipe,args);auto output=Path(args.require("output"));args.check();Emit(J{{"sha256",t::save_simmim_encoder(*binding.model,output,recipe.model.architecture)},{"artifact","encoder_initialization"}}.dump(2),{});return 0;}
   if(command=="track"){namespace tr=t::tracking;auto binding=Binding(recipe,args);auto source=Path(args.require("sequence"));auto sequence=J::parse(Read(source));auto output=Path(args.require("output"));auto kind=args.take("tracker","byte_track");auto reid_path=args.take("reid-recipe");args.check();if(sequence.at("schema")!="vision.sequence/v1"||sequence.at("frames").size()>1000000||(kind!="byte_track"&&kind!="bot_sort"))throw j::InvalidArgument("Invalid tracking sequence/profile");if(std::filesystem::exists(output)&&!std::filesystem::is_empty(output))throw j::InvalidArgument("Track output must be new/empty");std::filesystem::create_directories(output);tr::TrackerOptions options;options.kind=kind=="bot_sort"?tr::TrackerKind::bot_sort:tr::TrackerKind::byte_track;tr::Tracker tracker(options);tracker.reset(sequence.at("sequence_id").get<std::string>());std::optional<t::RecipeSpec> reid_recipe;std::optional<t::TaskBinding> reid;std::optional<im::VisionSample> previous;
     if(options.kind==tr::TrackerKind::bot_sort){if(reid_path.empty())throw j::InvalidArgument("BoT-SORT requires --reid-recipe with initialized weights");reid_recipe=t::load_recipe(Path(reid_path));if(reid_recipe->initialization.weights.empty())throw j::InvalidArgument("ReID recipe needs verified weights");reid=t::bind_task(*reid_recipe);reid->model->state().to(reid_recipe->device);t::initialize_vision(*reid->model,reid_recipe->initialization,reid_recipe->model.architecture);}
-    std::vector<tr::TrackingFrame> frames;for(const auto& row:sequence.at("frames")){auto sample=Image(source.parent_path()/Path(row.at("image").get<std::string>()),recipe.exif_policy);auto id=row.at("frame_id").get<std::int64_t>();auto result=tr::track_vision_frame(tracker,binding,sample,recipe,id,options,reid?&*reid:nullptr,reid_recipe?&*reid_recipe:nullptr,previous?&*previous:nullptr);frames.push_back({id,{},std::move(result.tracks)});previous=std::move(sample);}tr::write_mot_sequence(output/"tracks.txt",frames);Emit(tracker.snapshot(),Utf8(output/"tracker.json"));Emit(J{{"schema","vision.tracking_run/v1"},{"frames",frames.size()},{"tracker",kind},{"sequence_id",sequence.at("sequence_id")}}.dump(2),Utf8(output/"summary.json"));return 0;}
+    std::vector<tr::TrackingFrame> frames;for(const auto& row:sequence.at("frames")){auto sample=Image(source.parent_path()/Path(row.at("image").get<std::string>()),recipe.exif_policy,recipe.jpeg_backend);auto id=row.at("frame_id").get<std::int64_t>();auto result=tr::track_vision_frame(tracker,binding,sample,recipe,id,options,reid?&*reid:nullptr,reid_recipe?&*reid_recipe:nullptr,previous?&*previous:nullptr);frames.push_back({id,{},std::move(result.tracks)});previous=std::move(sample);}tr::write_mot_sequence(output/"tracks.txt",frames);Emit(tracker.snapshot(),Utf8(output/"tracker.json"));Emit(J{{"schema","vision.tracking_run/v1"},{"frames",frames.size()},{"tracker",kind},{"sequence_id",sequence.at("sequence_id")}}.dump(2),Utf8(output/"summary.json"));return 0;}
 
   if (command == "map-weights") {
     auto source = Path(args.require("source"));
@@ -559,7 +561,7 @@ int Run(const std::vector<std::string>& argv) {
   }
   if (command == "predict") {
     auto binding = Binding(recipe, args);
-    auto sample = Image(Path(args.require("source")), recipe.exif_policy);
+    auto sample = Image(Path(args.require("source")), recipe.exif_policy, recipe.jpeg_backend);
     auto context=args.take("sample-data");if(!context.empty())sample.task_payload=t::parse_input_context(Read(Path(context)));
     auto output = Path(args.require("output"));
     t::PredictionOutputOptions options;

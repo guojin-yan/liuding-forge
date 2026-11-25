@@ -63,6 +63,12 @@ enum class ImageDtype : std::uint8_t {
   float32_normalized,  ///< float32 values scaled to [0, 1].
 };
 
+/** @brief Explicit JPEG arithmetic; other image formats keep the stb backend.
+ */
+enum class JpegDecodeBackend : std::uint8_t { stb, libjpeg_turbo };
+/** @brief Whether this binary contains the requested JPEG backend. */
+bool jpeg_decode_backend_available(JpegDecodeBackend backend) noexcept;
+
 /** @brief Independent limits applied before allocation or third-party decode.
  */
 struct ImageDecodeLimits {
@@ -91,6 +97,17 @@ struct ImageDecodeOptions {
   ///< writes directly into the final contiguous, optionally pinned tensor.
   ///< Applies without a shared budget; excludes input, final tensor storage,
   ///< allocator bookkeeping, codec stack and private LibTorch buffers.
+  JpegDecodeBackend jpeg_backend = JpegDecodeBackend::stb;
+  ///< Optional libjpeg-turbo 3.1.2 uses accurate IDCT/fancy chroma upsampling.
+  ///< It accepts 8-bit gray/RGB JPEG, source/gray/RGB/RGBA output and the same
+  ///< layout/scalar policies. CMYK/YCCK, lossless and 12/16-bit JPEG are
+  ///< rejected; progressive streams are limited to 500 scans. For this
+  ///< backend max_working_bytes bounds HWC staging plus the
+  ///< codec's coefficient-buffer quota (whole MiB, rounded down); it does not
+  ///< bound all codec heap allocations. An aggregate resource_budget is
+  ///< rejected rather than publishing unmetered codec allocations. Other
+  ///< formats retain their existing full stb heap accounting. The backend is
+  ///< never auto-selected.
 };
 
 /** @brief Owning decoded image and stable source metadata. */

@@ -7,6 +7,8 @@
 /third_party/stb/*.h text eol=lf
 /third_party/migraphx/*.patch text eol=lf whitespace=-blank-at-eol
 recipes/image-classification/fashion-mnist.LICENSE -text
+/tests/fixtures/data_image/jpeg_reference/*.rgb -text
+/tests/fixtures/data_image/jpeg_reference/*.gray -text
 
 /src/jyppx/liuding/telemetry_native/detail/telemetry_proto/**/*.pb.c text eol=lf whitespace=-blank-at-eof
 /src/jyppx/liuding/telemetry_native/detail/telemetry_proto/**/*.pb.h text eol=lf

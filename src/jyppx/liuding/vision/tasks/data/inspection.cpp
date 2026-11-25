@@ -178,12 +178,16 @@ im::DecodedImage ImageDecodeCache::read(const std::filesystem::path& path,
         "decoder budget");
   const auto encoded = Bytes(path, options.limits.max_input_bytes);
   const auto source_digest = sha256_hex(encoded);
+  if (!im::jpeg_decode_backend_available(options.jpeg_backend))
+    throw InvalidArgument("Cache JPEG backend was not enabled at build time");
+  auto revision = s.options.decoder_revision;
+  if (options.jpeg_backend == im::JpegDecodeBackend::libjpeg_turbo)
+    revision += ":libjpeg-turbo-3.1.2-accurate-rgb/v1";
   const auto key = Digest(
-      J{s.options.decoder_revision, source_digest,
-        static_cast<int>(options.format), static_cast<int>(options.channels),
-        static_cast<int>(options.layout), static_cast<int>(options.dtype),
-        options.limits.max_dimension, options.limits.max_pixels,
-        options.limits.max_output_bytes}
+      J{revision, source_digest, static_cast<int>(options.format),
+        static_cast<int>(options.channels), static_cast<int>(options.layout),
+        static_cast<int>(options.dtype), options.limits.max_dimension,
+        options.limits.max_pixels, options.limits.max_output_bytes}
           .dump());
   std::unique_lock lock(s.mutex);
   if (auto it = s.ram.find(key); it != s.ram.end()) {

@@ -2,6 +2,10 @@
 
 图像组件提供本地图片解码、数据集索引和标注读取。构建时开启 `JYPPX_LIUDING_BUILD_DATA_IMAGE`，安装后使用 `find_package(jyppx CONFIG REQUIRED COMPONENTS data_image)`，并链接 `jyppx::liuding::data_image`。
 
+可选 JPEG 后端使用离线安装的 libjpeg-turbo 3.1.2 静态 SDK：配置 `JYPPX_LIUDING_DATA_IMAGE_TURBOJPEG=ON`，并以 `libjpeg-turbo_DIR` 指向其 CMake 包目录；安装消费者也须提供同版包。配置阶段不会下载依赖。运行时设置 `ImageDecodeOptions::jpeg_backend = JpegDecodeBackend::libjpeg_turbo`，可用性由 `jpeg_decode_backend_available()` 查询；默认仍是 stb，未编译的后端会报错。
+
+该后端使用 accurate IDCT 与 fancy chroma upsampling，接受 8 位灰度/RGB JPEG，支持 source、gray、RGB、RGBA 输出、CHW/HWC、FP32 归一化及 pinned 输出；其他格式继续使用 stb。CMYK/YCCK、12/16 位或无损 JPEG、gray-alpha 输出会拒绝，渐进流最多 500 个 scan，不静默切换算法。`max_working_bytes` 在此后端约束 HWC 暂存及 codec 系数缓冲额度，codec 额度按剩余整 MiB 向下取整；它不覆盖全部内部堆分配，因此非空 aggregate `resource_budget` 会拒绝。尺寸、像素、输入和最终输出额度仍检查；取消在解码边界检查。要求完整 codec 堆计量时使用默认 stb。
+
 目标检测等对象任务可直接调用 `ImageDataset(root, annotations)`，以现有 `AnnotationIndex` 的图片顺序建立 image-only 清单；样本保留统一对象标注，分类标签为空，不需要额外分类 manifest。`index_annotation_images()` 也可单独生成该清单，其摘要仅覆盖有序图片路径和尺寸。外部布局的整批导入和模型训练接入见[视觉训练](vision/index.md)。
 
 ## 像素语义

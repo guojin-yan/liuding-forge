@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 #include <jyppx/liuding/data_image/image_encoder.hpp>
+#include <jyppx/liuding/vision/tasks/data/inspection.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/suite.hpp>
 
 #include <chrono>
@@ -109,6 +110,54 @@ TEST_F(VisionTrainingTail, RejectsDroppingTheEntireTrainingDataset) {
   request.output = root / "empty";
   EXPECT_THROW(t::train_vision(request), InvalidArgument);
   EXPECT_FALSE(std::filesystem::exists(request.output));
+}
+TEST_F(VisionTrainingTail, JpegBackendBindsRecipeDatasetAndDecodeCache) {
+  auto recipe = Recipe();
+  recipe.data.augmentation.multi_source.total_epochs = recipe.epochs;
+  recipe.data.augmentation.multi_source.close_epochs = 0;
+  const auto original = t::recipe_json(recipe);
+  const auto identity = t::recipe_identity(recipe);
+  EXPECT_EQ(original.find("jpeg_backend"), std::string::npos);
+  recipe.jpeg_backend = im::JpegDecodeBackend::libjpeg_turbo;
+  if (!im::jpeg_decode_backend_available(recipe.jpeg_backend)) {
+    EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+    return;
+  }
+  const auto roundtrip = t::parse_recipe(t::recipe_json(recipe), root);
+  EXPECT_EQ(roundtrip.jpeg_backend, recipe.jpeg_backend);
+  EXPECT_EQ(t::recipe_identity(roundtrip), t::recipe_identity(recipe));
+  EXPECT_NE(identity, t::recipe_identity(recipe));
+  const auto accelerated = t::load_vision_data(recipe);
+  recipe.jpeg_backend = im::JpegDecodeBackend::stb;
+  EXPECT_EQ(t::recipe_json(recipe), original);
+  const auto standard = t::load_vision_data(recipe);
+  EXPECT_NE(standard.training_identity, accelerated.training_identity);
+  EXPECT_NE(standard.validation_identity, accelerated.validation_identity);
+  // PNG still uses the same decoder under both explicit JPEG policies.
+  EXPECT_TRUE(torch::equal(standard.training->get(0).image,
+                           accelerated.training->get(0).image));
+  const auto jpeg = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
+                    "data_image/jpeg_reference/baseline.jpg";
+  t::ImageDecodeCache cache({.ram_bytes = 1U << 20U});
+  im::ImageDecodeOptions o;
+  o.channels = im::ImageChannels::rgb;
+  const auto stb = cache.read(jpeg, o);
+  o.jpeg_backend = im::JpegDecodeBackend::libjpeg_turbo;
+  const auto turbo = cache.read(jpeg, o);
+  EXPECT_EQ(cache.stats().misses, 2U);
+  EXPECT_EQ(cache.stats().ram_hits, 0U);
+  EXPECT_TRUE(torch::equal(turbo.tensor, cache.read(jpeg, o).tensor));
+  EXPECT_EQ(cache.stats().ram_hits, 1U);
+  EXPECT_EQ(stb.tensor.sizes(), turbo.tensor.sizes());
+}
+TEST_F(VisionTrainingTail, RejectsUnknownJpegBackendValues) {
+  for (const auto* value : {"null", "1", "true", "[]", "\"auto\""}) {
+    const auto json =
+        std::string(
+            R"({"model":{"architecture":"yolov8n"},"dataset":{"format":"coco","source":"a.json"},"jpeg_backend":)") +
+        value + "}";
+    EXPECT_THROW(t::parse_recipe(json, root), InvalidArgument);
+  }
 }
 }  // namespace
 }  // namespace jyppx::liuding::vision::tests

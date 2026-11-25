@@ -1,0 +1,20 @@
+{
+  "generator": "synthetic deterministic RGB, Pillow JPEG encode/decode",
+  "pillow": "12.0.0",
+  "jpeg": "8.0",
+  "libjpeg_turbo": true,
+  "width": 17,
+  "height": 13,
+  "files": {
+    "baseline.gray": "d6a1f5c36b5870786e286cf105e8dc913bd26fa175a823233d879f9e1f491fa2",
+    "baseline.jpg": "28724348426b1f4843c594edb42fd3ed737bdf23cab4dcbc6e36d55df3ddfad4",
+    "baseline.rgb": "8ecb8e660c9aecf946b9a461d480cff2262f1bebf70a4403032370a19f1120e3",
+    "cmyk.jpg": "eacda47a3d53fb897c13b3cf645cacc8639606556efc0b1d7f0e8a3e0363a74b",
+    "gray.gray": "d6a1f5c36b5870786e286cf105e8dc913bd26fa175a823233d879f9e1f491fa2",
+    "gray.jpg": "29cd568e4a4d41d2cc4da00a7f404a6616985e01e8db74fd0e17aa1e279a1304",
+    "gray.rgb": "56dd28654a09f66956418c469b250ab6002e41c596e033bd065a2982ae26e44b",
+    "progressive.gray": "d36fc03b46a19eca7bf6d13fc9cb41da0f272ba95e37220ae2693fcd5cfce940",
+    "progressive.jpg": "64fe02d852658a56fed7a96c669e5e1c5f26da95dd436060981b320fc458c593",
+    "progressive.rgb": "cb592103ba8870c31ecf36352b2a4cb03dd47909df1a39b87f6a3e61573e90c1"
+  }
+}

@@ -266,6 +266,7 @@ if(TARGET jyppx::liuding::data_image)
         data_image/test_extended_annotations.cpp
         data_image/test_manifests.cpp
         data_image/test_decoder.cpp
+        data_image/test_turbojpeg_decoder.cpp
         data_image/test_encoder.cpp
         data_image/test_output_sink.cpp
         data_image/test_mask_decoder.cpp
@@ -277,6 +278,9 @@ if(TARGET jyppx::liuding::data_image)
         data_image/test_image_batch.cpp
         data_image/test_batch_geometry.cpp
         data_image/test_image_dataset.cpp)
+    if(JYPPX_LIUDING_DATA_IMAGE_TURBOJPEG)
+        target_compile_definitions(jyppx_test_data_image_annotations PRIVATE JYPPX_LIUDING_TEST_TURBOJPEG=1)
+    endif()
     if(TARGET torch_hip OR TARGET torch_cuda)
         target_compile_definitions(jyppx_test_data_image_annotations PRIVATE
             JYPPX_LIUDING_IMAGE_TEST_CUDA=1)

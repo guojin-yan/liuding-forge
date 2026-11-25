@@ -51,7 +51,8 @@
     "vision-extension-clip": "pending",
     "onnxruntime-directml-windows-x64": "recorded",
     "directml-windows-x64": "recorded",
-    "migraphx-native": "recorded"
+    "migraphx-native": "recorded",
+    "libjpeg-turbo": "recorded"
   },
   "files": [
     {
@@ -1437,6 +1438,30 @@
         "url": "https://github.com/ROCm/AMDMIGraphX/archive/refs/tags/rocm-10.1.zip",
         "artifact_sha256": "7cd07fa948ac6bce4a19a86aa7b5445cb25791cf11a609273cbdef6eb6c387cd",
         "entry": "AMDMIGraphX-rocm-10.1/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "libjpeg-turbo",
+      "path": "libjpeg-turbo-3.1.2-LICENSE.md",
+      "size_bytes": 5620,
+      "sha256": "2189dc45a8fe96204069f8124caa53a148dfdc193f50f584c6ca7849a6072872",
+      "origin": {
+        "kind": "archive-entry",
+        "artifact_sha256": "6e00419fda381550de184da3c662041e7be11202f80a3ec177954d55221c2757",
+        "entry": "libjpeg-turbo-3.1.2/LICENSE.md",
+        "url": "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/zip/refs/tags/3.1.2"
+      }
+    },
+    {
+      "dependency_id": "libjpeg-turbo",
+      "path": "libjpeg-turbo-3.1.2-README.ijg",
+      "size_bytes": 12799,
+      "sha256": "75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6",
+      "origin": {
+        "kind": "archive-entry",
+        "artifact_sha256": "6e00419fda381550de184da3c662041e7be11202f80a3ec177954d55221c2757",
+        "entry": "libjpeg-turbo-3.1.2/README.ijg",
+        "url": "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/zip/refs/tags/3.1.2"
       }
     }
   ],

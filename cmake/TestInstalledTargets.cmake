@@ -22,6 +22,10 @@ set(consumer_build_dir "${test_root}/b")
 file(REMOVE_RECURSE "${install_dir}")
 file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_dir}")
 set(config_args)
+load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_jpeg_ libjpeg-turbo_DIR)
+if(_jyppx_consumer_jpeg_libjpeg-turbo_DIR)
+    list(APPEND config_args "-Dlibjpeg-turbo_DIR=${_jyppx_consumer_jpeg_libjpeg-turbo_DIR}")
+endif()
 # Reuse the parent's opt-in HIP import closure for installed consumers that
 # link the ROCm LibTorch backend. Explicit empty values clear a prior selection.
 if(WIN32 AND consumer_source_dir MATCHES "/(migrated|vision_tasks|data_image|sdk)_consumer$")
