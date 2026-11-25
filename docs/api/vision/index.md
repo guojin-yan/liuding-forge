@@ -33,6 +33,8 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 RT-DETR 的 `rtdetr_data` 拉伸配置可在 `evaluation`、`prediction` 中分别指定 `clip_boxes: false`，保留超出图像范围的预测框，以对应官方 TopK 后处理；默认仍裁剪。该设置参与恢复身份，只接受 RT-DETR 拉伸检测，原图还原拒绝裁切、补边和翻转轨迹。框的类别及置信度顺序不变；COCO 类别 ID 映射和统一评估器仍由评测入口明确提供。
 
+`rtdetr_inference_validation: true` 在每批上只执行一次验证推理，不计算验证 loss，也不再逐图进行第二遍推理。它要求 `rtdetr_data`、完整指标、原始方向坐标和 `evaluation` 中未过滤的 `confidence: 0`、`multi_label: true`、`max_detections: 300`、`clip_boxes: false`；模型选择使用 `validation.map` 或 `validation.ap50`。指标使用导入时保留的原始标注及稳定正整数图像 ID，保留 crowd 和面积，每图每类最多 100 个预测框；最后不足一批的验证样本保留。`validation.json` 的 `execution` 为 `rtdetr.batched_inference/v1`。该选择参与恢复身份，默认保留原验证路径；最终官方 COCO 全部指标仍需统一评估器核对。
+
 `drop_last_training_batch: true` 丢弃每轮末不足 `batch_size` 的训练批次，验证仍保留所有样本；默认 false。该策略参与恢复身份，预热与调度按实际保留的训练批次数计算；若样本不足一整批会拒绝启动。
 
 设置 `preprocessing.numeric_stage: "consumer"` 可让视觉流水线保留 CPU uint8 图像，在设备搬运后、批次游标提交前执行 float32 归一化。它复用相同的增强、标注与数值转换接口，减少传输图像的字节数；可配合 `pin_memory: true` 和 `non_blocking_transfer: true` 请求固定主存及当前调用流上的非阻塞传输。默认 `numeric_stage` 为 `worker`，默认传输为阻塞；自定义设置参与配方和数据流水线恢复身份。C++ 的 `YoloDataOptions::numeric_on_consumer` 仅改变 `make_yolo_data_pipeline` 内部执行位置，该流水线要求调用者未配置其他 consumer transform；直接调用 `prepare_yolo_batch` 仍返回已归一化的 float32 批次。此设置不保证吞吐提升，需在实际设备和配方下测量。

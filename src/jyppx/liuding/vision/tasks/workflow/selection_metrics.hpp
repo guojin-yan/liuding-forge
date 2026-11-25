@@ -12,7 +12,7 @@
 namespace jyppx::liuding::vision::tasks::detail {
 inline bool selection_metric_available(const RecipeSpec& recipe,
                                        std::string_view metric) {
-  if (metric == "validation.loss") return true;
+  if (metric == "validation.loss") return !recipe.rtdetr_inference_validation;
   switch (recipe.model.task) {
     case TaskKind::detect:
     case TaskKind::instance_segment:

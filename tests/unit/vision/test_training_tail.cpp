@@ -159,5 +159,45 @@ TEST_F(VisionTrainingTail, RejectsUnknownJpegBackendValues) {
     EXPECT_THROW(t::parse_recipe(json, root), InvalidArgument);
   }
 }
+TEST_F(VisionTrainingTail, RtDetrInferenceValidationPublishesMetricsWithoutLoss) {
+  auto recipe = Recipe();
+  recipe.model.architecture = "rtdetr_resnet18_vd_coco72";
+  recipe.data.letterbox.canvas = {256, 256};
+  recipe.data.rtdetr.enabled = true;
+  recipe.data.rtdetr.photometric_probability = 0;
+  recipe.data.rtdetr.zoom_out_probability = 0;
+  recipe.data.rtdetr.iou_crop_probability = 0;
+  recipe.data.rtdetr.horizontal_flip_probability = 0;
+  recipe.rtdetr_inference_validation = true;
+  recipe.full_validation_metrics = true;
+  recipe.evaluation = {.confidence = 0, .multi_label = true, .clip_boxes = false};
+  recipe.epochs = 2;
+  recipe.ema = true;
+  recipe.drop_last_training_batch = true;
+  std::size_t batches = 0, completed = 0;
+  t::TrainRequest request;
+  request.recipe = recipe;
+  request.output = root / "rtdetr-inference";
+  request.event_observer = [&](const training::CallbackEvent& event) {
+    if (event.phase != training::CallbackPhase::validation) return;
+    EXPECT_FALSE(event.metrics.contains("validation.loss"));
+    if (event.kind == training::CallbackEventKind::batch_finished) ++batches;
+    if (event.kind == training::CallbackEventKind::validation_finished) {
+      ++completed;
+      EXPECT_TRUE(event.metrics.contains("validation.map"));
+      EXPECT_TRUE(event.metrics.contains("validation.ap50"));
+    }
+  };
+  const auto result = t::train_vision(request);
+  EXPECT_EQ(result.fit.completed_epochs, 2U);
+  EXPECT_EQ(result.fit.global_step, 4U);
+  EXPECT_EQ(batches, 4U);
+  EXPECT_EQ(completed, 2U);
+  J report;
+  std::ifstream(request.output / "validation.json") >> report;
+  EXPECT_EQ(report["execution"], "rtdetr.batched_inference/v1");
+  EXPECT_EQ(report["images"], 3);
+  EXPECT_EQ(report["metric_max_detections_per_image_class"], 100);
+}
 }  // namespace
 }  // namespace jyppx::liuding::vision::tests

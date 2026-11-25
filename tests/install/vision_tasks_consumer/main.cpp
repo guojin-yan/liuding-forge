@@ -122,11 +122,15 @@ int main() try {
     rtdetr.data.rtdetr.enabled = true;
     rtdetr.drop_last_training_batch = true;
     rtdetr.evaluation.clip_boxes = rtdetr.prediction.clip_boxes = false;
+    rtdetr.evaluation.confidence = 0;
+    rtdetr.evaluation.multi_label = true;
+    rtdetr.rtdetr_inference_validation = true;
     rtdetr.rtdetr_training_sizes = {480, 512, 544, 576, 608, 640, 640,
                                     640, 672, 704, 736, 768, 800};
     const auto restored = tasks::parse_recipe(tasks::recipe_json(rtdetr),
                                               std::filesystem::current_path());
     if (!restored.data.rtdetr.enabled || !restored.drop_last_training_batch ||
+        !restored.rtdetr_inference_validation ||
         restored.evaluation.clip_boxes || restored.prediction.clip_boxes ||
         restored.rtdetr_training_sizes != rtdetr.rtdetr_training_sizes ||
         tasks::recipe_identity(restored) != tasks::recipe_identity(rtdetr))

@@ -6,6 +6,7 @@
 #include "batch_transfer.hpp"
 #include "evaluation_diagnostics.hpp"
 #include "history.hpp"
+#include "rtdetr_validation.hpp"
 #include "run_ledger.hpp"
 
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
@@ -123,6 +124,7 @@ void SameClasses(const std::vector<image::VisionCategory>& a,
 }
 struct Sources {
   std::shared_ptr<image::ImageDataset> train, val;
+  std::shared_ptr<const image::AnnotationIndex> validation_annotations;
   std::string train_id, val_id;
   std::vector<image::VisionCategory> classes;
   std::shared_ptr<ImageDecodeCache> cache;
@@ -333,6 +335,9 @@ Sources Read(RecipeSpec& r, std::stop_token stop,
       require_disjoint_detection_splits(train, val, stop);
       phase("data.disjoint_check.finished");
       s.val_id = val.metadata_identity;
+      if (r.rtdetr_inference_validation)
+        s.validation_annotations =
+            std::make_shared<image::AnnotationIndex>(val.annotations);
       s.val = std::make_shared<image::ImageDataset>(
           val.image_root, std::move(val.annotations), decoding);
     }
@@ -762,24 +767,38 @@ TrainResult train_vision(const TrainRequest& request) {
   fit.training_batch_mapper = binding.image_mapper;
   fit.training_target_mapper = binding.target_mapper;
   fit.training_step = binding.step;
+  std::shared_ptr<detail::RtDetrValidation> rtdetr_validation;
+  if (validation && r.rtdetr_inference_validation)
+    rtdetr_validation = std::make_shared<detail::RtDetrValidation>(
+        source.validation_annotations, source.val_id, r);
   if (validation) {
     fit.validation_data = validation;
-    fit.validation_batch_mapper = eval_binding.image_mapper;
-    fit.validation_target_mapper = eval_binding.target_mapper;
-    fit.validation_step = [eval_binding](
+    if (rtdetr_validation) {
+      fit.validation_batch_mapper = [](const data::BatchEnvelope& envelope) {
+        const auto batch = image::image_batch_from_value(envelope.value);
+        return nn::Invocation{
+            {batch.images, torch::empty({0, 6}, batch.images.options())}, {}};
+      };
+    } else {
+      fit.validation_batch_mapper = eval_binding.image_mapper;
+      fit.validation_target_mapper = eval_binding.target_mapper;
+    }
+    fit.validation_step = [eval_binding, rtdetr_validation](
                               const training::StepInput& input) mutable {
       Modes eval_modes(*eval_binding.model);
+      if (rtdetr_validation) return rtdetr_validation->step(eval_binding, input);
       return eval_binding.step({*eval_binding.model, input.batch,
                                 input.invocation, input.target, input.context});
     };
   }
   if (validation && r.full_validation_metrics)
-    fit.validation_summary = [eval_binding, dataset = source.val,
-                              identity = source.val_id, r,
-                              path = request.output](
-                                 std::stop_token stop) mutable {
-      auto report =
-          J::parse(evaluate_vision(eval_binding, *dataset, r, identity, stop));
+    fit.validation_summary = [eval_binding, rtdetr_validation,
+                              dataset = source.val, identity = source.val_id, r,
+                              path = request.output](std::stop_token stop) mutable {
+      auto report = J::parse(rtdetr_validation
+                                ? rtdetr_validation->finish(stop)
+                                : evaluate_vision(eval_binding, *dataset, r,
+                                                  identity, stop));
       Save(path / "validation.json", report.dump(2));
       std::map<std::string, double> metrics;
       for (auto key :

@@ -106,6 +106,7 @@ if(JYPPX_LIUDING_BUILD_VISION_TASKS)
         src/jyppx/liuding/vision/tasks/workflow/binding.cpp
         src/jyppx/liuding/vision/tasks/workflow/binding_disabled.cpp
         src/jyppx/liuding/vision/tasks/workflow/suite.cpp
+        src/jyppx/liuding/vision/tasks/workflow/rtdetr_validation.cpp
         src/jyppx/liuding/vision/tasks/workflow/search.cpp
         src/jyppx/liuding/vision/tasks/workflow/output.cpp
         src/jyppx/liuding/vision/tasks/workflow/preflight.cpp

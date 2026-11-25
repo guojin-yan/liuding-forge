@@ -249,6 +249,7 @@ RecipeSpec parse_recipe(std::string_view text,
            "class_weights",
            "keypoint_sigmas",
            "full_validation_metrics",
+           "rtdetr_inference_validation",
            "selection_metric",
            "selection_maximize",
            "tensorboard",
@@ -623,6 +624,11 @@ RecipeSpec parse_recipe(std::string_view text,
   r.class_weights = j.value("class_weights", r.class_weights);
   r.full_validation_metrics =
       j.value("full_validation_metrics", r.full_validation_metrics);
+  if (j.contains("rtdetr_inference_validation") &&
+      !j["rtdetr_inference_validation"].is_boolean())
+    throw InvalidArgument("rtdetr_inference_validation must be boolean");
+  r.rtdetr_inference_validation =
+      j.value("rtdetr_inference_validation", r.rtdetr_inference_validation);
   r.tensorboard = j.value("tensorboard", r.tensorboard);
   if (j.contains("diagnostics")) {
     const auto& d = j["diagnostics"];
@@ -797,6 +803,21 @@ RecipeSpec parse_recipe(std::string_view text,
   return r;
 }
 void check_recipe(const RecipeSpec& r) {
+  if (r.rtdetr_inference_validation &&
+      (!r.model.architecture.starts_with("rtdetr_") ||
+       r.model.task != TaskKind::detect || !r.data.rtdetr.enabled ||
+       !r.full_validation_metrics ||
+       !r.extension.training_manifest.empty() ||
+       !r.extension.validation_manifest.empty() ||
+       (r.exif_policy != ExifPolicy::reject_non_identity &&
+        r.exif_policy != ExifPolicy::ignore) ||
+       r.evaluation.clip_boxes || !r.evaluation.multi_label ||
+       r.evaluation.confidence != 0 || r.evaluation.max_detections != 300 ||
+       !r.evaluation.classes.empty() ||
+       r.selection_metric == "validation.loss"))
+    throw InvalidArgument(
+        "RT-DETR inference validation requires stretch detection, full metrics, "
+        "unclipped unfiltered TopK300 and metric-based selection");
   if ((!r.evaluation.clip_boxes || !r.prediction.clip_boxes) &&
       (!r.model.architecture.starts_with("rtdetr_") || !r.data.rtdetr.enabled))
     throw InvalidArgument(
@@ -1383,6 +1404,7 @@ std::string recipe_json(const RecipeSpec& r) {
   if (!r.rtdetr_training_sizes.empty())
     j["rtdetr_training_sizes"] = r.rtdetr_training_sizes;
   if (r.drop_last_training_batch) j["drop_last_training_batch"] = true;
+  if (r.rtdetr_inference_validation) j["rtdetr_inference_validation"] = true;
   if (r.jpeg_backend == data::image::JpegDecodeBackend::libjpeg_turbo)
     j["jpeg_backend"] = "libjpeg-turbo";
   if (r.data.rtdetr.enabled) {

@@ -120,6 +120,8 @@ struct RecipeSpec {
   std::vector<double> keypoint_sigmas;  ///< Shared pose loss/OKS scales; empty
                                         ///< selects uniform 1/K.
   bool full_validation_metrics = true;
+  bool rtdetr_inference_validation = false;
+  ///< RT-DETR stretch: one batched forward, no loss, bbox AP maxDet100.
   bool tensorboard =
       false;  ///< Optional native event output for each run segment.
   bool diagnostics =
