@@ -18,6 +18,7 @@
 #include <jyppx/liuding/vision/tasks/data/augmentation.hpp>
 #include <jyppx/liuding/vision/tasks/data/classification.hpp>
 #include <jyppx/liuding/vision/tasks/data/rtdetr_preparation.hpp>
+#include <jyppx/liuding/vision/tasks/data/yolo_original.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -61,6 +62,8 @@ struct YoloDataOptions {
   ///< Pipeline workers retain uint8 until consumer-side device transfer.
   ///< Direct prepare_yolo_batch calls always return normalized float32.
   RtDetrDataOptions rtdetr;  ///< Explicit box-only RT-DETR v1 data profile.
+  YoloOriginalDataOptions
+      yolo_original;  ///< Explicit original box augmentation.
   bool rectangular =
       false;  ///< Per-batch minimal stride-aligned LetterBox canvas.
   bool multiscale = false;  ///< Counter-derived fixed canvas per logical batch.

@@ -23,6 +23,8 @@ PyTorch 的 Tensor、autograd、Transformer 和其他运行接口另适用对应
 
 C++ 模块、head、损失、匹配、增强和解码在对照上游模块顺序、状态键和数学公式后实现。该说明不将这些适配整体认定为纯 Apache-2.0，也不以语言转换或文件头消除上游条款；最终源码衍生范围和二进制分发审查仍为 pending。实际复制、翻译或实质改写的上游材料及其衍生作品须遵守对应 AGPL/GPL 条款，包括适用的源码和告知义务。开启 `models_yolo` 时单独安装上述原文、清单和本说明。
 
+`vision/tasks/data/opencv_preparation.cpp` 和 `yolo_original.cpp` 的检测增强顺序、伙伴缓存规则、Mosaic、透视、MixUp、HSV 及翻转对照 Ultralytics `cb13d5f9cfbd6f299da3620c625f81d721dc2849` 的 `ultralytics/data/base.py`、`data/augment.py` 和 `utils/instance.py` 作 C++ 适配；独立参考的文件摘要保存在 `tests/fixtures/vision/yolo_opencv.json`。有界增强计划、逻辑 worker 和原生检查点采用本项目接口，随机数引擎独立；这些实现差异不消除上游归属，适配继续适用已保留的 Ultralytics AGPL-3.0 条款及上述分发审查边界。
+
 `vision/tasks/yolo_detection.cpp` 的 CIoU 运算顺序及稳定项对照 Ultralytics `v8.4.177` 的 `ultralytics/utils/metrics.py::bbox_iou` 作 C++ 适配，该参考文件 SHA-256 为 `e2f216964bb0d89ac26efecb4e0a76750b554d2e670a27e6ed4a8f42d998b2a0`；分布投影对照同版 `ultralytics/utils/loss.py::v8DetectionLoss.bbox_decode`（文件 SHA-256 `8eb4e089b7c36cef13bb872f9aa37e346da5c022bcfd979e11e7a57a0666b106`）。原生入口显式保留 FP32 并共享分支转换，独立数值参考由开发测试脚本生成。上述适配继续遵守已保留的 Ultralytics 归属及 AGPL-3.0 条款，不改变其余来源审查状态。
 
 YOLO26 双分支权重与调度对照同一 `utils/loss.py::E2ELoss`，直接距离回归的归一化顺序对照 `BboxLoss`；小框候选与冲突后二次筛选对照 `utils/tal.py::TaskAlignedAssigner`（SHA-256 `c69ec67990777a4d13df219ef9b254085b2df283fbe5fd283245b76d6b461b3c`）作 C++ 适配。独立 FP32 多目标参考保留上述源码摘要，继续适用既有 Ultralytics AGPL-3.0 归属和未完成的分发审查边界。

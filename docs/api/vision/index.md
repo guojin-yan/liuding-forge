@@ -35,6 +35,10 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 构建时设置 `JYPPX_LIUDING_VISION_OPENCV=ON`，并通过 `OpenCV_DIR` 提供 OpenCV 5.1.0 的静态 CMake SDK（core、imgproc 及其导出依赖）。不在配置阶段下载依赖；未启用时 `yolo_opencv_available()` 返回 false，显式调用抛出 `NotImplemented`。当前只验证 Windows x64/AMD Clang 24 下的 CPU 固定参数处理，GPU 内核、其他 OpenCV 版本及完整训练性能须独立验证。
 
+YOLO 检测配方可添加 `yolo_original_data: {}`，在上述 OpenCV 后端执行按逻辑 worker 保留的 FIFO 伙伴抽样、Mosaic、透视、完整伙伴预处理与 Beta(32,32) MixUp，随后执行 HSV、翻转和 BGR 概率切换。参数复用 `augmentation`；`close_epochs` 只关闭多源组合，关闭时重置伙伴历史，颜色和翻转继续。检测框没有分割轮廓，因此 CopyPaste 不生效；不执行 Albumentations，CutMix 必须为 0。当前只接受方形画布、轴对齐检测框和完整可恢复的排列采样器，拒绝矩形或多尺度策略；评估为确定性最长边缩放及方形 LetterBox，不能据此宣称完整官方矩形验证或 COCO 训练质量已验证。
+
+`YoloDataOptions::yolo_original` 可直接配置同一策略。协调端生成有界增强计划，像素处理并行；逻辑伙伴历史不受物理解码缓存命中或线程执行顺序影响。`max_plan_bytes` 默认 256 MiB，约束单轮计划及首尾伙伴历史的逻辑载荷，不包含前一轮尚在使用的计划或容器开销；`decoded_cache_bytes` 默认 256 MiB，按逻辑 worker 均分原始 RGB 缓存额度，不包括在途图像。该策略及资源选项参与恢复身份，检查点保留采样顺序和轮初历史，不保存整轮图像；除回到第 0 轮外，不允许跳过中间轮次。随机流独立于 Python/NumPy，原生预取不模拟 Python 跨轮提前执行，OpenCV 的可选加速后端也可能产生末位舍入差异；最终训练精度和性能应独立评测。
+
 RT-DETR 的 `rtdetr_data` 拉伸配置可在 `evaluation`、`prediction` 中分别指定 `clip_boxes: false`，保留超出图像范围的预测框，以对应官方 TopK 后处理；默认仍裁剪。该设置参与恢复身份，只接受 RT-DETR 拉伸检测，原图还原拒绝裁切、补边和翻转轨迹。框的类别及置信度顺序不变；COCO 类别 ID 映射和统一评估器仍由评测入口明确提供。
 
 `rtdetr_inference_validation: true` 在每批上只执行一次验证推理，不计算验证 loss，也不再逐图进行第二遍推理。它要求 `rtdetr_data`、完整指标、原始方向坐标和 `evaluation` 中未过滤的 `confidence: 0`、`multi_label: true`、`max_detections: 300`、`clip_boxes: false`；模型选择使用 `validation.map` 或 `validation.ap50`。指标使用导入时保留的原始标注及稳定正整数图像 ID，保留 crowd 和面积，每图每类最多 100 个预测框；最后不足一批的验证样本保留。`validation.json` 的 `execution` 为 `rtdetr.batched_inference/v1`，`coco_metrics` 汇总 COCO bbox 的 12 项 AP/AR（含面积区间和 maxDet 1/10/100，缺失类别结果为 -1）。该选择参与恢复身份，默认保留原验证路径；最终官方 COCO 全部指标仍需统一评估器核对。

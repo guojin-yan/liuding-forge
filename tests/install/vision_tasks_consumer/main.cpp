@@ -25,6 +25,7 @@
 #endif
 #include <jyppx/liuding/vision/tasks/data/context.hpp>
 #include <jyppx/liuding/vision/tasks/data/opencv_preparation.hpp>
+#include <jyppx/liuding/vision/tasks/data/yolo_original.hpp>
 #include <jyppx/liuding/vision/tasks/tracking/workflow.hpp>
 #ifdef VISION_CONSUMER_MODELS_VISION
 #include <jyppx/liuding/vision/models/extended/pyramid.hpp>
@@ -53,6 +54,15 @@ int main() try {
         {.source_id = 1, .category = 0, .box = im::ImageBox{1, 1, 7, 7}}};
     sample.annotation = std::move(annotation);
     const std::array samples{sample};
+    tasks::YoloDataOptions original;
+    original.num_classes = 1;
+    original.letterbox.canvas = {32, 32};
+    original.yolo_original.enabled = true;
+    original.yolo_original.training = false;
+    original.augmentation.multi_source.total_epochs = 1;
+    original.augmentation.multi_source.close_epochs = 0;
+    if (tasks::yolo_original_data_identity(original.yolo_original).empty())
+      throw std::runtime_error("installed original YOLO identity is empty");
     if (tasks::yolo_opencv_available()) {
       const auto prepared = tasks::prepare_yolo_opencv_geometry(
           samples, {.size = 32, .warp = false});
@@ -62,6 +72,11 @@ int main() try {
           color.annotation->objects.size() != 1 ||
           !torch::all(color.image == 37).item<bool>())
         throw std::runtime_error("installed OpenCV fixed operations failed");
+      const std::array keys{im::ImageBatchKey{.id = "installed-original"}};
+      const auto batch = tasks::prepare_yolo_batch(samples, keys, original);
+      if (batch.images.scalar_type() != torch::kFloat32 ||
+          batch.images.sizes() != torch::IntArrayRef({1, 3, 32, 32}))
+        throw std::runtime_error("installed original YOLO evaluation failed");
     } else {
       bool rejected = false;
       try {
@@ -71,6 +86,14 @@ int main() try {
       }
       if (!rejected)
         throw std::runtime_error("disabled OpenCV backend silently fell back");
+      rejected = false;
+      try {
+        static_cast<void>(tasks::yolo_data_identity(original));
+      } catch (const jyppx::liuding::NotImplemented&) {
+        rejected = true;
+      }
+      if (!rejected)
+        throw std::runtime_error("disabled original YOLO silently fell back");
     }
   }
   {

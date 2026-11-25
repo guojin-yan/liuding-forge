@@ -16,6 +16,7 @@
 #include <opencv2/geometry/2d.hpp>
 #include <opencv2/imgproc.hpp>
 #include <sstream>
+#include <type_traits>
 #endif
 
 namespace jyppx::liuding::vision::tasks {
@@ -143,7 +144,12 @@ std::array<T, 9> Multiply(const std::array<T, 9>& a,
   std::array<T, 9> out{};
   for (int y = 0; y < 3; ++y)
     for (int x = 0; x < 3; ++x)
-      for (int k = 0; k < 3; ++k) out[y * 3 + x] += a[y * 3 + k] * b[k * 3 + x];
+      for (int k = 0; k < 3; ++k) {
+        if constexpr (std::is_same_v<T, float>)
+          out[y * 3 + x] = std::fma(a[y * 3 + k], b[k * 3 + x], out[y * 3 + x]);
+        else
+          out[y * 3 + x] += a[y * 3 + k] * b[k * 3 + x];
+      }
   return out;
 }
 void Sources(im::VisionObject& object, const im::VisionSample& s) {
@@ -288,11 +294,11 @@ Image Warp(const Image& input, const YoloOpenCvGeometryPlan& p,
     for (int corner = 0; corner < 4; ++corner) {
       const float x = float((corner & 1) ? before.x_max : before.x_min),
                   y = float((corner & 2) ? before.y_max : before.y_min);
-      const float z = p.perspective ? (x * m[6] + y * m[7]) + m[8] : 1;
+      const float z = p.perspective ? std::fma(y, m[7], x * m[6]) + m[8] : 1;
       if (!std::isfinite(z) || z == 0)
         throw InvalidArgument("OpenCV box crosses projective horizon");
-      const float xx = ((x * m[0] + y * m[1]) + m[2]) / z,
-                  yy = ((x * m[3] + y * m[4]) + m[5]) / z;
+      const float xx = (std::fma(y, m[1], x * m[0]) + m[2]) / z,
+                  yy = (std::fma(y, m[4], x * m[3]) + m[5]) / z;
       if (!std::isfinite(xx) || !std::isfinite(yy))
         throw InvalidArgument("Nonfinite OpenCV mapped box");
       box[0] = std::min(box[0], xx);
@@ -433,7 +439,7 @@ data::image::VisionSample prepare_yolo_opencv_geometry(
   }
   std::ostringstream identity;
   identity.imbue(std::locale::classic());
-  identity << std::setprecision(17) << "opencv-yolo-geometry/v1:";
+  identity << std::setprecision(17) << "opencv-yolo-geometry/fma-v2:";
   for (const auto& s : samples)
     identity << s.image_path.size() << ':' << s.image_path << ':';
   identity << p.size << ':' << p.mosaic << ':' << p.mosaic_center[0] << ':'
@@ -528,6 +534,19 @@ data::image::VisionSample prepare_yolo_opencv_color(
     cv::merge(channels, hsv);
     cv::cvtColor(hsv, out.pixels, cv::COLOR_HSV2RGB);
   }
+  if (p.center_box_flips) {
+    for (auto& object : out.objects) {
+      auto& b = *object.box;
+      const float w = float(b.x_max) - float(b.x_min),
+                  h = float(b.y_max) - float(b.y_min);
+      float cx = (float(b.x_min) + float(b.x_max)) / 2,
+            cy = (float(b.y_min) + float(b.y_max)) / 2;
+      if (p.vertical_flip) cy = float(sample.height) - cy;
+      if (p.horizontal_flip) cx = float(sample.width) - cx;
+      b = {cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2};
+      Bound(b, sample.width, sample.height);
+    }
+  }
   if (p.horizontal_flip || p.vertical_flip) {
     Stop(stop);
     cv::flip(out.pixels, out.pixels,
@@ -535,15 +554,19 @@ data::image::VisionSample prepare_yolo_opencv_color(
     for (auto& object : out.objects) {
       auto& b = *object.box;
       if (p.horizontal_flip) {
-        const auto old = b.x_min;
-        b.x_min = double(float(sample.width) - float(b.x_max));
-        b.x_max = double(float(sample.width) - float(old));
+        if (!p.center_box_flips) {
+          const auto old = b.x_min;
+          b.x_min = double(float(sample.width) - float(b.x_max));
+          b.x_max = double(float(sample.width) - float(old));
+        }
         MapSources(object, D{-1, 0, double(sample.width), 0, 1, 0, 0, 0, 1});
       }
       if (p.vertical_flip) {
-        const auto old = b.y_min;
-        b.y_min = double(float(sample.height) - float(b.y_max));
-        b.y_max = double(float(sample.height) - float(old));
+        if (!p.center_box_flips) {
+          const auto old = b.y_min;
+          b.y_min = double(float(sample.height) - float(b.y_max));
+          b.y_max = double(float(sample.height) - float(old));
+        }
         MapSources(object, D{1, 0, 0, 0, -1, double(sample.height), 0, 0, 1});
       }
     }
@@ -562,6 +585,7 @@ data::image::VisionSample prepare_yolo_opencv_color(
            << ':' << p.hsv << ':' << p.hue_shift << ':' << p.saturation_gain
            << ':' << p.value_gain << ':' << p.horizontal_flip << ':'
            << p.vertical_flip;
+  if (p.center_box_flips) identity << ":center-box-flips/v1";
   return Publish(sample, std::move(out), allocation, identity.str(),
                  std::move(trace), stop);
 #endif

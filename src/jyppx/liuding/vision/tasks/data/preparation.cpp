@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "yolo_original_detail.hpp"
+
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -40,6 +42,7 @@ void CheckTargets(const YoloDataOptions& options) {
 
 void CheckProjection(const YoloDataOptions& options) {
   CheckTargets(options);
+  if (options.yolo_original.enabled) detail::check_original_yolo(options);
   if (options.rtdetr.enabled) {
     static_cast<void>(rtdetr_data_identity(options.rtdetr));
     const auto& a = options.augmentation;
@@ -135,6 +138,9 @@ image::ImageBatch PrepareBatch(std::span<const image::VisionSample> samples,
                                const YoloDataOptions& options,
                                bool defer_numeric, std::stop_token stop) {
   CheckProjection(options);
+  if (options.yolo_original.enabled)
+    return detail::prepare_original_yolo_evaluation_batch(
+        samples, keys, options, defer_numeric, stop);
   if (samples.empty() || samples.size() != keys.size() ||
       samples.size() > options.limits.max_samples || !options.size_divisor ||
       options.size_divisor > 256 ||
@@ -392,6 +398,8 @@ std::string yolo_data_identity(const YoloDataOptions& options) {
   if (options.numeric_on_consumer) identity << ":numeric-on-consumer/v1";
   if (options.rtdetr.enabled)
     identity << ":" << rtdetr_data_identity(options.rtdetr);
+  if (options.yolo_original.enabled)
+    identity << ":" << yolo_original_data_identity(options.yolo_original);
   const auto text = identity.str();
   return sha256_hex(std::as_bytes(std::span(text)));
 }
@@ -399,6 +407,7 @@ std::string yolo_data_identity(const YoloDataOptions& options) {
 YoloDataOptions yolo_evaluation_options(const YoloDataOptions& training) {
   auto result = training;
   result.rtdetr.training = false;
+  result.yolo_original.training = false;
   result.multiscale = false;
   result.rectangular = false;
   result.classification.training = false;
@@ -458,6 +467,9 @@ std::shared_ptr<data::DataPipeline> make_yolo_data_pipeline(
   if (!sampler)
     sampler =
         std::make_shared<data::samplers::SequentialSampler>(dataset->size());
+  if (options.yolo_original.enabled)
+    return detail::make_original_yolo_pipeline(dataset, std::move(pipeline),
+                                               options, std::move(sampler));
   return std::make_shared<data::DataPipeline>(
       std::move(sampler), std::move(pipeline),
       [dataset = std::move(dataset), options, batch_size](

@@ -266,6 +266,7 @@ RecipeSpec parse_recipe(std::string_view text,
            "preprocessing",
            "jpeg_backend",
            "rtdetr_data",
+           "yolo_original_data",
            "rtdetr_training_sizes",
            "horizontal_keypoint_permutations",
            "vertical_keypoint_permutations"});
@@ -290,6 +291,15 @@ RecipeSpec parse_recipe(std::string_view text,
             "RT-DETR training size must be an integer in [32,2048]");
       r.rtdetr_training_sizes.push_back(size.get<std::int64_t>());
     }
+  }
+  if (j.contains("yolo_original_data")) {
+    const auto& d = j.at("yolo_original_data");
+    Keys(d, {"max_plan_bytes", "decoded_cache_bytes"});
+    r.data.yolo_original.enabled = true;
+    r.data.yolo_original.max_plan_bytes =
+        d.value("max_plan_bytes", r.data.yolo_original.max_plan_bytes);
+    r.data.yolo_original.decoded_cache_bytes = d.value(
+        "decoded_cache_bytes", r.data.yolo_original.decoded_cache_bytes);
   }
   if (j.contains("rtdetr_data")) {
     const auto& d = j.at("rtdetr_data");
@@ -824,8 +834,7 @@ void check_recipe(const RecipeSpec& r) {
   if (r.rtdetr_inference_validation &&
       (!r.model.architecture.starts_with("rtdetr_") ||
        r.model.task != TaskKind::detect || !r.data.rtdetr.enabled ||
-       !r.full_validation_metrics ||
-       !r.extension.training_manifest.empty() ||
+       !r.full_validation_metrics || !r.extension.training_manifest.empty() ||
        !r.extension.validation_manifest.empty() ||
        (r.exif_policy != ExifPolicy::reject_non_identity &&
         r.exif_policy != ExifPolicy::ignore) ||
@@ -834,7 +843,8 @@ void check_recipe(const RecipeSpec& r) {
        !r.evaluation.classes.empty() ||
        r.selection_metric == "validation.loss"))
     throw InvalidArgument(
-        "RT-DETR inference validation requires stretch detection, full metrics, "
+        "RT-DETR inference validation requires stretch detection, full "
+        "metrics, "
         "unclipped unfiltered TopK300 and metric-based selection");
   if ((!r.evaluation.clip_boxes || !r.prediction.clip_boxes) &&
       (!r.model.architecture.starts_with("rtdetr_") || !r.data.rtdetr.enabled))
@@ -1110,6 +1120,11 @@ void check_recipe(const RecipeSpec& r) {
       !r.device.is_cuda())
     throw InvalidArgument("CUDA precision requires CUDA");
   auto checked_data = r.data;
+  if (r.data.yolo_original.enabled &&
+      (!r.model.architecture.starts_with("yolo") ||
+       r.model.task != TaskKind::detect || !r.data.yolo_original.training))
+    throw InvalidArgument(
+        "Original YOLO training data requires YOLO detection");
   if ((r.data.rtdetr.enabled || !r.rtdetr_training_sizes.empty()) &&
       (!r.model.architecture.starts_with("rtdetr_") ||
        r.model.task != TaskKind::detect))
@@ -1145,7 +1160,7 @@ void check_recipe(const RecipeSpec& r) {
       (multi.cutmix_probability > 0 || multi.copypaste_probability > 0))
     throw InvalidArgument("CutMix/CopyPaste has no pose/OBB recipe binding");
   if (r.model.task != TaskKind::instance_segment &&
-      multi.copypaste_probability > 0)
+      !r.data.yolo_original.enabled && multi.copypaste_probability > 0)
     throw InvalidArgument("CopyPaste requires instance segmentation");
   if (r.model.task == TaskKind::classify &&
       (multi.mosaic_probability > 0 || multi.mixup_probability > 0 ||
@@ -1428,6 +1443,11 @@ std::string recipe_json(const RecipeSpec& r) {
     j["ema"]["update_rule"] = "multiply-add-floating-only";
   if (r.jpeg_backend == data::image::JpegDecodeBackend::libjpeg_turbo)
     j["jpeg_backend"] = "libjpeg-turbo";
+  if (r.data.yolo_original.enabled) {
+    j["yolo_original_data"] = {
+        {"max_plan_bytes", r.data.yolo_original.max_plan_bytes},
+        {"decoded_cache_bytes", r.data.yolo_original.decoded_cache_bytes}};
+  }
   if (r.data.rtdetr.enabled) {
     const auto& d = r.data.rtdetr;
     j["rtdetr_data"] = {

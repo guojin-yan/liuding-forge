@@ -1052,6 +1052,7 @@ if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo
         vision/test_contracts.cpp vision/test_data_preparation.cpp
         vision/test_rtdetr_preparation.cpp
         vision/test_opencv_preparation.cpp
+        vision/test_yolo_original.cpp
         vision/test_rtdetr_results.cpp
         vision/test_rtdetr_validation.cpp
         vision/test_training_tail.cpp

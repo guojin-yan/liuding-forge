@@ -47,6 +47,8 @@ struct YoloOpenCvColorPlan {
   double hue_shift = 0;  ///< Fraction of the OpenCV180 hue circle, in [-1,1].
   double saturation_gain = 1, value_gain = 1;  ///< Multipliers in [0,2].
   bool horizontal_flip = false, vertical_flip = false;
+  bool center_box_flips = false;  ///< Float32 xyxy-to-center round trip before
+                                  ///< flips, including when neither axis flips.
 };
 /** @brief Reports whether the explicit OpenCV5.1 backend was built. */
 bool yolo_opencv_available() noexcept;
