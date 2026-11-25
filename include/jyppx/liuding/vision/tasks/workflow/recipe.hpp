@@ -37,6 +37,8 @@ struct Yolo26LossRecipe {
   std::int64_t one_to_one_topk = 7;
   bool fixed_branch_gains = false;
   double fixed_many_gain = 1., fixed_one_gain = 1.;
+  std::int64_t max_assignment_pairs = 1048576;
+  ///< Positive per-image GT*anchor work bound, at most 2^30; not a VRAM cap.
 };
 /** @brief Explicit per-batch YOLO26 warmup policy compatible with Ultralytics.
  */

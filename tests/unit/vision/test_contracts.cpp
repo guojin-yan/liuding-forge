@@ -882,6 +882,76 @@ TEST_F(VisionContracts, TrainingTailPolicyRoundTripsAndBindsResumeIdentity) {
   }
 }
 
+TEST_F(VisionContracts, Yolo26AssignmentBudgetSupportsDenseTargets) {
+  t::RecipeSpec recipe;
+  recipe.model.architecture = "yolo26n";
+  recipe.model.num_classes = 2;
+  recipe.training.source = std::filesystem::absolute("a.json");
+  recipe.yolo26_loss.emplace();
+  const auto original = t::recipe_json(recipe);
+  EXPECT_EQ(original.find("max_assignment_pairs"), std::string::npos);
+  const auto identity = t::recipe_identity(recipe);
+  const auto baseline =
+      t::parse_recipe(original, std::filesystem::current_path());
+  EXPECT_EQ(baseline.yolo26_loss->max_assignment_pairs, 1048576);
+  EXPECT_EQ(t::recipe_identity(baseline), identity);
+
+  recipe.yolo26_loss->max_assignment_pairs = 16777216;
+  recipe.data.max_targets = 16384;
+  const auto restored =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  EXPECT_NE(t::recipe_identity(restored), identity);
+  EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
+  const auto binding = t::bind_task(restored);
+  auto options = binding.yolo.detection;
+  ASSERT_EQ(options.max_assignment_pairs, 16777216);
+  EXPECT_EQ(options.max_targets, 16384);
+  // At 640 pixels the 8,400 anchors exceed the default bound at 125 GTs.
+  auto raw = torch::zeros({1, 6, 8400}, torch::requires_grad());
+  const auto targets = torch::tensor({0.f, 0.f, 100.f, 100.f, 400.f, 400.f})
+                           .view({1, 6})
+                           .repeat({125, 1});
+  auto limited = options;
+  limited.max_assignment_pairs = 1048576;
+  EXPECT_THROW(t::yolo_detection_loss(raw, targets, {640, 640}, limited),
+               ResourceExhausted);
+  const auto loss = t::yolo_detection_loss(raw, targets, {640, 640}, options);
+  EXPECT_TRUE(torch::isfinite(loss.total).item<bool>());
+  loss.total.backward();
+  ASSERT_TRUE(raw.grad().defined());
+  EXPECT_TRUE(torch::isfinite(raw.grad()).all().item<bool>());
+  limited.max_assignment_pairs = 125 * 8400;
+  const auto exact =
+      t::yolo_detection_loss(raw.detach(), targets, {640, 640}, limited);
+  EXPECT_TRUE(torch::equal(loss.total.detach(), exact.total));
+  limited.max_assignment_pairs -= 1;
+  EXPECT_THROW(t::yolo_detection_loss(raw, targets, {640, 640}, limited),
+               ResourceExhausted);
+}
+
+TEST_F(VisionContracts, Yolo26AssignmentBudgetRejectsInvalidValues) {
+  for (const auto* invalid : {"0", "-1", "1.5", "true", "\"1024\"", "null",
+                              "1073741825", "18446744073709551615"}) {
+    const auto json =
+        std::string(
+            R"({"model":{"architecture":"yolo26n"},"dataset":{"format":"coco","source":"a.json"},"yolo26_loss":{"max_assignment_pairs":)") +
+        invalid + "}}";
+    EXPECT_THROW(t::parse_recipe(json, std::filesystem::current_path()),
+                 InvalidArgument)
+        << invalid;
+  }
+  t::RecipeSpec recipe;
+  recipe.model.architecture = "yolo26n";
+  recipe.training.source = std::filesystem::absolute("a.json");
+  recipe.yolo26_loss.emplace();
+  for (const auto value : std::array<std::int64_t, 3>{0, -1, (1LL << 30) + 1}) {
+    recipe.yolo26_loss->max_assignment_pairs = value;
+    EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+  }
+  recipe.yolo26_loss->max_assignment_pairs = 1LL << 30;
+  EXPECT_NO_THROW(t::check_recipe(recipe));
+}
+
 TEST_F(VisionContracts, Yolo26ExplicitLossRecipeRoundTripAndBinding) {
   t::RecipeSpec recipe;
   recipe.model.architecture = "yolo26n";

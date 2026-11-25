@@ -419,7 +419,8 @@ RecipeSpec parse_recipe(std::string_view text,
   if (j.contains("yolo26_loss")) {
     const auto& loss = j["yolo26_loss"];
     Keys(loss, {"box_gain", "class_gain", "dfl_gain", "one_to_one_topk",
-                "fixed_branch_gains", "fixed_many_gain", "fixed_one_gain"});
+                "fixed_branch_gains", "fixed_many_gain", "fixed_one_gain",
+                "max_assignment_pairs"});
     for (const auto* field : {"box_gain", "class_gain", "dfl_gain",
                               "fixed_many_gain", "fixed_one_gain"})
       if (loss.contains(field) && !loss[field].is_number())
@@ -432,6 +433,7 @@ RecipeSpec parse_recipe(std::string_view text,
     options.class_gain = loss.value("class_gain", options.class_gain);
     options.dfl_gain = loss.value("dfl_gain", options.dfl_gain);
     ReadLimit(loss, "one_to_one_topk", options.one_to_one_topk);
+    ReadLimit(loss, "max_assignment_pairs", options.max_assignment_pairs);
     options.fixed_branch_gains =
         loss.value("fixed_branch_gains", options.fixed_branch_gains);
     options.fixed_many_gain =
@@ -901,6 +903,8 @@ void check_recipe(const RecipeSpec& r) {
     if (!r.model.architecture.starts_with("yolo26") ||
         r.model.task != TaskKind::detect || loss.one_to_one_topk < 1 ||
         loss.one_to_one_topk > 10000 ||
+        loss.max_assignment_pairs < 1 ||
+        loss.max_assignment_pairs > (1LL << 30) ||
         (!loss.fixed_branch_gains &&
          (loss.fixed_many_gain != 1. || loss.fixed_one_gain != 1.)))
       throw InvalidArgument(
@@ -1419,6 +1423,8 @@ std::string recipe_json(const RecipeSpec& r) {
                         {"fixed_branch_gains", loss.fixed_branch_gains},
                         {"fixed_many_gain", loss.fixed_many_gain},
                         {"fixed_one_gain", loss.fixed_one_gain}};
+    if (loss.max_assignment_pairs != 1048576)
+      j["yolo26_loss"]["max_assignment_pairs"] = loss.max_assignment_pairs;
   }
   if (r.yolo26_warmup.enabled)
     j["yolo26_warmup"] = {{"enabled", true},

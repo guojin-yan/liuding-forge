@@ -31,6 +31,8 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 `jpeg_backend: "libjpeg-turbo"` 显式选择已编译的 JPEG 加速后端；默认 `stb`。后端参与配方、数据及解码缓存身份，恢复时不能互换。构建依赖、像素和资源边界见[图像解码](../data_image.md)。
 
+密集目标及 Mosaic/MixUp 可在 `yolo26_loss.max_assignment_pairs` 显式设置每图 GT 数与 anchor 数乘积的工作额度，默认 1,048,576，允许正整数至 2^30。640×640 的 P5 输入有 8,400 个 anchor，默认额度最多容纳每图 124 个目标；例如设置 16,777,216 可容纳 1,997 个目标。该选项仅适用于 YOLO26 detect，非默认值参与配方及恢复身份；它不改变标签、损失公式或分配算法，也不是进程内存或显存上限。此显式损失配方同时将已有 `preprocessing.max_targets` 用作整批数据及损失的目标行上限（默认 4,096）。应根据实际标注密度、增强及设备容量选择。
+
 固定参数的检测数据处理可使用 `<jyppx/liuding/vision/tasks/data/opencv_preparation.hpp>`：`prepare_yolo_opencv_geometry` 执行最长边缩放、四图大画布拼接或 LetterBox，以及可选透视与框筛选；`prepare_yolo_opencv_color` 接收已完成几何处理的 MixUp 伙伴、显式混合系数、HSV LUT 和翻转参数。输入为 CPU uint8 RGB 与轴对齐框，输出保留对象来源；多源或透视结果不提供整图逆映射。函数不选择随机伙伴，不采样 Beta 系数，也不代表工作流已采用完整官方增强。
 
 构建时设置 `JYPPX_LIUDING_VISION_OPENCV=ON`，并通过 `OpenCV_DIR` 提供 OpenCV 5.1.0 的静态 CMake SDK（core、imgproc 及其导出依赖）。不在配置阶段下载依赖；未启用时 `yolo_opencv_available()` 返回 false，显式调用抛出 `NotImplemented`。当前只验证 Windows x64/AMD Clang 24 下的 CPU 固定参数处理，GPU 内核、其他 OpenCV 版本及完整训练性能须独立验证。

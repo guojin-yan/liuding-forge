@@ -239,10 +239,12 @@ int main() try {
                               .dfl_gain = 9.03871,
                               .one_to_one_topk = 8,
                               .fixed_branch_gains = true};
+  criterion_recipe.yolo26_loss->max_assignment_pairs = 16777216;
   const auto criterion_roundtrip = tasks::parse_recipe(
       tasks::recipe_json(criterion_recipe), std::filesystem::current_path());
   if (!criterion_roundtrip.yolo26_loss ||
       criterion_roundtrip.yolo26_loss->one_to_one_topk != 8 ||
+      criterion_roundtrip.yolo26_loss->max_assignment_pairs != 16777216 ||
       tasks::recipe_identity(criterion_recipe) !=
           tasks::recipe_identity(criterion_roundtrip))
     throw std::runtime_error("installed YOLO26 criterion roundtrip mismatch");

@@ -131,6 +131,8 @@ void bind_yolo(const RecipeSpec& r, TaskBinding& b,
         b.yolo.detection.box_gain = loss.box_gain;
         b.yolo.detection.class_gain = loss.class_gain;
         b.yolo.detection.dfl_gain = loss.dfl_gain;
+        b.yolo.detection.max_assignment_pairs = loss.max_assignment_pairs;
+        b.yolo.detection.max_targets = data.max_targets;
         b.yolo.one_to_one_topk = loss.one_to_one_topk;
         b.yolo.fixed_branch_gains = loss.fixed_branch_gains;
         b.yolo.fixed_many_gain = loss.fixed_many_gain;
