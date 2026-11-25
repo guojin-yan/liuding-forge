@@ -141,6 +141,47 @@ TEST(RtDetrData, WideColorPhotometryMatchesIndependentPilBytes) {
                .item<int>();
   }
 }
+TEST(RtDetrData,
+     StretchPreservesBoundaryBoxesThroughSanitizeAndBatchValidation) {
+  for (bool training : {false, true}) {
+    SCOPED_TRACE(training);
+    auto s = Sample();
+    s.width = 533;
+    s.height = 281;
+    s.image = torch::zeros({3, s.height, s.width}, torch::kUInt8);
+    s.geometry.emplace(im::ImageExtent{s.width, s.height});
+    auto a = std::make_shared<im::VisionAnnotationRecord>(*s.annotation);
+    a->width = s.width;
+    a->height = s.height;
+    a->objects[0].box = im::ImageBox{0, 0, double(s.width), double(s.height)};
+    a->objects[1].box = im::ImageBox{1, 1, 20, 20};
+    s.annotation = a;
+    t::YoloDataOptions o;
+    o.num_classes = 1;
+    o.letterbox.canvas = {640, 640};
+    o.rtdetr.enabled = true;
+    o.rtdetr.training = training;
+    o.rtdetr.photometric_probability = o.rtdetr.zoom_out_probability =
+        o.rtdetr.iou_crop_probability = o.rtdetr.horizontal_flip_probability =
+            0;
+    o.augmentation.dataset_id = "boundary-reference";
+    const std::array samples{s};
+    const std::array keys{im::ImageBatchKey{.id = "boundary-reference"}};
+    const auto batch = t::prepare_yolo_batch(samples, keys, o);
+    ASSERT_EQ(batch.items.size(), 1U);
+    ASSERT_TRUE(batch.items[0].annotation);
+    const auto& objects = batch.items[0].annotation->objects;
+    ASSERT_EQ(objects.size(), 2U);
+    EXPECT_DOUBLE_EQ(objects[0].box->x_min, 0);
+    EXPECT_DOUBLE_EQ(objects[0].box->y_min, 0);
+    EXPECT_DOUBLE_EQ(objects[0].box->x_max, 640);
+    EXPECT_DOUBLE_EQ(objects[0].box->y_max, 640);
+    EXPECT_DOUBLE_EQ(objects[1].box->x_max, 20 * (640. / s.width));
+    EXPECT_DOUBLE_EQ(objects[1].box->y_max, 20 * (640. / s.height));
+    EXPECT_EQ(s.annotation->objects[0].box->x_max, s.width);
+    EXPECT_EQ(s.annotation->objects[0].box->y_max, s.height);
+  }
+}
 TEST(RtDetrData, IouCropDropsOutsideCentersAndSanitizesSmallBoxes) {
   auto s = Sample();
   t::detail::RtDetrSamplePlan p;

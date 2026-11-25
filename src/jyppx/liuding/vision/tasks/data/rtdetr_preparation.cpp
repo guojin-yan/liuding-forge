@@ -315,7 +315,13 @@ im::VisionSample Stretch(const im::VisionSample& s, im::ImageExtent e,
                  sy = static_cast<double>(e.height) / s.height;
     for (auto& object : ann->objects) {
       auto& box = *object.box;
-      box = {box.x_min * sx, box.y_min * sy, box.x_max * sx, box.y_max * sy};
+      // Checked input boxes lie inside the source canvas. Multiplying an
+      // endpoint by a rounded scale can exceed the destination by one ULP;
+      // contain that roundoff before sanitation and strict batch validation.
+      box = {std::clamp(box.x_min * sx, 0., double(e.width)),
+             std::clamp(box.y_min * sy, 0., double(e.height)),
+             std::clamp(box.x_max * sx, 0., double(e.width)),
+             std::clamp(box.y_max * sy, 0., double(e.height))};
     }
     result.annotation = std::move(ann);
   }
@@ -332,7 +338,7 @@ std::string rtdetr_data_identity(const RtDetrDataOptions& o) {
     throw InvalidArgument("Invalid RT-DETR crop rejection bounds");
   std::ostringstream text;
   text.imbue(std::locale::classic());
-  text << std::setprecision(17) << "rtdetr-data/pil-u8-v1:" << o.enabled << ':'
+  text << std::setprecision(17) << "rtdetr-data/pil-u8-v2:" << o.enabled << ':'
        << o.training << ':' << o.photometric_probability << ':'
        << o.zoom_out_probability << ':' << o.iou_crop_probability << ':'
        << o.horizontal_flip_probability << ':' << o.crop_trials << ':'
