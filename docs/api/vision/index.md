@@ -43,6 +43,8 @@ RT-DETR 的 `rtdetr_data` 拉伸配置可在 `evaluation`、`prediction` 中分�
 
 `rtdetr_inference_validation: true` 在每批上只执行一次验证推理，不计算验证 loss，也不再逐图进行第二遍推理。它要求 `rtdetr_data`、完整指标、原始方向坐标和 `evaluation` 中未过滤的 `confidence: 0`、`multi_label: true`、`max_detections: 300`、`clip_boxes: false`；模型选择使用 `validation.map` 或 `validation.ap50`。指标使用导入时保留的原始标注及稳定正整数图像 ID，保留 crowd 和面积，每图每类最多 100 个预测框；最后不足一批的验证样本保留。`validation.json` 的 `execution` 为 `rtdetr.batched_inference/v1`，`coco_metrics` 汇总 COCO bbox 的 12 项 AP/AR（含面积区间和 maxDet 1/10/100，缺失类别结果为 -1）。该选择参与恢复身份，默认保留原验证路径；最终官方 COCO 全部指标仍需统一评估器核对。
 
+`yolo_detection_validation: true` 使 YOLO26 轴对齐检测直接复用逐批验证 loss 的预测结果计算 COCO bbox 的 12 项 AP/AR，省去第二遍逐图推理，同时保留 loss、分项指标和 EMA 模型选择。它要求 COCO 验证源、完整指标、原始方向坐标、裁剪框且不筛选类别，与 RT-DETR 专用验证互斥；使用导入时保留的原始 crowd、面积及唯一正整数图像 ID，验证尾批保留。`validation.json` 的 `execution` 为 `yolo.batched_loss_and_inference/v1`；预测阈值及数量仍由 `evaluation` 指定，COCO 指标每图每类最多取 100 框。该选择参与恢复身份，默认保留原验证路径；最终官方 COCO 结果仍需统一评估器核对。
+
 `save_best_checkpoint: false` 关闭指标改善时的 `best.checkpoint` 和 `best.safetensors` 发布；仍跟踪最佳指标并按 `save_interval_epochs` 保存周期检查点和 last。默认值为 `true`，关闭选择参与恢复身份。文件格式、保存内容和耗时仍应分别测量，不能仅凭保存频率推定不同框架的检查点工作量相同。
 
 `ema.update_rule: "multiply-add-floating-only"` 使用 `decay*(1-exp(-updates/ramp_updates))`，先分别计算 shadow 与 source 的浮点乘积，再相加，并保留初始化时的整数及布尔缓冲区；临时 source 乘积最多保留当前一个张量，对应原始 RT-DETR 的更新顺序。默认 `lerp-copy-integral` 保留既有 lerp 和整数复制语义。C++ 的对应入口是 `ModelEmaOptions::update_rule` 与 `RecipeSpec::ema_update_rule`；该选择绑定配方及 EMA 检查点身份，不同规则不能互相恢复。

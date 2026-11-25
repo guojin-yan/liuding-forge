@@ -175,6 +175,19 @@ int main() try {
     throw std::runtime_error("installed annotation limits roundtrip mismatch");
   recipe.optimizer.weight_decay_overrides.clear();
   {
+    auto yolo = recipe;
+    yolo.model.architecture = "yolo26n";
+    yolo.validation = yolo.training;
+    yolo.validation->format = tasks::DetectionDatasetFormat::coco;
+    yolo.full_validation_metrics = true;
+    yolo.yolo_detection_validation = true;
+    const auto restored = tasks::parse_recipe(tasks::recipe_json(yolo),
+                                              std::filesystem::current_path());
+    if (!restored.yolo_detection_validation ||
+        tasks::recipe_identity(restored) != tasks::recipe_identity(yolo))
+      throw std::runtime_error("installed YOLO batched validation mismatch");
+  }
+  {
     auto rtdetr = recipe;
     rtdetr.model.architecture = "rtdetr_resnet18_vd_coco72";
     rtdetr.data = {};

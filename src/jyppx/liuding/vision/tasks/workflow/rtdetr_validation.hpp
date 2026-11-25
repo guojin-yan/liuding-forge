@@ -4,30 +4,18 @@
 // Licensed under the Apache License, Version 2.0.
 #ifndef JYPPX_LIUDING_VISION_TASKS_PRIVATE_RTDETR_VALIDATION_HPP
 #define JYPPX_LIUDING_VISION_TASKS_PRIVATE_RTDETR_VALIDATION_HPP
-#include <jyppx/liuding/training/metrics/detection.hpp>
-#include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
+#include "coco_box_validation.hpp"
 
-#include <map>
+#include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
 namespace jyppx::liuding::vision::tasks::detail {
-class RtDetrValidation {
+class RtDetrValidation final : public CocoBoxValidation {
  public:
   RtDetrValidation(std::shared_ptr<const data::image::AnnotationIndex> targets,
-                   std::string dataset_identity, const RecipeSpec& recipe);
+                   std::string dataset_identity, const RecipeSpec& recipe)
+      : CocoBoxValidation(std::move(targets), std::move(dataset_identity),
+                          recipe, "rtdetr.batched_inference/v1") {}
   training::StepOutput step(TaskBinding& binding,
                             const training::StepInput& input);
-  std::string finish(std::stop_token stop);
-
- private:
-  void reset();
-  std::shared_ptr<const data::image::AnnotationIndex> targets_;
-  std::map<std::string, std::size_t> by_path_;
-  training::metrics::DetectionMetricOptions options_;
-  ResultOptions results_;
-  std::vector<
-      std::unique_ptr<training::metrics::DetectionAveragePrecisionMetric>>
-      metrics_;
-  std::size_t images_ = 0;
-  std::optional<std::uint64_t> epoch_;
 };
 }  // namespace jyppx::liuding::vision::tasks::detail
 #endif

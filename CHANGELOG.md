@@ -16,6 +16,7 @@
 
 ### 训练与数据
 
+- YOLO26 COCO 检测可显式复用逐批验证 loss 的前向结果汇总 12 项 COCO bbox AP/AR，保留 loss、EMA、原始 crowd/面积和验证尾批，省去第二遍推理。
 - 增加显式 YOLO 检测数据策略 `yolo_original_data`：有界逻辑 worker 伙伴历史、Beta(32,32) MixUp、完整伙伴几何处理和末轮多源关闭，可并行处理并精确恢复；复用可选 OpenCV 后端，评估暂限方形 LetterBox。
 - OpenCV 检测几何采用显式 FP32 融合乘加；颜色计划可选择中心坐标格式的框翻转及往返舍入，并收敛画布边缘的舍入误差。
 - 增加可选 OpenCV 5.1.0 静态后端的固定参数 YOLO 检测处理：最长边缩放、大画布四图拼接、透视及框筛选、完整伙伴 MixUp、HSV LUT 和翻转；保留输入、资源额度与对象来源，默认构建不依赖 OpenCV。

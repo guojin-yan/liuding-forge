@@ -7,6 +7,7 @@
 #include <jyppx/liuding/vision/tasks/workflow/suite.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -233,6 +234,46 @@ TEST_F(VisionTrainingTail,
   auto malformed = J::parse(original);
   malformed["save_best_checkpoint"] = 0;
   EXPECT_THROW(t::parse_recipe(malformed.dump(), root), InvalidArgument);
+}
+TEST_F(VisionTrainingTail, YoloDetectionValidationKeepsLossAndMetricsWithEma) {
+  auto recipe = Recipe();
+  recipe.model.architecture = "yolo26n";
+  recipe.yolo_detection_validation = true;
+  recipe.full_validation_metrics = true;
+  recipe.epochs = 2;
+  recipe.ema = true;
+  recipe.drop_last_training_batch = true;
+  recipe.selection_metric = "validation.loss";
+  recipe.selection_maximize = false;
+  recipe.data.augmentation.multi_source.total_epochs = 2;
+  recipe.data.augmentation.multi_source.close_epochs = 0;
+  std::size_t batches = 0, completed = 0;
+  t::TrainRequest request;
+  request.recipe = recipe;
+  request.output = root / "yolo-batched";
+  request.event_observer = [&](const training::CallbackEvent& event) {
+    if (event.phase != training::CallbackPhase::validation) return;
+    if (event.kind == training::CallbackEventKind::batch_finished) ++batches;
+    if (event.kind == training::CallbackEventKind::validation_finished) {
+      ++completed;
+      EXPECT_TRUE(event.metrics.contains("validation.map"));
+      EXPECT_TRUE(event.metrics.contains("validation.ap50"));
+      ASSERT_TRUE(event.metrics.contains("validation.loss"));
+      EXPECT_TRUE(std::isfinite(event.metrics.at("validation.loss")));
+    }
+  };
+  const auto result = t::train_vision(request);
+  EXPECT_EQ(result.fit.completed_epochs, 2U);
+  EXPECT_EQ(result.fit.global_step, 4U);
+  EXPECT_EQ(batches, 4U);
+  EXPECT_EQ(completed, 2U);
+  J report;
+  std::ifstream(request.output / "validation.json") >> report;
+  EXPECT_EQ(report["execution"], "yolo.batched_loss_and_inference/v1");
+  EXPECT_EQ(report["images"], 3);
+  EXPECT_EQ(report["coco_metrics"].size(), 12U);
+  EXPECT_TRUE(
+      std::filesystem::is_regular_file(request.output / "best.checkpoint"));
 }
 }  // namespace
 }  // namespace jyppx::liuding::vision::tests

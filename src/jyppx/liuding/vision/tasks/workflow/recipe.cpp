@@ -251,6 +251,7 @@ RecipeSpec parse_recipe(std::string_view text,
            "keypoint_sigmas",
            "full_validation_metrics",
            "rtdetr_inference_validation",
+           "yolo_detection_validation",
            "selection_metric",
            "selection_maximize",
            "tensorboard",
@@ -640,6 +641,11 @@ RecipeSpec parse_recipe(std::string_view text,
     throw InvalidArgument("rtdetr_inference_validation must be boolean");
   r.rtdetr_inference_validation =
       j.value("rtdetr_inference_validation", r.rtdetr_inference_validation);
+  if (j.contains("yolo_detection_validation") &&
+      !j["yolo_detection_validation"].is_boolean())
+    throw InvalidArgument("yolo_detection_validation must be boolean");
+  r.yolo_detection_validation =
+      j.value("yolo_detection_validation", r.yolo_detection_validation);
   r.tensorboard = j.value("tensorboard", r.tensorboard);
   if (j.contains("diagnostics")) {
     const auto& d = j["diagnostics"];
@@ -828,6 +834,20 @@ RecipeSpec parse_recipe(std::string_view text,
   return r;
 }
 void check_recipe(const RecipeSpec& r) {
+  if (r.yolo_detection_validation &&
+      (r.rtdetr_inference_validation ||
+       !r.model.architecture.starts_with("yolo26") ||
+       r.model.task != TaskKind::detect || r.data.rtdetr.enabled ||
+       !r.validation || r.validation->format != DetectionDatasetFormat::coco ||
+       !r.full_validation_metrics || !r.extension.training_manifest.empty() ||
+       !r.extension.validation_manifest.empty() ||
+       (r.exif_policy != ExifPolicy::reject_non_identity &&
+        r.exif_policy != ExifPolicy::ignore) ||
+       !r.evaluation.clip_boxes || !r.evaluation.classes.empty()))
+    throw InvalidArgument(
+        "YOLO detection validation requires YOLO26 COCO detection, full "
+        "metrics, original coordinates and clipped boxes without class "
+        "filtering");
   if (r.ema_update_rule != ModelEmaUpdateRule::lerp_copy_integral &&
       r.ema_update_rule != ModelEmaUpdateRule::multiply_add_floating_only)
     throw InvalidArgument("Invalid EMA update rule");
@@ -1438,6 +1458,7 @@ std::string recipe_json(const RecipeSpec& r) {
     j["rtdetr_training_sizes"] = r.rtdetr_training_sizes;
   if (r.drop_last_training_batch) j["drop_last_training_batch"] = true;
   if (r.rtdetr_inference_validation) j["rtdetr_inference_validation"] = true;
+  if (r.yolo_detection_validation) j["yolo_detection_validation"] = true;
   if (!r.save_best_checkpoint) j["save_best_checkpoint"] = false;
   if (r.ema_update_rule == ModelEmaUpdateRule::multiply_add_floating_only)
     j["ema"]["update_rule"] = "multiply-add-floating-only";

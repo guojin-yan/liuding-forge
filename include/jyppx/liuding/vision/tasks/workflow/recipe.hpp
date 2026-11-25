@@ -123,6 +123,8 @@ struct RecipeSpec {
   bool full_validation_metrics = true;
   bool rtdetr_inference_validation = false;
   ///< RT-DETR stretch: one batched forward, no loss, bbox AP maxDet100.
+  bool yolo_detection_validation = false;
+  ///< YOLO26 COCO detection: reuse batched loss predictions for bbox AP/AR.
   bool tensorboard =
       false;  ///< Optional native event output for each run segment.
   bool diagnostics =

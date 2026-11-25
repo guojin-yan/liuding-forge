@@ -8,6 +8,7 @@
 #include "history.hpp"
 #include "rtdetr_validation.hpp"
 #include "run_ledger.hpp"
+#include "yolo_validation.hpp"
 
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/foundation/random.hpp>
@@ -335,7 +336,7 @@ Sources Read(RecipeSpec& r, std::stop_token stop,
       require_disjoint_detection_splits(train, val, stop);
       phase("data.disjoint_check.finished");
       s.val_id = val.metadata_identity;
-      if (r.rtdetr_inference_validation)
+      if (r.rtdetr_inference_validation || r.yolo_detection_validation)
         s.validation_annotations =
             std::make_shared<image::AnnotationIndex>(val.annotations);
       s.val = std::make_shared<image::ImageDataset>(
@@ -772,6 +773,10 @@ TrainResult train_vision(const TrainRequest& request) {
   if (validation && r.rtdetr_inference_validation)
     rtdetr_validation = std::make_shared<detail::RtDetrValidation>(
         source.validation_annotations, source.val_id, r);
+  std::shared_ptr<detail::YoloDetectionValidation> yolo_validation;
+  if (validation && r.yolo_detection_validation)
+    yolo_validation = std::make_shared<detail::YoloDetectionValidation>(
+        source.validation_annotations, source.val_id, r);
   if (validation) {
     fit.validation_data = validation;
     if (rtdetr_validation) {
@@ -784,22 +789,30 @@ TrainResult train_vision(const TrainRequest& request) {
       fit.validation_batch_mapper = eval_binding.image_mapper;
       fit.validation_target_mapper = eval_binding.target_mapper;
     }
-    fit.validation_step = [eval_binding, rtdetr_validation](
+    fit.validation_step = [eval_binding, rtdetr_validation, yolo_validation](
                               const training::StepInput& input) mutable {
       Modes eval_modes(*eval_binding.model);
-      if (rtdetr_validation) return rtdetr_validation->step(eval_binding, input);
+      if (rtdetr_validation)
+        return rtdetr_validation->step(eval_binding, input);
+      if (yolo_validation) return yolo_validation->step(eval_binding, input);
       return eval_binding.step({*eval_binding.model, input.batch,
                                 input.invocation, input.target, input.context});
     };
   }
+  const std::shared_ptr<detail::CocoBoxValidation> box_validation =
+      rtdetr_validation ? std::static_pointer_cast<detail::CocoBoxValidation>(
+                              rtdetr_validation)
+                        : std::static_pointer_cast<detail::CocoBoxValidation>(
+                              yolo_validation);
   if (validation && r.full_validation_metrics)
-    fit.validation_summary = [eval_binding, rtdetr_validation,
+    fit.validation_summary = [eval_binding, box_validation,
                               dataset = source.val, identity = source.val_id, r,
-                              path = request.output](std::stop_token stop) mutable {
-      auto report = J::parse(rtdetr_validation
-                                ? rtdetr_validation->finish(stop)
-                                : evaluate_vision(eval_binding, *dataset, r,
-                                                  identity, stop));
+                              path = request.output](
+                                 std::stop_token stop) mutable {
+      auto report =
+          J::parse(box_validation ? box_validation->finish(stop)
+                                  : evaluate_vision(eval_binding, *dataset, r,
+                                                    identity, stop));
       Save(path / "validation.json", report.dump(2));
       std::map<std::string, double> metrics;
       for (auto key :
