@@ -17,8 +17,9 @@ TaskLoss rtdetr_loss(std::span<const Tensor> outputs, const Tensor& targets,
                      std::array<std::int64_t, 2> canvas,
                      std::int64_t num_classes,
                      bool include_denoising_padding = false);
-training::StepFunction make_rtdetr_step(std::int64_t num_classes,
-                                        bool include_denoising_padding = false);
+training::StepFunction make_rtdetr_step(
+    std::int64_t num_classes, bool include_denoising_padding = false,
+    std::vector<std::int64_t> training_sizes = {}, std::uint64_t seed = 0);
 /** @brief Sigmoid query/class top-k without NMS, with standard result filters.
  */
 std::vector<ImageResult> decode_rtdetr(std::span<const Tensor> outputs,

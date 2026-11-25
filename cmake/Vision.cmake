@@ -127,6 +127,7 @@ if(JYPPX_LIUDING_BUILD_VISION_TASKS)
         src/jyppx/liuding/vision/tasks/data/classification.cpp
         src/jyppx/liuding/vision/tasks/data/targets.cpp
         src/jyppx/liuding/vision/tasks/data/preparation.cpp
+        src/jyppx/liuding/vision/tasks/data/rtdetr_preparation.cpp
         src/jyppx/liuding/vision/tasks/data/dataset.cpp)
     add_library(jyppx::liuding::vision_tasks ALIAS jyppx_liuding_vision_tasks)
     if(MSVC)

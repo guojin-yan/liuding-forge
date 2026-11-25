@@ -75,6 +75,8 @@ struct RecipeSpec {
   ModelSpec model;
   std::optional<Yolo26LossRecipe> yolo26_loss;
   Yolo26WarmupRecipe yolo26_warmup;
+  std::vector<std::int64_t> rtdetr_training_sizes;
+  ///< Explicit square model-input sizes, sampled with replacement per batch.
   ExtensionRecipe extension;
   DetectionDatasetOptions training;
   std::optional<DetectionDatasetOptions> validation;

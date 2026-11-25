@@ -40,6 +40,23 @@ void CheckTargets(const YoloDataOptions& options) {
 
 void CheckProjection(const YoloDataOptions& options) {
   CheckTargets(options);
+  if (options.rtdetr.enabled) {
+    static_cast<void>(rtdetr_data_identity(options.rtdetr));
+    const auto& a = options.augmentation;
+    const auto& p = a.projective;
+    const auto& m = a.multi_source;
+    if (options.classification.enabled || options.multiscale ||
+        options.rectangular || a.horizontal_flip_probability ||
+        a.vertical_flip_probability || a.bgr_probability ||
+        a.spatial.scale_gain || a.spatial.translate_fraction ||
+        PhotoEnabled(a.photo) || p.degrees || p.shear_degrees ||
+        p.perspective || p.scale_gain || p.translate_fraction ||
+        m.mosaic_probability || m.mixup_probability || m.cutmix_probability ||
+        m.copypaste_probability)
+      throw InvalidArgument(
+          "RT-DETR data profile cannot be combined with other augmentation "
+          "profiles");
+  }
   for (const auto probability :
        {options.augmentation.horizontal_flip_probability,
         options.augmentation.vertical_flip_probability,
@@ -172,7 +189,12 @@ image::ImageBatch PrepareBatch(std::span<const image::VisionSample> samples,
                                   .occurrence = keys[index].occurrence,
                                   .view = keys[index].view});
     };
-    output = options.classification.enabled
+    output = options.rtdetr.enabled
+                 ? prepare_rtdetr_sample(
+                       sample, letterbox.canvas, options.rtdetr,
+                       stream(rtdetr_data_identity(options.rtdetr)),
+                       letterbox.geometry, stop)
+             : options.classification.enabled
                  ? prepare_classification_sample(
                        sample, letterbox.canvas, options.classification,
                        stream(classification_augmentation_identity(
@@ -368,12 +390,15 @@ std::string yolo_data_identity(const YoloDataOptions& options) {
            << options.augmentation.dataset_id.size() << ':'
            << options.augmentation.dataset_id;
   if (options.numeric_on_consumer) identity << ":numeric-on-consumer/v1";
+  if (options.rtdetr.enabled)
+    identity << ":" << rtdetr_data_identity(options.rtdetr);
   const auto text = identity.str();
   return sha256_hex(std::as_bytes(std::span(text)));
 }
 
 YoloDataOptions yolo_evaluation_options(const YoloDataOptions& training) {
   auto result = training;
+  result.rtdetr.training = false;
   result.multiscale = false;
   result.rectangular = false;
   result.classification.training = false;

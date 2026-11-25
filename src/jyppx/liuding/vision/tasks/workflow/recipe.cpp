@@ -256,9 +256,42 @@ RecipeSpec parse_recipe(std::string_view text,
            "initialization",
            "normalization",
            "preprocessing",
+           "rtdetr_data",
+           "rtdetr_training_sizes",
            "horizontal_keypoint_permutations",
            "vertical_keypoint_permutations"});
   RecipeSpec r;
+  if (j.contains("rtdetr_training_sizes")) {
+    const auto& sizes = j.at("rtdetr_training_sizes");
+    if (!sizes.is_array() || sizes.size() > 256)
+      throw InvalidArgument("RT-DETR training sizes must be a bounded array");
+    for (const auto& size : sizes) {
+      if (!size.is_number_integer() || size.get<double>() < 32 ||
+          size.get<double>() > 2048)
+        throw InvalidArgument(
+            "RT-DETR training size must be an integer in [32,2048]");
+      r.rtdetr_training_sizes.push_back(size.get<std::int64_t>());
+    }
+  }
+  if (j.contains("rtdetr_data")) {
+    const auto& d = j.at("rtdetr_data");
+    Keys(d, {"photometric_probability", "zoom_out_probability",
+             "iou_crop_probability", "horizontal_flip_probability",
+             "crop_trials", "max_crop_rounds"});
+    auto& o = r.data.rtdetr;
+    for (const auto* key :
+         {"photometric_probability", "zoom_out_probability",
+          "iou_crop_probability", "horizontal_flip_probability"})
+      if (d.contains(key) && !d.at(key).is_number())
+        throw InvalidArgument("RT-DETR probabilities must be numeric");
+    o.enabled = true;
+    o.photometric_probability = d.value("photometric_probability", .5);
+    o.zoom_out_probability = d.value("zoom_out_probability", .5);
+    o.iou_crop_probability = d.value("iou_crop_probability", .8);
+    o.horizontal_flip_probability = d.value("horizontal_flip_probability", .5);
+    ReadLimit(d, "crop_trials", o.crop_trials);
+    ReadLimit(d, "max_crop_rounds", o.max_crop_rounds);
+  }
   const auto root = std::filesystem::absolute(base_directory);
   const auto exif = j.value("exif_policy", std::string("reject"));
   if (exif == "reject")
@@ -1011,6 +1044,23 @@ void check_recipe(const RecipeSpec& r) {
       !r.device.is_cuda())
     throw InvalidArgument("CUDA precision requires CUDA");
   auto checked_data = r.data;
+  if ((r.data.rtdetr.enabled || !r.rtdetr_training_sizes.empty()) &&
+      (!r.model.architecture.starts_with("rtdetr_") ||
+       r.model.task != TaskKind::detect))
+    throw InvalidArgument(
+        "RT-DETR data and model multiscale require RT-DETR detection");
+  if (r.data.rtdetr.enabled && !r.data.rtdetr.training)
+    throw InvalidArgument(
+        "Training recipes require the training RT-DETR data policy");
+  if (!r.rtdetr_training_sizes.empty() && r.data.multiscale)
+    throw InvalidArgument(
+        "Choose RT-DETR model multiscale or worker multiscale");
+  if (r.rtdetr_training_sizes.size() > 256)
+    throw InvalidArgument("Too many RT-DETR training sizes");
+  for (auto size : r.rtdetr_training_sizes)
+    if (size < 32 || size > 2048 || size % 32)
+      throw InvalidArgument(
+          "RT-DETR training sizes must be aligned to 32 in [32,2048]");
   if (checked_data.augmentation.dataset_id.empty())
     checked_data.augmentation.dataset_id = "recipe.preflight";
   static_cast<void>(yolo_data_identity(checked_data));
@@ -1303,6 +1353,18 @@ std::string recipe_json(const RecipeSpec& r) {
   if (r.data.numeric_on_consumer)
     j["preprocessing"]["numeric_stage"] = "consumer";
   if (r.non_blocking_transfer) j["non_blocking_transfer"] = true;
+  if (!r.rtdetr_training_sizes.empty())
+    j["rtdetr_training_sizes"] = r.rtdetr_training_sizes;
+  if (r.data.rtdetr.enabled) {
+    const auto& d = r.data.rtdetr;
+    j["rtdetr_data"] = {
+        {"photometric_probability", d.photometric_probability},
+        {"zoom_out_probability", d.zoom_out_probability},
+        {"iou_crop_probability", d.iou_crop_probability},
+        {"horizontal_flip_probability", d.horizontal_flip_probability},
+        {"crop_trials", d.crop_trials},
+        {"max_crop_rounds", d.max_crop_rounds}};
+  }
   if (r.optimizer_name == "musgd_bf16" || r.musgd_muon_weight != .5 ||
       r.musgd_sgd_weight != .5) {
     j["optimizer"]["muon_weight"] = r.musgd_muon_weight;

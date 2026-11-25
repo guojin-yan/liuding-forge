@@ -57,7 +57,8 @@ void bind_extended(const RecipeSpec& r,TaskBinding& b,const YoloDataOptions& dat
     o.max_encoder_elements = r.model.rtdetr_max_encoder_elements;
     b.model = std::make_shared<nn::ModelAdapter>(ex::adapt(ex::RtDetr(o)));
     b.step = make_rtdetr_step(r.model.num_classes,
-                              o.profile == ex::RtDetrProfile::r18_coco72);
+                              o.profile == ex::RtDetrProfile::r18_coco72,
+                              r.rtdetr_training_sizes, r.seed);
     b.image_mapper = make_rtdetr_image_mapper(data);
     b.decode=[](const c10::IValue& v,auto size,const ResultOptions& options){return decode_rtdetr(raw_tensors(v),size,options);};
   }else if(name.starts_with("fcos_")||name=="retinanet_resnet50_fpn"){

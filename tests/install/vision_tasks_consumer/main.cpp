@@ -103,6 +103,21 @@ int main() try {
     throw std::runtime_error("installed annotation limits roundtrip mismatch");
   recipe.optimizer.weight_decay_overrides.clear();
   {
+    auto rtdetr = recipe;
+    rtdetr.model.architecture = "rtdetr_resnet18_vd_coco72";
+    rtdetr.data = {};
+    rtdetr.data.rtdetr.enabled = true;
+    rtdetr.rtdetr_training_sizes = {480, 512, 544, 576, 608, 640, 640,
+                                    640, 672, 704, 736, 768, 800};
+    const auto restored = tasks::parse_recipe(tasks::recipe_json(rtdetr),
+                                              std::filesystem::current_path());
+    if (!restored.data.rtdetr.enabled ||
+        restored.rtdetr_training_sizes != rtdetr.rtdetr_training_sizes ||
+        tasks::recipe_identity(restored) != tasks::recipe_identity(rtdetr))
+      throw std::runtime_error(
+          "installed RT-DETR data/multiscale profile mismatch");
+  }
+  {
     auto accumulation_recipe = recipe;
     accumulation_recipe.accumulation_tail =
         jyppx::liuding::training::AccumulationTailPolicy::carry;

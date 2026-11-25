@@ -1046,6 +1046,7 @@ if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo
     jyppx_add_gtest(jyppx_test_vision_contracts
         LINK_TARGET jyppx::liuding::vision_tasks
         vision/test_contracts.cpp vision/test_data_preparation.cpp
+        vision/test_rtdetr_preparation.cpp
         vision/test_yolo_numerics.cpp vision/test_musgd.cpp)
     target_link_libraries(jyppx_test_vision_contracts PRIVATE
         jyppx::liuding::vision_ops nlohmann_json::nlohmann_json)

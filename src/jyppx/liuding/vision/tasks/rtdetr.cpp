@@ -9,6 +9,7 @@
 #include <jyppx/liuding/vision/tasks/rtdetr.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
 
+#include <torch/nn/functional/upsampling.h>
 #include <torch/torch.h>
 namespace jyppx::liuding::vision::tasks {
 namespace {
@@ -144,14 +145,46 @@ TaskLoss rtdetr_loss(std::span<const Tensor> x, const Tensor& targets,
   return {cls + box * 5 + giou * 2,
           {{"vfl", cls}, {"l1", box}, {"giou", giou}}};
 }
-training::StepFunction make_rtdetr_step(I classes, bool include_padding) {
-  return [classes, include_padding](const training::StepInput& in) {
+training::StepFunction make_rtdetr_step(I classes, bool include_padding,
+                                        std::vector<I> sizes,
+                                        std::uint64_t seed) {
+  if (sizes.size() > 256)
+    throw InvalidArgument("Too many RT-DETR training sizes");
+  for (auto size : sizes)
+    if (size < 32 || size > 2048 || size % 32)
+      throw InvalidArgument("Invalid RT-DETR training size");
+  return [classes, include_padding, sizes = std::move(sizes),
+          seed](const training::StepInput& in) {
     if (!in.target || !in.target->isTensor())
       throw InvalidArgument("RT-DETR needs box targets");
     auto image = in.invocation.positional[0].toTensor();
-    auto prediction = in.model.invoke(in.invocation);
+    auto invocation = in.invocation;
+    auto target = in.target->toTensor();
+    if (!sizes.empty() && in.context.phase == training::StepPhase::training) {
+      data::image::SampleRandom random(
+          {.dataset_id = "rtdetr.model-multiscale/v1",
+           .sample_id = std::to_string(in.context.batch_sequence),
+           .transform_id = "nearest/v1",
+           .seed = seed,
+           .epoch = in.context.epoch});
+      const auto size = sizes[random.bounded(sizes.size(), 0)];
+      const auto height = image.size(2), width = image.size(3);
+      image = torch::nn::functional::interpolate(
+          image, torch::nn::functional::InterpolateFuncOptions()
+                     .size(std::vector<I>{size, size})
+                     .mode(torch::kNearest));
+      const auto scale = torch::tensor(
+          {1.f, 1.f, static_cast<float>(size) / width,
+           static_cast<float>(size) / height, static_cast<float>(size) / width,
+           static_cast<float>(size) / height},
+          target.options());
+      target = target * scale;
+      invocation.positional[0] = image;
+      invocation.positional[1] = target;
+    }
+    auto prediction = in.model.invoke(invocation);
     auto loss =
-        rtdetr_loss(raw_tensors(prediction.value), in.target->toTensor(),
+        rtdetr_loss(raw_tensors(prediction.value), target,
                     {image.size(2), image.size(3)}, classes, include_padding);
     training::StepOutput out;
     out.loss = loss.total;
