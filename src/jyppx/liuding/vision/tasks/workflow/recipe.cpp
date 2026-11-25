@@ -704,10 +704,19 @@ RecipeSpec parse_recipe(std::string_view text,
   }
   if (j.contains("ema")) {
     const auto& v = j["ema"];
-    Keys(v, {"enabled", "decay", "ramp_updates"});
+    Keys(v, {"enabled", "decay", "ramp_updates", "update_rule"});
     r.ema = v.value("enabled", r.ema);
     r.ema_decay = v.value("decay", r.ema_decay);
     r.ema_ramp_updates = v.value("ramp_updates", r.ema_ramp_updates);
+    if (v.contains("update_rule") && !v["update_rule"].is_string())
+      throw InvalidArgument("EMA update_rule must be a string");
+    const auto rule = v.value("update_rule", std::string("lerp-copy-integral"));
+    if (rule == "lerp-copy-integral")
+      r.ema_update_rule = ModelEmaUpdateRule::lerp_copy_integral;
+    else if (rule == "multiply-add-floating-only")
+      r.ema_update_rule = ModelEmaUpdateRule::multiply_add_floating_only;
+    else
+      throw InvalidArgument("Unknown EMA update_rule");
   }
   if (j.contains("augmentation")) {
     const auto& v = j["augmentation"];
@@ -809,6 +818,9 @@ RecipeSpec parse_recipe(std::string_view text,
   return r;
 }
 void check_recipe(const RecipeSpec& r) {
+  if (r.ema_update_rule != ModelEmaUpdateRule::lerp_copy_integral &&
+      r.ema_update_rule != ModelEmaUpdateRule::multiply_add_floating_only)
+    throw InvalidArgument("Invalid EMA update rule");
   if (r.rtdetr_inference_validation &&
       (!r.model.architecture.starts_with("rtdetr_") ||
        r.model.task != TaskKind::detect || !r.data.rtdetr.enabled ||
@@ -1412,6 +1424,8 @@ std::string recipe_json(const RecipeSpec& r) {
   if (r.drop_last_training_batch) j["drop_last_training_batch"] = true;
   if (r.rtdetr_inference_validation) j["rtdetr_inference_validation"] = true;
   if (!r.save_best_checkpoint) j["save_best_checkpoint"] = false;
+  if (r.ema_update_rule == ModelEmaUpdateRule::multiply_add_floating_only)
+    j["ema"]["update_rule"] = "multiply-add-floating-only";
   if (r.jpeg_backend == data::image::JpegDecodeBackend::libjpeg_turbo)
     j["jpeg_backend"] = "libjpeg-turbo";
   if (r.data.rtdetr.enabled) {

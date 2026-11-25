@@ -1054,6 +1054,7 @@ if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo
         vision/test_rtdetr_results.cpp
         vision/test_rtdetr_validation.cpp
         vision/test_training_tail.cpp
+        vision/test_ema.cpp
         vision/test_yolo_numerics.cpp vision/test_musgd.cpp)
     target_link_libraries(jyppx_test_vision_contracts PRIVATE
         jyppx::liuding::vision_ops nlohmann_json::nlohmann_json)

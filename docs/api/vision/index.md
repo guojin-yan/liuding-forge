@@ -37,6 +37,8 @@ RT-DETR 的 `rtdetr_data` 拉伸配置可在 `evaluation`、`prediction` 中分�
 
 `save_best_checkpoint: false` 关闭指标改善时的 `best.checkpoint` 和 `best.safetensors` 发布；仍跟踪最佳指标并按 `save_interval_epochs` 保存周期检查点和 last。默认值为 `true`，关闭选择参与恢复身份。文件格式、保存内容和耗时仍应分别测量，不能仅凭保存频率推定不同框架的检查点工作量相同。
 
+`ema.update_rule: "multiply-add-floating-only"` 使用 `decay*(1-exp(-updates/ramp_updates))`，先分别计算 shadow 与 source 的浮点乘积，再相加，并保留初始化时的整数及布尔缓冲区；临时 source 乘积最多保留当前一个张量，对应原始 RT-DETR 的更新顺序。默认 `lerp-copy-integral` 保留既有 lerp 和整数复制语义。C++ 的对应入口是 `ModelEmaOptions::update_rule` 与 `RecipeSpec::ema_update_rule`；该选择绑定配方及 EMA 检查点身份，不同规则不能互相恢复。
+
 `drop_last_training_batch: true` 丢弃每轮末不足 `batch_size` 的训练批次，验证仍保留所有样本；默认 false。该策略参与恢复身份，预热与调度按实际保留的训练批次数计算；若样本不足一整批会拒绝启动。
 
 设置 `preprocessing.numeric_stage: "consumer"` 可让视觉流水线保留 CPU uint8 图像，在设备搬运后、批次游标提交前执行 float32 归一化。它复用相同的增强、标注与数值转换接口，减少传输图像的字节数；可配合 `pin_memory: true` 和 `non_blocking_transfer: true` 请求固定主存及当前调用流上的非阻塞传输。默认 `numeric_stage` 为 `worker`，默认传输为阻塞；自定义设置参与配方和数据流水线恢复身份。C++ 的 `YoloDataOptions::numeric_on_consumer` 仅改变 `make_yolo_data_pipeline` 内部执行位置，该流水线要求调用者未配置其他 consumer transform；直接调用 `prepare_yolo_batch` 仍返回已归一化的 float32 批次。此设置不保证吞吐提升，需在实际设备和配方下测量。

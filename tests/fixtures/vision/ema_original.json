@@ -1,0 +1,495 @@
+{
+  "source": "RT-DETR df2a96c8c3a098567a1149bf0248da6efe6d495d src/optim/ema.py",
+  "source_sha256": "9ea3e2d870adb531d19da8f33d2603ee884a65f3ff57583aaaac7321e23f0083",
+  "torch": "2.14.0+rocm10.1.0",
+  "decay": 0.9999,
+  "ramp_updates": 2000,
+  "initial": {
+    "weight": {
+      "dtype": "torch.float32",
+      "shape": [
+        4
+      ],
+      "values": [
+        0.10000000149011612,
+        -1.25,
+        9.999999747378752e-06,
+        100000.0
+      ]
+    },
+    "running": {
+      "dtype": "torch.float64",
+      "shape": [
+        4
+      ],
+      "values": [
+        1e-07,
+        3.14,
+        -20000.0,
+        2.718
+      ]
+    },
+    "counter": {
+      "dtype": "torch.int64",
+      "shape": [],
+      "values": 0
+    },
+    "flag": {
+      "dtype": "torch.bool",
+      "shape": [],
+      "values": false
+    }
+  },
+  "updates": [
+    {
+      "source": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.17299999296665192,
+            -1.3700000047683716,
+            9.999999974752427e-07,
+            100000.03125
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            1e-06,
+            -3.14159,
+            20000.0,
+            1e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 1
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": true
+        }
+      },
+      "expected": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.17296350002288818,
+            -1.3699400424957275,
+            1.0044983582702116e-06,
+            100000.03125
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            9.995501574700042e-07,
+            -3.1384503040688934,
+            19980.006998666857,
+            0.0013585254400873801
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 0
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "decay": 0.000499825033328626
+    },
+    {
+      "source": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.34599998593330383,
+            -2.740000009536743,
+            4.999999987376214e-07,
+            100000.0625
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            2e-06,
+            -6.28318,
+            10000.0,
+            2e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 2
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "expected": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.34582704305648804,
+            -2.738630771636963,
+            5.005041998629167e-07,
+            100000.0625
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            1.9990001502106695e-06,
+            -6.280037156460711,
+            10009.97402115622,
+            1.3597086202908019e-06
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 0
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "decay": 0.0009994002166083156
+    },
+    {
+      "source": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.5189999938011169,
+            -4.110000133514404,
+            3.3333333249174757e-07,
+            100000.09375
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            3e-06,
+            -9.424769999999999,
+            6666.666666666667,
+            3.0000000000000004e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 3
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": true
+        }
+      },
+      "expected": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.5187404751777649,
+            -4.107944965362549,
+            3.335838698603766e-07,
+            100000.1015625
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            2.998499775824717e-06,
+            -9.420056908147211,
+            6671.677367237364,
+            5.033334042361256e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 0
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "decay": 0.001498725674732886
+    },
+    {
+      "source": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.6919999718666077,
+            -5.480000019073486,
+            2.499999993688107e-07,
+            100000.125
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            4e-06,
+            -12.56636,
+            5000.0,
+            4e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 4
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "expected": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.691653847694397,
+            -5.477258682250977,
+            2.501669769117143e-07,
+            100000.125
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            3.997999201317309e-06,
+            -12.56007431086128,
+            5003.339679606168,
+            4.002064396333448e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 0
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "decay": 0.0019978015325336543
+    },
+    {
+      "source": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.8650000095367432,
+            -6.849999904632568,
+            2.0000000233721948e-07,
+            100000.15625
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            4.9999999999999996e-06,
+            -15.70795,
+            4000.0,
+            5e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 5
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": true
+        }
+      },
+      "expected": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            0.8645672798156738,
+            -6.8465728759765625,
+            2.0012524259982456e-07,
+            100000.15625
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            4.997498376835377e-06,
+            -15.70009092568224,
+            4002.5049658521107,
+            4.997508526114734e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 0
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "decay": 0.0024966279147796613
+    },
+    {
+      "source": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            1.0379999876022339,
+            -8.220000267028809,
+            1.6666666624587378e-07,
+            100000.1875
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            6e-06,
+            -18.849539999999998,
+            3333.3333333333335,
+            6.000000000000001e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 6
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "expected": {
+        "weight": {
+          "dtype": "torch.float32",
+          "shape": [
+            4
+          ],
+          "values": [
+            1.0374805927276611,
+            -8.215887069702148,
+            1.667668811933254e-07,
+            100000.1875
+          ]
+        },
+        "running": {
+          "dtype": "torch.float64",
+          "shape": [
+            4
+          ],
+          "values": [
+            5.996997302179746e-06,
+            -18.840106754554867,
+            3335.3376395168957,
+            5.996997332578919e-09
+          ]
+        },
+        "counter": {
+          "dtype": "torch.int64",
+          "shape": [],
+          "values": 0
+        },
+        "flag": {
+          "dtype": "torch.bool",
+          "shape": [],
+          "values": false
+        }
+      },
+      "decay": 0.002995204946177337
+    }
+  ]
+}

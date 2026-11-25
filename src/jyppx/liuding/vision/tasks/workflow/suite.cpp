@@ -505,7 +505,8 @@ TrainResult train_vision(const TrainRequest& request) {
                 "model." + Hash(J::parse(recipe_json(r)).at("model").dump() +
                                 ":" + binding.capability.revision),
             .decay = r.ema_decay,
-            .ramp_updates = r.ema_ramp_updates});
+            .ramp_updates = r.ema_ramp_updates,
+            .update_rule = r.ema_update_rule});
   }
   phase("ema.finished");
   phase("optimizer.started");

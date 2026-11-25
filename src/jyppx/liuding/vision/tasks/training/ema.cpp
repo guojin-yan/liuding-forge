@@ -24,6 +24,13 @@ bool Integral(c10::ScalarType dtype) {
          dtype == torch::kInt16 || dtype == torch::kInt32 ||
          dtype == torch::kInt64 || dtype == torch::kBool;
 }
+double Decay(const ModelEmaOptions& options, std::uint64_t updates) noexcept {
+  const auto progress = static_cast<double>(updates) / options.ramp_updates;
+  return options.decay *
+         (options.update_rule == ModelEmaUpdateRule::multiply_add_floating_only
+              ? 1.0 - std::exp(-progress)
+              : -std::expm1(-progress));
+}
 
 struct Entry {
   std::string key;
@@ -117,7 +124,9 @@ ModelEma::ModelEma(std::shared_ptr<nn::ModelAdapter> source,
       !state::Identifier(options.source_model_id) ||
       !std::isfinite(options.decay) || options.decay < 0 ||
       options.decay >= 1 || !std::isfinite(options.ramp_updates) ||
-      options.ramp_updates <= 0)
+      options.ramp_updates <= 0 ||
+      (options.update_rule != ModelEmaUpdateRule::lerp_copy_integral &&
+       options.update_rule != ModelEmaUpdateRule::multiply_add_floating_only))
     throw InvalidArgument("Invalid EMA models, identity or averaging recipe");
   impl_->source = std::move(source);
   impl_->shadow = std::move(shadow);
@@ -177,14 +186,19 @@ ModelEma::ModelEma(std::shared_ptr<nn::ModelAdapter> source,
   // Reject configuration/topology before copying any tensor values.
   impl_->checkpoint =
       std::make_unique<nn::ModelCheckpointParticipant>(*impl_->shadow, limits);
-  impl_->recipe =
+  auto recipe =
       nlohmann::json{{"schema", "vision.model-ema/v1"},
                      {"source_model_id", impl_->options.source_model_id},
                      {"decay", impl_->options.decay},
                      {"ramp_updates", impl_->options.ramp_updates},
                      {"floating", "ramped-fp32-fp64"},
-                     {"integral", "copy"}}
-          .dump();
+                     {"integral", "copy"}};
+  if (impl_->options.update_rule ==
+      ModelEmaUpdateRule::multiply_add_floating_only) {
+    recipe["floating"] = "ramped-multiply-add-fp32-fp64";
+    recipe["integral"] = "retain-initial";
+  }
+  impl_->recipe = recipe.dump();
   const torch::NoGradGuard no_grad;
   for (auto& entry : impl_->entries) {
     entry.shadow.set_requires_grad(false);
@@ -203,23 +217,27 @@ std::uint64_t ModelEma::completed_updates() const noexcept {
   return impl_->updates;
 }
 double ModelEma::current_decay() const noexcept {
-  return impl_->options.decay *
-         -std::expm1(-static_cast<double>(impl_->updates) /
-                     impl_->options.ramp_updates);
+  return Decay(impl_->options, impl_->updates);
 }
 void ModelEma::on_optimizer_update(std::uint64_t global_step) {
   if (impl_->updates == (std::numeric_limits<std::uint64_t>::max)() ||
       global_step != impl_->updates + 1)
     throw InvalidArgument("EMA requires one consecutive successful update");
   impl_->ValidateBindings();
-  const auto decay =
-      impl_->options.decay * -std::expm1(-static_cast<double>(global_step) /
-                                         impl_->options.ramp_updates);
+  const auto decay = Decay(impl_->options, global_step);
   const torch::NoGradGuard no_grad;
   for (auto& entry : impl_->entries) {
-    if (entry.source.is_floating_point())
-      entry.shadow.lerp_(entry.source.detach(), 1.0 - decay);
-    else
+    if (entry.source.is_floating_point()) {
+      if (impl_->options.update_rule ==
+          ModelEmaUpdateRule::multiply_add_floating_only) {
+        entry.shadow.mul_(decay);
+        // Materialize the source product: add_(source, alpha) may fuse the
+        // multiply/add and has different FP32 rounding from the original rule.
+        entry.shadow.add_(entry.source.detach() * (1.0 - decay));
+      } else
+        entry.shadow.lerp_(entry.source.detach(), 1.0 - decay);
+    } else if (impl_->options.update_rule ==
+               ModelEmaUpdateRule::lerp_copy_integral)
       entry.shadow.copy_(entry.source);
   }
   impl_->updates = global_step;

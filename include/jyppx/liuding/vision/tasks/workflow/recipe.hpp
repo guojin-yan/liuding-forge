@@ -11,6 +11,7 @@
 #include <jyppx/liuding/vision/tasks/data/orientation.hpp>
 #include <jyppx/liuding/vision/tasks/data/preparation.hpp>
 #include <jyppx/liuding/vision/tasks/results.hpp>
+#include <jyppx/liuding/vision/tasks/training/ema.hpp>
 #include <jyppx/liuding/vision/tasks/training/strategy.hpp>
 #include <jyppx/liuding/vision/tasks/training/transfer.hpp>
 
@@ -134,6 +135,7 @@ struct RecipeSpec {
   bool ema = true;
   double ema_decay = .9999;
   double ema_ramp_updates = 2000.;
+  ModelEmaUpdateRule ema_update_rule = ModelEmaUpdateRule::lerp_copy_integral;
   std::uint64_t early_stopping_patience = 50;
   std::uint64_t save_interval_epochs = 1;
   bool save_best_checkpoint = true;

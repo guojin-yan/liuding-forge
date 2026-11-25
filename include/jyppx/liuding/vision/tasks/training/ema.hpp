@@ -18,6 +18,12 @@
 
 namespace jyppx::liuding::vision::tasks {
 
+/** @brief Floating arithmetic order and non-floating EMA buffer policy. */
+enum class ModelEmaUpdateRule : std::uint8_t {
+  lerp_copy_integral,
+  multiply_add_floating_only
+};
+
 /** @brief Immutable exponential moving average recipe and storage bounds. */
 struct ModelEmaOptions {
   std::string source_model_id =
@@ -26,6 +32,8 @@ struct ModelEmaOptions {
   double ramp_updates =
       2000;  ///< Positive ramp:
              ///< decay*(1-exp(-successful_updates/ramp_updates)).
+  ModelEmaUpdateRule update_rule = ModelEmaUpdateRule::lerp_copy_integral;
+  ///< Default lerp/copy; multiply-add preserves initial integral/bool state.
   nn::ModelCheckpointParticipantOptions checkpoint{
       .participant_id =
           "model.ema"};  ///< Tensor and checkpoint resource limits.
@@ -35,10 +43,12 @@ struct ModelEmaOptions {
  *
  * Construction copies source parameters/buffers into the supplied shadow.
  * Floating FP32/FP64 state uses the ramped average; integral/bool buffers are
- * copied exactly. Both modules must have identical named tensor topology and
- * fixed CPU/CUDA placement, without shared storage within or between modules.
- * Shadow construction/placement and any RNG isolation are the caller's job.
- * The shadow remains in eval mode with gradients disabled.
+ * copied exactly by default. The explicit multiply-add rule executes shadow
+ * multiply, source multiply, then add as separate operations and retains the
+ * initial non-floating state. Both modules must have identical named topology
+ * and fixed CPU/CUDA placement, without shared storage within or between
+ * modules. Shadow construction/placement and any RNG isolation are the caller's
+ * job. The shadow remains in eval mode with gradients disabled.
  *
  * Register only in FitRequest::optimizer_update_participants; Trainer also
  * registers its checkpoint state. Counts/recipe and all shadow tensors are
