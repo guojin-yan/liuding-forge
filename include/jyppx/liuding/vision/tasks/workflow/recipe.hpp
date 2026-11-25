@@ -96,6 +96,8 @@ struct RecipeSpec {
   std::size_t workers = 0;
   std::size_t prefetch_batches = 2;
   bool pin_memory = false;
+  bool non_blocking_transfer =
+      false;  ///< Caller-stream device transfer policy.
   bool rectangular_batches = false;
   DecodeCacheOptions cache;
   ExifPolicy exif_policy = ExifPolicy::reject_non_identity;

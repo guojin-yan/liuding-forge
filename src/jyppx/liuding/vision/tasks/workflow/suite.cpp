@@ -658,6 +658,7 @@ TrainResult train_vision(const TrainRequest& request) {
   p.prefetch_batches = r.prefetch_batches;
   p.memory.target_device = r.device;
   p.memory.pin_memory = r.pin_memory;
+  p.memory.non_blocking = r.non_blocking_transfer;
   std::shared_ptr<data::samplers::Sampler> sampler =
       std::make_shared<data::samplers::RandomSampler>(source.train->size(),
                                                       r.seed);

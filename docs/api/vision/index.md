@@ -29,6 +29,8 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 ## 配方与统一入口
 
+设置 `preprocessing.numeric_stage: "consumer"` 可让视觉流水线保留 CPU uint8 图像，在设备搬运后、批次游标提交前执行 float32 归一化。它复用相同的增强、标注与数值转换接口，减少传输图像的字节数；可配合 `pin_memory: true` 和 `non_blocking_transfer: true` 请求固定主存及当前调用流上的非阻塞传输。默认 `numeric_stage` 为 `worker`，默认传输为阻塞；自定义设置参与配方和数据流水线恢复身份。C++ 的 `YoloDataOptions::numeric_on_consumer` 仅改变 `make_yolo_data_pipeline` 内部执行位置，该流水线要求调用者未配置其他 consumer transform；直接调用 `prepare_yolo_batch` 仍返回已归一化的 float32 批次。此设置不保证吞吐提升，需在实际设备和配方下测量。
+
 [套件配方目录](../../../recipes/vision/suite/)包含各家族、五种任务和调参的起点。它们是参数模板，需修改类别数、数据路径、设备和预算，不是已取得 COCO/ImageNet 精度的训练方案。旧的 [YOLOv8 检测示例](../../../examples/vision/README.md)使用单独的示例格式，继续用于小数据演示；原任务使用 `schema_version: 1`，新增任务使用 schema2；[扩展配方](../../../recipes/vision/extensions/)集中存放新增模型起点。
 
 ```powershell

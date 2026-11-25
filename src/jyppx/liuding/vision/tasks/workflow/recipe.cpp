@@ -250,6 +250,7 @@ RecipeSpec parse_recipe(std::string_view text,
            "verify_image_contents",
            "prefetch_batches",
            "pin_memory",
+           "non_blocking_transfer",
            "rectangular_batches",
            "cache",
            "initialization",
@@ -416,7 +417,14 @@ RecipeSpec parse_recipe(std::string_view text,
     Keys(p, {"scale_up", "center", "padding_value", "interpolation",
              "min_box_area", "min_box_visibility", "min_region_area",
              "min_region_visibility", "exclude_crowd", "exclude_difficult",
-             "max_targets"});
+             "max_targets", "numeric_stage"});
+    if (p.contains("numeric_stage") && !p["numeric_stage"].is_string())
+      throw InvalidArgument("preprocessing.numeric_stage must be a string");
+    const auto numeric_stage = p.value("numeric_stage", std::string("worker"));
+    if (numeric_stage != "worker" && numeric_stage != "consumer")
+      throw InvalidArgument(
+          "preprocessing.numeric_stage must be worker or consumer");
+    r.data.numeric_on_consumer = numeric_stage == "consumer";
     auto& b = r.data.letterbox;
     b.scale_up = p.value("scale_up", b.scale_up);
     b.center = p.value("center", b.center);
@@ -475,6 +483,11 @@ RecipeSpec parse_recipe(std::string_view text,
       (std::min)(std::uint64_t{10}, r.epochs);
   r.prefetch_batches = j.value("prefetch_batches", r.prefetch_batches);
   r.pin_memory = j.value("pin_memory", r.pin_memory);
+  if (j.contains("non_blocking_transfer") &&
+      !j["non_blocking_transfer"].is_boolean())
+    throw InvalidArgument("non_blocking_transfer must be boolean");
+  r.non_blocking_transfer =
+      j.value("non_blocking_transfer", r.non_blocking_transfer);
   r.rectangular_batches = j.value("rectangular_batches", r.rectangular_batches);
   r.data.rectangular = r.rectangular_batches;
   if (j.contains("cache")) {
@@ -693,8 +706,7 @@ RecipeSpec parse_recipe(std::string_view text,
     a.projective.shear_degrees = v.value("shear", 0.);
     a.projective.perspective = v.value("perspective", 0.);
     a.projective.scale_gain = v.value("projective_scale", 0.);
-    a.projective.translate_fraction =
-        v.value("projective_translate", 0.);
+    a.projective.translate_fraction = v.value("projective_translate", 0.);
     a.projective.min_box_area =
         v.value("projective_min_box_area", a.projective.min_box_area);
     a.projective.min_visibility =
@@ -1288,6 +1300,9 @@ std::string recipe_json(const RecipeSpec& r) {
   }
   // Preserve the canonical JSON and restore identity of existing default
   // recipes.
+  if (r.data.numeric_on_consumer)
+    j["preprocessing"]["numeric_stage"] = "consumer";
+  if (r.non_blocking_transfer) j["non_blocking_transfer"] = true;
   if (r.optimizer_name == "musgd_bf16" || r.musgd_muon_weight != .5 ||
       r.musgd_sgd_weight != .5) {
     j["optimizer"]["muon_weight"] = r.musgd_muon_weight;

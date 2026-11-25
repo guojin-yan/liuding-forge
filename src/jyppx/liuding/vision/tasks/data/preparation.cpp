@@ -85,14 +85,16 @@ image::VisionSample letterbox_sample(const image::VisionSample& sample,
   if (!options.scale_up) {
     ratio = (std::min)(ratio, 1.0);
   }
-  const auto width = (std::min)(
-      options.canvas.width,
-      (std::max)(std::uint32_t{1}, static_cast<std::uint32_t>(std::floor(
-                                       sample.width * ratio + 0.5))));
-  const auto height = (std::min)(
-      options.canvas.height,
-      (std::max)(std::uint32_t{1}, static_cast<std::uint32_t>(std::floor(
-                                       sample.height * ratio + 0.5))));
+  const auto width =
+      (std::min)(options.canvas.width,
+                 (std::max)(std::uint32_t{1},
+                            static_cast<std::uint32_t>(
+                                std::floor(sample.width * ratio + 0.5))));
+  const auto height =
+      (std::min)(options.canvas.height,
+                 (std::max)(std::uint32_t{1},
+                            static_cast<std::uint32_t>(
+                                std::floor(sample.height * ratio + 0.5))));
   const auto horizontal = options.canvas.width - width;
   const auto vertical = options.canvas.height - height;
   const auto left = options.center ? horizontal / 2 : 0;
@@ -110,18 +112,20 @@ image::VisionSample letterbox_sample(const image::VisionSample& sample,
   return image::transform_sample(sample, steps, geometry, stop);
 }
 
-image::ImageBatch prepare_yolo_batch(
-    std::span<const image::VisionSample> samples,
-    std::span<const image::ImageBatchKey> keys, const YoloDataOptions& options,
-    std::stop_token stop) {
+namespace {
+image::ImageBatch PrepareBatch(std::span<const image::VisionSample> samples,
+                               std::span<const image::ImageBatchKey> keys,
+                               const YoloDataOptions& options,
+                               bool defer_numeric, std::stop_token stop) {
   CheckProjection(options);
   if (samples.empty() || samples.size() != keys.size() ||
-      samples.size() > options.limits.max_samples ||
-      !options.size_divisor || options.size_divisor > 256 ||
+      samples.size() > options.limits.max_samples || !options.size_divisor ||
+      options.size_divisor > 256 ||
       options.letterbox.canvas.width % options.size_divisor != 0 ||
       options.letterbox.canvas.height % options.size_divisor != 0) {
     throw InvalidArgument(
-        "Vision batch requires bounded samples/keys and a canvas aligned to size_divisor");
+        "Vision batch requires bounded samples/keys and a canvas aligned to "
+        "size_divisor");
   }
   std::vector<image::VisionSample> prepared;
   prepared.reserve(samples.size());
@@ -217,19 +221,19 @@ image::ImageBatch prepare_yolo_batch(
     if (options.augmentation.bgr_probability > 0 &&
         stream("vision.yolo.bgr-channel-reversal/v1").unit(0) <
             options.augmentation.bgr_probability) {
-      const auto channel_axis =
-          output.pixels.layout == image::ImageLayout::chw
-              ? 0
-              : output.image.dim() - 1;
+      const auto channel_axis = output.pixels.layout == image::ImageLayout::chw
+                                    ? 0
+                                    : output.image.dim() - 1;
       output.image = output.image.flip({channel_axis}).contiguous();
     }
     prepared.push_back(std::move(output));
   }
   image::ImageCollateOptions collate;
-  collate.mask_padding_id=options.letterbox.geometry.mask_padding_id;
+  collate.mask_padding_id = options.letterbox.geometry.mask_padding_id;
   collate.limits = options.limits;
   collate.resource_budget = options.letterbox.geometry.resource_budget;
   auto batch = image::collate_images(prepared, keys, collate, stop);
+  if (defer_numeric) return batch;
   image::ImageBatchTransformOptions numeric;
   numeric.limits = options.limits;
   numeric.resource_budget = options.letterbox.geometry.resource_budget;
@@ -238,6 +242,14 @@ image::ImageBatch prepare_yolo_batch(
   numeric.image.mean = options.normalization_mean;
   numeric.image.std = options.normalization_std;
   return image::transform_image_batch(batch, numeric, stop);
+}
+}  // namespace
+
+image::ImageBatch prepare_yolo_batch(
+    std::span<const image::VisionSample> samples,
+    std::span<const image::ImageBatchKey> keys, const YoloDataOptions& options,
+    std::stop_token stop) {
+  return PrepareBatch(samples, keys, options, false, stop);
 }
 
 Tensor build_yolo_targets(const image::ImageBatch& batch,
@@ -355,6 +367,7 @@ std::string yolo_data_identity(const YoloDataOptions& options) {
            << options.augmentation.bgr_probability << ':'
            << options.augmentation.dataset_id.size() << ':'
            << options.augmentation.dataset_id;
+  if (options.numeric_on_consumer) identity << ":numeric-on-consumer/v1";
   const auto text = identity.str();
   return sha256_hex(std::as_bytes(std::span(text)));
 }
@@ -393,6 +406,29 @@ std::shared_ptr<data::DataPipeline> make_yolo_data_pipeline(
   if (options.augmentation.dataset_id.empty())
     options.augmentation.dataset_id = pipeline.dataset_version;
   pipeline.batch_factory_id = "vision.yolo/" + yolo_data_identity(options);
+  if (options.numeric_on_consumer) {
+    if (pipeline.consumer_transform)
+      throw InvalidArgument(
+          "Deferred vision normalization requires an unused consumer "
+          "transform");
+    image::ImageBatchTransformOptions numeric;
+    numeric.limits = options.limits;
+    numeric.resource_budget = options.letterbox.geometry.resource_budget;
+    numeric.image.mean = options.normalization_mean;
+    numeric.image.std = options.normalization_std;
+    pipeline.consumer_transform = data::BatchConsumerTransform{
+        .id = "vision.yolo.numeric/" + yolo_data_identity(options),
+        .input_schema = data::BatchSchema::any("vision.yolo.uint8"),
+        .apply = [numeric](const c10::IValue& value,
+                           const data::BatchConsumerContext&,
+                           std::stop_token stop) {
+          return image::image_batch_value(
+              image::transform_image_batch(
+                  image::image_batch_from_value(value, numeric.limits), numeric,
+                  stop),
+              numeric.limits);
+        }};
+  }
   const auto batch_size = pipeline.batch_size;
   if (!sampler)
     sampler =
@@ -432,19 +468,22 @@ std::shared_ptr<data::DataPipeline> make_yolo_data_pipeline(
         if (options.rectangular) {
           std::uint32_t width = divisor, height = divisor;
           for (const auto& sample : samples) {
-            auto scale = (std::min)(
-                static_cast<double>(options.letterbox.canvas.width) /
-                    sample.width,
-                static_cast<double>(options.letterbox.canvas.height) /
-                    sample.height);
-            width = (std::max)(
-                width, static_cast<std::uint32_t>(std::ceil(
-                           std::round(sample.width * scale) / divisor)) *
-                           divisor);
-            height = (std::max)(
-                height, static_cast<std::uint32_t>(std::ceil(
-                            std::round(sample.height * scale) / divisor)) *
-                            divisor);
+            auto scale =
+                (std::min)(static_cast<double>(options.letterbox.canvas.width) /
+                               sample.width,
+                           static_cast<double>(
+                               options.letterbox.canvas.height) /
+                               sample.height);
+            width =
+                (std::max)(width,
+                           static_cast<std::uint32_t>(std::ceil(
+                               std::round(sample.width * scale) / divisor)) *
+                               divisor);
+            height =
+                (std::max)(height,
+                           static_cast<std::uint32_t>(std::ceil(
+                               std::round(sample.height * scale) / divisor)) *
+                               divisor);
           }
           current.letterbox.canvas = {width, height};
         }
@@ -473,7 +512,9 @@ std::shared_ptr<data::DataPipeline> make_yolo_data_pipeline(
           current.letterbox.canvas = canvas;
         }
         return image::image_batch_value(
-            prepare_yolo_batch(samples, keys, current, stop), options.limits);
+            PrepareBatch(samples, keys, current, options.numeric_on_consumer,
+                         stop),
+            options.limits);
       });
 }
 

@@ -31,7 +31,7 @@ namespace jyppx::liuding::vision::tasks {
 struct YoloAugmentationOptions {
   double horizontal_flip_probability = 0;  ///< Explicit probability in [0,1].
   double vertical_flip_probability = 0;    ///< Explicit probability in [0,1].
-  double bgr_probability = 0;  ///< Probability of reversing RGB to BGR.
+  double bgr_probability = 0;     ///< Probability of reversing RGB to BGR.
   ScaleTranslateOptions spatial;  ///< Joint fixed-canvas scale and translation.
   PhotometricOptions photo;  ///< Input RGB photo augmentation after geometry.
   ProjectiveOptions projective;
@@ -56,6 +56,9 @@ struct LetterBoxOptions {
 /** @brief Explicit task policies for assembling annotated RGB detection data.
  */
 struct YoloDataOptions {
+  bool numeric_on_consumer = false;
+  ///< Pipeline workers retain uint8 until consumer-side device transfer.
+  ///< Direct prepare_yolo_batch calls always return normalized float32.
   bool rectangular =
       false;  ///< Per-batch minimal stride-aligned LetterBox canvas.
   bool multiscale = false;  ///< Counter-derived fixed canvas per logical batch.
@@ -156,7 +159,10 @@ YoloDataOptions yolo_evaluation_options(const YoloDataOptions& training);
  * uses that version.
  * @param options LetterBox, augmentation and target projection configuration.
  * @param sampler Optional caller sampler; omission uses sequential ordering.
- * @return Pipeline emitting the standard ImageBatch value, with lazy decoding.
+ * @return Pipeline emitting float32 ImageBatch values, with lazy decoding.
+ * numeric_on_consumer keeps worker output uint8 and converts on the next()
+ * caller's current device stream after transfer and before cursor commit.
+ * That option requires pipeline.consumer_transform to be unset.
  * @throws InvalidArgument Inconsistent source size, configuration or lineage.
  */
 std::shared_ptr<data::DataPipeline> make_yolo_data_pipeline(

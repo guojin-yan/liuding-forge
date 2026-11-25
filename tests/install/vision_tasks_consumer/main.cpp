@@ -83,6 +83,16 @@ int main() try {
                                        std::filesystem::current_path());
   if (tasks::recipe_identity(recipe) != tasks::recipe_identity(roundtrip))
     throw std::runtime_error("installed recipe roundtrip mismatch");
+  {
+    auto deferred = recipe;
+    deferred.data.numeric_on_consumer = true;
+    deferred.non_blocking_transfer = true;
+    const auto restored = tasks::parse_recipe(tasks::recipe_json(deferred),
+                                              std::filesystem::current_path());
+    if (!restored.data.numeric_on_consumer || !restored.non_blocking_transfer ||
+        tasks::recipe_identity(restored) != tasks::recipe_identity(deferred))
+      throw std::runtime_error("installed deferred numeric recipe mismatch");
+  }
   recipe.training.limits.max_input_bytes = 600ULL << 20;
   recipe.optimizer.weight_decay_overrides = {{"model.example.weight", .0001}};
   roundtrip = tasks::parse_recipe(tasks::recipe_json(recipe),
