@@ -168,7 +168,7 @@ J SourceJson(const DetectionDatasetOptions& d) {
 void Results(const J& v, ResultOptions& o) {
   Keys(v, {"confidence", "nms_iou", "mask_threshold", "max_candidates",
            "max_detections", "class_agnostic", "multi_label", "classes",
-           "max_mask_elements"});
+           "max_mask_elements", "clip_boxes"});
   o.confidence = v.value("confidence", o.confidence);
   o.nms_iou = v.value("nms_iou", o.nms_iou);
   o.mask_threshold = v.value("mask_threshold", o.mask_threshold);
@@ -178,17 +178,22 @@ void Results(const J& v, ResultOptions& o) {
   o.multi_label = v.value("multi_label", o.multi_label);
   o.classes = v.value("classes", o.classes);
   o.max_mask_elements = v.value("max_mask_elements", o.max_mask_elements);
+  if (v.contains("clip_boxes") && !v["clip_boxes"].is_boolean())
+    throw InvalidArgument("clip_boxes must be boolean");
+  o.clip_boxes = v.value("clip_boxes", o.clip_boxes);
 }
 J ResultJson(const ResultOptions& o) {
-  return {{"confidence", o.confidence},
-          {"nms_iou", o.nms_iou},
-          {"mask_threshold", o.mask_threshold},
-          {"max_candidates", o.max_candidates},
-          {"max_detections", o.max_detections},
-          {"class_agnostic", o.class_agnostic},
-          {"multi_label", o.multi_label},
-          {"classes", o.classes},
-          {"max_mask_elements", o.max_mask_elements}};
+  J result = {{"confidence", o.confidence},
+              {"nms_iou", o.nms_iou},
+              {"mask_threshold", o.mask_threshold},
+              {"max_candidates", o.max_candidates},
+              {"max_detections", o.max_detections},
+              {"class_agnostic", o.class_agnostic},
+              {"multi_label", o.multi_label},
+              {"classes", o.classes},
+              {"max_mask_elements", o.max_mask_elements}};
+  if (!o.clip_boxes) result["clip_boxes"] = false;
+  return result;
 }
 }  // namespace
 RecipeSpec load_recipe(const std::filesystem::path& path) {
@@ -792,6 +797,10 @@ RecipeSpec parse_recipe(std::string_view text,
   return r;
 }
 void check_recipe(const RecipeSpec& r) {
+  if ((!r.evaluation.clip_boxes || !r.prediction.clip_boxes) &&
+      (!r.model.architecture.starts_with("rtdetr_") || !r.data.rtdetr.enabled))
+    throw InvalidArgument(
+        "Unclipped box results require RT-DETR with its stretch data profile");
   if (!data::image::jpeg_decode_backend_available(r.jpeg_backend))
     throw InvalidArgument("Recipe JPEG backend was not enabled at build time");
   for (const auto* source :

@@ -245,10 +245,12 @@ std::vector<ImageResult> decode_rtdetr(std::span<const Tensor> x,
     ids = ids.index_select(0, keep);
     auto query = torch::floor_divide(ids, scores.size(1));
     auto selected = box[b].index_select(0, query);
-    selected.select(1, 0).clamp_(0, canvas[1]);
-    selected.select(1, 2).clamp_(0, canvas[1]);
-    selected.select(1, 1).clamp_(0, canvas[0]);
-    selected.select(1, 3).clamp_(0, canvas[0]);
+    if (o.clip_boxes) {
+      selected.select(1, 0).clamp_(0, canvas[1]);
+      selected.select(1, 2).clamp_(0, canvas[1]);
+      selected.select(1, 1).clamp_(0, canvas[0]);
+      selected.select(1, 3).clamp_(0, canvas[0]);
+    }
     ImageResult r;
     r.extent = {static_cast<std::uint32_t>(canvas[1]),
                 static_cast<std::uint32_t>(canvas[0])};

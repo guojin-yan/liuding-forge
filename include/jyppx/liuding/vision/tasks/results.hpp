@@ -26,9 +26,10 @@ struct ImageResult {
   Tensor keypoints;         ///< Optional [N,K,3] xy/confidence, float32 CPU.
   Tensor oriented_corners;  ///< Optional [N,4,2], including anisotropic
                             ///< restoration.
-  Tensor field;  ///< Semantic [H,W] int64 or depth/reconstruction [C,H,W] float32 CPU.
+  Tensor field;        ///< Semantic [H,W] int64 or depth/reconstruction [C,H,W]
+                       ///< float32 CPU.
   Tensor field_valid;  ///< Optional bool [H,W], excludes inverse-trace padding.
-  Tensor embedding;  ///< Optional normalized ReID [D] float32 CPU.
+  Tensor embedding;    ///< Optional normalized ReID [D] float32 CPU.
   std::string decode_revision = "native-vision-result/v1";
 };
 /** @brief Explicit prediction thresholds, filters and finite work bounds. */
@@ -42,6 +43,8 @@ struct ResultOptions {
   bool multi_label = false;
   std::vector<std::int64_t> classes;  ///< Empty selects all classes.
   std::int64_t max_mask_elements = 67108864;
+  bool clip_boxes =
+      true;  ///< False is supported by RT-DETR with stretch geometry.
 };
 /** @brief Stable descending softmax results with confidence and class filters.
  * Accepts finite [B,C] logits. Outputs own CPU tensors at the supplied extent.
@@ -68,11 +71,14 @@ std::vector<ImageResult> decode_faster_rcnn_results(
 /** @brief Restores boxes, masks, keypoints and corners through one source
  * trace. Synthetic-padding-only detections are dropped consistently across
  * fields. Masks use nearest sampling at original pixel centers, within explicit
- * bounds.
+ * bounds. With clip_boxes=false, only box-only detection and pure positive
+ * stretch retaining the full source are accepted; boxes outside the original
+ * extent are preserved for evaluators that require them.
  */
 ImageResult restore_result(const ImageResult& result,
                            const data::image::GeometryTrace& trace,
-                           std::int64_t max_mask_elements = 67108864);
+                           std::int64_t max_mask_elements = 67108864,
+                           bool clip_boxes = true);
 /** @brief Versioned JSON with complete task geometry and lossless mask RLE.
  * No files are opened; encoded bytes are bounded before return.
  */

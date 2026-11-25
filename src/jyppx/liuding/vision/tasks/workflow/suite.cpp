@@ -1059,7 +1059,8 @@ ProfiledPrediction predict_vision_profiled(
       if (!batch.items[i].geometry)
         throw InvalidArgument("Predictive inverse geometry is missing");
       result[i] = restore_result(result[i], *batch.items[i].geometry,
-                                 recipe.prediction.max_mask_elements);
+                                 recipe.prediction.max_mask_elements,
+                                 recipe.prediction.clip_boxes);
     } else
       result[i].extent = {samples[i].width, samples[i].height};
   }

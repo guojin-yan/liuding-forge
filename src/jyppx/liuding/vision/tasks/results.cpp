@@ -340,12 +340,34 @@ std::vector<ImageResult> decode_faster_rcnn_results(std::span<const Tensor> x,
 }
 ImageResult restore_result(const ImageResult& input,
                            const data::image::GeometryTrace& trace,
-                           I max_elements) {
+                           I max_elements, bool clip_boxes) {
   torch::NoGradGuard guard;
   if (input.extent.width != trace.output_extent().width ||
       input.extent.height != trace.output_extent().height)
     throw InvalidArgument("Result canvas differs from geometry trace");
   auto r = input;
+  if (!clip_boxes) {
+    const auto m = trace.matrix();
+    if (input.task != TaskKind::detect || !trace.retains_full_source() ||
+        m[0] <= 0 || m[4] <= 0 || m[1] || m[2] || m[3] || m[5] || m[6] ||
+        m[7] || m[8] != 1 ||
+        std::abs(m[0] * trace.source_extent().width - input.extent.width) >
+            1e-8 ||
+        std::abs(m[4] * trace.source_extent().height - input.extent.height) >
+            1e-8 ||
+        input.masks.defined() || input.keypoints.defined() ||
+        input.oriented_corners.defined())
+      throw InvalidArgument(
+          "Unclipped box restoration requires pure positive stretch detection "
+          "geometry");
+    r.boxes =
+        input.boxes /
+        torch::tensor({static_cast<float>(m[0]), static_cast<float>(m[4]),
+                       static_cast<float>(m[0]), static_cast<float>(m[4])},
+                      input.boxes.options());
+    r.extent = trace.source_extent();
+    return r;
+  }
   if(static_cast<unsigned>(input.task)>4) {
     r.extent=trace.source_extent();
     if(!input.field.defined())return r;

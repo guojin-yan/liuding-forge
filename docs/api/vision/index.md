@@ -31,6 +31,8 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 `jpeg_backend: "libjpeg-turbo"` 显式选择已编译的 JPEG 加速后端；默认 `stb`。后端参与配方、数据及解码缓存身份，恢复时不能互换。构建依赖、像素和资源边界见[图像解码](../data_image.md)。
 
+RT-DETR 的 `rtdetr_data` 拉伸配置可在 `evaluation`、`prediction` 中分别指定 `clip_boxes: false`，保留超出图像范围的预测框，以对应官方 TopK 后处理；默认仍裁剪。该设置参与恢复身份，只接受 RT-DETR 拉伸检测，原图还原拒绝裁切、补边和翻转轨迹。框的类别及置信度顺序不变；COCO 类别 ID 映射和统一评估器仍由评测入口明确提供。
+
 `drop_last_training_batch: true` 丢弃每轮末不足 `batch_size` 的训练批次，验证仍保留所有样本；默认 false。该策略参与恢复身份，预热与调度按实际保留的训练批次数计算；若样本不足一整批会拒绝启动。
 
 设置 `preprocessing.numeric_stage: "consumer"` 可让视觉流水线保留 CPU uint8 图像，在设备搬运后、批次游标提交前执行 float32 归一化。它复用相同的增强、标注与数值转换接口，减少传输图像的字节数；可配合 `pin_memory: true` 和 `non_blocking_transfer: true` 请求固定主存及当前调用流上的非阻塞传输。默认 `numeric_stage` 为 `worker`，默认传输为阻塞；自定义设置参与配方和数据流水线恢复身份。C++ 的 `YoloDataOptions::numeric_on_consumer` 仅改变 `make_yolo_data_pipeline` 内部执行位置，该流水线要求调用者未配置其他 consumer transform；直接调用 `prepare_yolo_batch` 仍返回已归一化的 float32 批次。此设置不保证吞吐提升，需在实际设备和配方下测量。
