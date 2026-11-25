@@ -24,6 +24,7 @@
 #include <jyppx/liuding/deployment/onnx_runtime/typed_session.hpp>
 #endif
 #include <jyppx/liuding/vision/tasks/data/context.hpp>
+#include <jyppx/liuding/vision/tasks/data/opencv_preparation.hpp>
 #include <jyppx/liuding/vision/tasks/tracking/workflow.hpp>
 #ifdef VISION_CONSUMER_MODELS_VISION
 #include <jyppx/liuding/vision/models/extended/pyramid.hpp>
@@ -37,6 +38,41 @@
 int main() try {
   namespace tasks = jyppx::liuding::vision::tasks;
   jyppx::liuding::initialize_runtime();
+  {
+    namespace im = jyppx::liuding::data::image;
+    im::VisionSample sample;
+    sample.width = sample.height = 8;
+    sample.image = torch::full({3, 8, 8}, 37, torch::kUInt8);
+    sample.image_path = "installed-opencv";
+    sample.categories = std::make_shared<const std::vector<im::VisionCategory>>(
+        std::vector<im::VisionCategory>{{.source_id = 1, .name = "object"}});
+    auto annotation = std::make_shared<im::VisionAnnotationRecord>();
+    annotation->width = annotation->height = 8;
+    annotation->image_path = sample.image_path;
+    annotation->objects = {
+        {.source_id = 1, .category = 0, .box = im::ImageBox{1, 1, 7, 7}}};
+    sample.annotation = std::move(annotation);
+    const std::array samples{sample};
+    if (tasks::yolo_opencv_available()) {
+      const auto prepared = tasks::prepare_yolo_opencv_geometry(
+          samples, {.size = 32, .warp = false});
+      const auto color =
+          tasks::prepare_yolo_opencv_color(prepared, {.horizontal_flip = true});
+      if (color.width != 32 || color.height != 32 ||
+          color.annotation->objects.size() != 1 ||
+          !torch::all(color.image == 37).item<bool>())
+        throw std::runtime_error("installed OpenCV fixed operations failed");
+    } else {
+      bool rejected = false;
+      try {
+        static_cast<void>(tasks::prepare_yolo_opencv_geometry(samples, {}));
+      } catch (const jyppx::liuding::NotImplemented&) {
+        rejected = true;
+      }
+      if (!rejected)
+        throw std::runtime_error("disabled OpenCV backend silently fell back");
+    }
+  }
   {
     auto parameter = torch::ones({2, 2}, torch::requires_grad());
     parameter.mutable_grad() = torch::ones_like(parameter);
@@ -126,7 +162,8 @@ int main() try {
     rtdetr.evaluation.multi_label = true;
     rtdetr.rtdetr_inference_validation = true;
     rtdetr.save_best_checkpoint = false;
-    rtdetr.ema_update_rule = tasks::ModelEmaUpdateRule::multiply_add_floating_only;
+    rtdetr.ema_update_rule =
+        tasks::ModelEmaUpdateRule::multiply_add_floating_only;
     rtdetr.rtdetr_training_sizes = {480, 512, 544, 576, 608, 640, 640,
                                     640, 672, 704, 736, 768, 800};
     const auto restored = tasks::parse_recipe(tasks::recipe_json(rtdetr),

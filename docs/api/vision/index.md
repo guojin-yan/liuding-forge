@@ -31,6 +31,10 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 `jpeg_backend: "libjpeg-turbo"` 显式选择已编译的 JPEG 加速后端；默认 `stb`。后端参与配方、数据及解码缓存身份，恢复时不能互换。构建依赖、像素和资源边界见[图像解码](../data_image.md)。
 
+固定参数的检测数据处理可使用 `<jyppx/liuding/vision/tasks/data/opencv_preparation.hpp>`：`prepare_yolo_opencv_geometry` 执行最长边缩放、四图大画布拼接或 LetterBox，以及可选透视与框筛选；`prepare_yolo_opencv_color` 接收已完成几何处理的 MixUp 伙伴、显式混合系数、HSV LUT 和翻转参数。输入为 CPU uint8 RGB 与轴对齐框，输出保留对象来源；多源或透视结果不提供整图逆映射。函数不选择随机伙伴，不采样 Beta 系数，也不代表工作流已采用完整官方增强。
+
+构建时设置 `JYPPX_LIUDING_VISION_OPENCV=ON`，并通过 `OpenCV_DIR` 提供 OpenCV 5.1.0 的静态 CMake SDK（core、imgproc 及其导出依赖）。不在配置阶段下载依赖；未启用时 `yolo_opencv_available()` 返回 false，显式调用抛出 `NotImplemented`。当前只验证 Windows x64/AMD Clang 24 下的 CPU 固定参数处理，GPU 内核、其他 OpenCV 版本及完整训练性能须独立验证。
+
 RT-DETR 的 `rtdetr_data` 拉伸配置可在 `evaluation`、`prediction` 中分别指定 `clip_boxes: false`，保留超出图像范围的预测框，以对应官方 TopK 后处理；默认仍裁剪。该设置参与恢复身份，只接受 RT-DETR 拉伸检测，原图还原拒绝裁切、补边和翻转轨迹。框的类别及置信度顺序不变；COCO 类别 ID 映射和统一评估器仍由评测入口明确提供。
 
 `rtdetr_inference_validation: true` 在每批上只执行一次验证推理，不计算验证 loss，也不再逐图进行第二遍推理。它要求 `rtdetr_data`、完整指标、原始方向坐标和 `evaluation` 中未过滤的 `confidence: 0`、`multi_label: true`、`max_detections: 300`、`clip_boxes: false`；模型选择使用 `validation.map` 或 `validation.ap50`。指标使用导入时保留的原始标注及稳定正整数图像 ID，保留 crowd 和面积，每图每类最多 100 个预测框；最后不足一批的验证样本保留。`validation.json` 的 `execution` 为 `rtdetr.batched_inference/v1`，`coco_metrics` 汇总 COCO bbox 的 12 项 AP/AR（含面积区间和 maxDet 1/10/100，缺失类别结果为 -1）。该选择参与恢复身份，默认保留原验证路径；最终官方 COCO 全部指标仍需统一评估器核对。

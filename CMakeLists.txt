@@ -29,6 +29,11 @@ option(JYPPX_LIUDING_BUILD_MODELS_YOLO "Build optional native YOLO architectures
 option(JYPPX_LIUDING_BUILD_MODELS_VISION "Build optional extended native vision models" OFF)
 option(JYPPX_LIUDING_BUILD_MODELS_RCNN "Build optional native Faster R-CNN architectures" OFF)
 option(JYPPX_LIUDING_BUILD_VISION_TASKS "Build optional native vision training tasks" OFF)
+option(JYPPX_LIUDING_VISION_OPENCV
+    "Enable explicit OpenCV 5.1.0 static box-data preparation operations" OFF)
+if(JYPPX_LIUDING_VISION_OPENCV AND NOT JYPPX_LIUDING_BUILD_VISION_TASKS)
+    message(FATAL_ERROR "VISION_OPENCV requires VISION_TASKS")
+endif()
 option(JYPPX_LIUDING_BUILD_INTEROP "Build interoperability formats and manifests" ON)
 option(JYPPX_LIUDING_BUILD_DATA "Build data pipelines, datasets, and samplers" ON)
 option(JYPPX_LIUDING_BUILD_DATA_IMAGE "Build the optional built-in image/annotation adapters" OFF)
@@ -1366,6 +1371,11 @@ if(JYPPX_LIUDING_BUILD_EXPERIMENT)
     install(FILES
         third_party/licenses/sqlite-3.54.1-copyright-blessing.txt
         third_party/licenses/sqlite-copyright-page.txt
+        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+endif()
+
+if(JYPPX_LIUDING_VISION_OPENCV)
+    install(FILES third_party/licenses/opencv-5.1.0-LICENSE
         DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
 endif()
 

@@ -1410,6 +1410,28 @@
       ],
       "linkage": "static-private-optional",
       "support_status": "development-candidate"
+    },
+    {
+      "id": "opencv-box-preparation",
+      "scope": "optional-vision-tasks-box-data-preparation",
+      "version": "5.1.0",
+      "source": {
+        "type": "source-archive",
+        "url": "https://codeload.github.com/opencv/opencv/zip/refs/tags/5.1.0",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "1de97dafda7e85aa8a3bc33774de6fab607b502ba37a34e859af1c57073f7767",
+        "size_bytes": 87899438
+      },
+      "license": {
+        "spdx": ["Apache-2.0"],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": ["windows-x86_64"],
+      "linkage": "static-private-optional-external-sdk",
+      "support_status": "development-candidate"
     }
   ]
 }

@@ -52,7 +52,8 @@
     "onnxruntime-directml-windows-x64": "recorded",
     "directml-windows-x64": "recorded",
     "migraphx-native": "recorded",
-    "libjpeg-turbo": "recorded"
+    "libjpeg-turbo": "recorded",
+    "opencv-box-preparation": "pending"
   },
   "files": [
     {
@@ -1462,6 +1463,18 @@
         "artifact_sha256": "6e00419fda381550de184da3c662041e7be11202f80a3ec177954d55221c2757",
         "entry": "libjpeg-turbo-3.1.2/README.ijg",
         "url": "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/zip/refs/tags/3.1.2"
+      }
+    },
+    {
+      "dependency_id": "opencv-box-preparation",
+      "path": "opencv-5.1.0-LICENSE",
+      "size_bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "origin": {
+        "kind": "archive-entry",
+        "artifact_sha256": "1de97dafda7e85aa8a3bc33774de6fab607b502ba37a34e859af1c57073f7767",
+        "entry": "opencv-5.1.0/LICENSE",
+        "url": "https://codeload.github.com/opencv/opencv/zip/refs/tags/5.1.0"
       }
     }
   ],

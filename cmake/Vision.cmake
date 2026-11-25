@@ -129,6 +129,7 @@ if(JYPPX_LIUDING_BUILD_VISION_TASKS)
         src/jyppx/liuding/vision/tasks/data/targets.cpp
         src/jyppx/liuding/vision/tasks/data/preparation.cpp
         src/jyppx/liuding/vision/tasks/data/rtdetr_preparation.cpp
+        src/jyppx/liuding/vision/tasks/data/opencv_preparation.cpp
         src/jyppx/liuding/vision/tasks/data/dataset.cpp)
     add_library(jyppx::liuding::vision_tasks ALIAS jyppx_liuding_vision_tasks)
     if(MSVC)
@@ -146,6 +147,19 @@ if(JYPPX_LIUDING_BUILD_VISION_TASKS)
                 jyppx_liuding_experiment jyppx_liuding_interop jyppx_liuding_vision_ops
                 $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_vision_tasks)
+    if(JYPPX_LIUDING_VISION_OPENCV)
+        set(OpenCV_STATIC ON)
+        find_package(OpenCV 5.1.0 EXACT CONFIG REQUIRED COMPONENTS core imgproc)
+        foreach(_opencv_target IN ITEMS opencv_core opencv_imgproc)
+            get_target_property(_opencv_type ${_opencv_target} TYPE)
+            if(NOT _opencv_type STREQUAL "STATIC_LIBRARY")
+                message(FATAL_ERROR "VISION_OPENCV requires static OpenCV targets")
+            endif()
+        endforeach()
+        target_include_directories(jyppx_liuding_vision_tasks SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+        target_link_libraries(jyppx_liuding_vision_tasks PRIVATE ${OpenCV_LIBS})
+        target_compile_definitions(jyppx_liuding_vision_tasks PRIVATE JYPPX_VISION_WITH_OPENCV=1)
+    endif()
     foreach(_pack IN ITEMS models models_yolo models_rcnn models_vision)
         if(TARGET jyppx_liuding_${_pack})
             target_link_libraries(jyppx_liuding_vision_tasks PRIVATE jyppx_liuding_${_pack})

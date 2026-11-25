@@ -219,6 +219,10 @@ Linux 使用调用者显式选择的共享系统 libcurl >= 7.81.0 SDK，适用 
 工具声明位于 [network-dependencies.json](tools/datasets/network-dependencies.json)；Linux 配置记录所选 curlver.h 与解析后共享库的 SHA-256。该可选系统 SDK 接口不代表任意发行版、TLS 后端或版本已经取得发布资格。
 
 
+### 可选 OpenCV 检测处理
+
+`JYPPX_LIUDING_VISION_OPENCV` 使用调用者提供的 OpenCV 5.1.0 静态 SDK，包含 core、imgproc 及其导出依赖；不使用 Python、OpenCL 或 GPU 后端。OpenCV 主体为 Apache-2.0，精确源归档的 [LICENSE](third_party/licenses/opencv-5.1.0-LICENSE) 随源码与启用后的 SDK 安装保留。所选 SDK 实际链接的 geometry、flann、zlib、HarfBuzz 等组件分别适用各自条款；外部 SDK 的完整传递 notice 与再分发审查仍为 pending，调用者应保留所选 SDK 自带的许可证。
+
 ### 可选原生 TensorBoard
 
 启用 `JYPPX_LIUDING_BUILD_TELEMETRY_NATIVE` 时，使用 nanopb 0.4.9.2（Zlib 许可证）的官方运行库和 TensorBoard 2.20.0（Apache-2.0）的官方 schema 生成代码。运行库的符号使用项目私有前缀，原始依赖源码不修改。安装包附带对应许可证；nanopb 生成器、protoc 和独立 Python reader 仅用于开发，不属于产品运行时依赖。

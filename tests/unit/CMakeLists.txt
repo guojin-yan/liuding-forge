@@ -1051,11 +1051,15 @@ if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo
         LINK_TARGET jyppx::liuding::vision_tasks
         vision/test_contracts.cpp vision/test_data_preparation.cpp
         vision/test_rtdetr_preparation.cpp
+        vision/test_opencv_preparation.cpp
         vision/test_rtdetr_results.cpp
         vision/test_rtdetr_validation.cpp
         vision/test_training_tail.cpp
         vision/test_ema.cpp
         vision/test_yolo_numerics.cpp vision/test_musgd.cpp)
+    if(JYPPX_LIUDING_VISION_OPENCV)
+        target_compile_definitions(jyppx_test_vision_contracts PRIVATE JYPPX_TEST_VISION_OPENCV=1)
+    endif()
     target_link_libraries(jyppx_test_vision_contracts PRIVATE
         jyppx::liuding::vision_ops nlohmann_json::nlohmann_json)
     jyppx_add_gtest(jyppx_test_vision_models
