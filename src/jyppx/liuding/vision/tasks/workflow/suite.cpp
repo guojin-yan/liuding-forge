@@ -541,7 +541,12 @@ TrainResult train_vision(const TrainRequest& request) {
   const auto training_samples = source.train->size();
   if (training_samples == 0) throw InvalidArgument("Training dataset is empty");
   const auto batches =
-      1U + (training_samples - 1U) / static_cast<std::uint64_t>(r.batch_size);
+      r.drop_last_training_batch
+          ? training_samples / static_cast<std::uint64_t>(r.batch_size)
+          : 1U + (training_samples - 1U) /
+                     static_cast<std::uint64_t>(r.batch_size);
+  if (batches == 0)
+    throw InvalidArgument("Training tail policy would discard every sample");
   std::shared_ptr<training::SchedulerAdapter> scheduler;
   training::TrainingBatchPolicy training_batch_policy;
   std::string training_batch_policy_id;
@@ -654,6 +659,7 @@ TrainResult train_vision(const TrainRequest& request) {
   p.pipeline_id = "vision.training";
   p.dataset_version = source.train_id;
   p.batch_size = r.batch_size;
+  p.drop_last = r.drop_last_training_batch;
   p.num_workers = r.workers;
   p.prefetch_batches = r.prefetch_batches;
   p.memory.target_device = r.device;
@@ -678,6 +684,7 @@ TrainResult train_vision(const TrainRequest& request) {
   std::vector<std::shared_ptr<training::CallbackHandler>> callbacks;
   if (source.val) {
     p.pipeline_id = "vision.validation";
+    p.drop_last = false;
     p.dataset_version = source.val_id;
     p.dataset_size = 0;
     val_options.augmentation.dataset_id = source.val_id;

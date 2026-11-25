@@ -858,6 +858,30 @@ TEST_F(VisionContracts, AccumulationPolicyRoundTripAndResumeIdentity) {
   EXPECT_THROW(t::recipe_identity(recipe), InvalidArgument);
 }
 
+TEST_F(VisionContracts, TrainingTailPolicyRoundTripsAndBindsResumeIdentity) {
+  t::RecipeSpec recipe;
+  recipe.training.source = std::filesystem::absolute("a.json");
+  const auto original = t::recipe_json(recipe);
+  const auto identity = t::recipe_identity(recipe);
+  EXPECT_EQ(original.find("drop_last_training_batch"), std::string::npos);
+  recipe.drop_last_training_batch = true;
+  const auto restored =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  EXPECT_TRUE(restored.drop_last_training_batch);
+  EXPECT_EQ(t::recipe_identity(recipe), t::recipe_identity(restored));
+  EXPECT_NE(identity, t::recipe_identity(recipe));
+  recipe.drop_last_training_batch = false;
+  EXPECT_EQ(original, t::recipe_json(recipe));
+  for (const auto* invalid : {"null", "1", "\"true\"", "[]", "{}"}) {
+    const auto json =
+        std::string(
+            R"({"model":{"architecture":"yolo26n"},"dataset":{"format":"coco","source":"a.json"},"drop_last_training_batch":)") +
+        invalid + "}";
+    EXPECT_THROW(t::parse_recipe(json, std::filesystem::current_path()),
+                 InvalidArgument);
+  }
+}
+
 TEST_F(VisionContracts, Yolo26ExplicitLossRecipeRoundTripAndBinding) {
   t::RecipeSpec recipe;
   recipe.model.architecture = "yolo26n";

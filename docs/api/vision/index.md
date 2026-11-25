@@ -29,6 +29,8 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 ## 配方与统一入口
 
+`drop_last_training_batch: true` 丢弃每轮末不足 `batch_size` 的训练批次，验证仍保留所有样本；默认 false。该策略参与恢复身份，预热与调度按实际保留的训练批次数计算；若样本不足一整批会拒绝启动。
+
 设置 `preprocessing.numeric_stage: "consumer"` 可让视觉流水线保留 CPU uint8 图像，在设备搬运后、批次游标提交前执行 float32 归一化。它复用相同的增强、标注与数值转换接口，减少传输图像的字节数；可配合 `pin_memory: true` 和 `non_blocking_transfer: true` 请求固定主存及当前调用流上的非阻塞传输。默认 `numeric_stage` 为 `worker`，默认传输为阻塞；自定义设置参与配方和数据流水线恢复身份。C++ 的 `YoloDataOptions::numeric_on_consumer` 仅改变 `make_yolo_data_pipeline` 内部执行位置，该流水线要求调用者未配置其他 consumer transform；直接调用 `prepare_yolo_batch` 仍返回已归一化的 float32 批次。此设置不保证吞吐提升，需在实际设备和配方下测量。
 
 RT-DETR 检测配方可显式添加 `rtdetr_data: {}`，选择 uint8 RGB 的逐操作色彩扰动、随机扩展零边框、IoU 裁剪、框中心筛选、最小边长 1 的训练框清理、水平翻转及固定画布拉伸；验证仅使用拉伸。该配置只接受轴对齐检测框，拒绝与其他增强、矩形或 worker 多尺度混用。对象内可配置 `photometric_probability`、`zoom_out_probability`、`iou_crop_probability`、`horizontal_flip_probability`，默认分别为 0.5、0.5、0.8、0.5；`crop_trials` 默认 40，`max_crop_rounds` 默认 128，达到拒绝采样额度会报错，不静默改变增强。另可设置 `rtdetr_training_sizes: [480,512,544,576,608,640,640,640,672,704,736,768,800]`，在模型调用前对训练张量做最近邻方形缩放并保持目标框的归一化坐标；重复尺寸保留其采样权重，验证不缩放。随机流根据 seed、epoch、样本或批次身份确定，可恢复且不依赖 worker 执行次序；其随机数序列不等同于 Python/NumPy。上述数据与尺寸策略均进入恢复身份；固定参考检查不等于完整 COCO 训练精度资格。

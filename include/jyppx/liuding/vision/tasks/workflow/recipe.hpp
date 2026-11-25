@@ -95,6 +95,8 @@ struct RecipeSpec {
       65536.;  ///< Initial dynamic CUDA FP16 loss scale.
   std::uint64_t epochs = 100;
   std::size_t batch_size = 16;
+  bool drop_last_training_batch =
+      false;  ///< Drop only the incomplete training batch.
   std::size_t workers = 0;
   std::size_t prefetch_batches = 2;
   bool pin_memory = false;

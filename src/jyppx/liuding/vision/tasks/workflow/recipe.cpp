@@ -218,6 +218,7 @@ RecipeSpec parse_recipe(std::string_view text,
            "classification_validation_root",
            "image_size",
            "batch_size",
+           "drop_last_training_batch",
            "workers",
            "epochs",
            "seed",
@@ -509,6 +510,11 @@ RecipeSpec parse_recipe(std::string_view text,
     }
   }
   r.batch_size = j.value("batch_size", r.batch_size);
+  if (j.contains("drop_last_training_batch") &&
+      !j["drop_last_training_batch"].is_boolean())
+    throw InvalidArgument("drop_last_training_batch must be boolean");
+  r.drop_last_training_batch =
+      j.value("drop_last_training_batch", r.drop_last_training_batch);
   r.workers = j.value("workers", r.workers);
   r.epochs = j.value("epochs", r.epochs);
   r.data.augmentation.multi_source.total_epochs = r.epochs;
@@ -1355,6 +1361,7 @@ std::string recipe_json(const RecipeSpec& r) {
   if (r.non_blocking_transfer) j["non_blocking_transfer"] = true;
   if (!r.rtdetr_training_sizes.empty())
     j["rtdetr_training_sizes"] = r.rtdetr_training_sizes;
+  if (r.drop_last_training_batch) j["drop_last_training_batch"] = true;
   if (r.data.rtdetr.enabled) {
     const auto& d = r.data.rtdetr;
     j["rtdetr_data"] = {
