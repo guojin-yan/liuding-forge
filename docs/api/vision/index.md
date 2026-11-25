@@ -33,7 +33,9 @@ cmake --build out/build/vision --config Release --target jyppx_vision_cli --para
 
 RT-DETR 的 `rtdetr_data` 拉伸配置可在 `evaluation`、`prediction` 中分别指定 `clip_boxes: false`，保留超出图像范围的预测框，以对应官方 TopK 后处理；默认仍裁剪。该设置参与恢复身份，只接受 RT-DETR 拉伸检测，原图还原拒绝裁切、补边和翻转轨迹。框的类别及置信度顺序不变；COCO 类别 ID 映射和统一评估器仍由评测入口明确提供。
 
-`rtdetr_inference_validation: true` 在每批上只执行一次验证推理，不计算验证 loss，也不再逐图进行第二遍推理。它要求 `rtdetr_data`、完整指标、原始方向坐标和 `evaluation` 中未过滤的 `confidence: 0`、`multi_label: true`、`max_detections: 300`、`clip_boxes: false`；模型选择使用 `validation.map` 或 `validation.ap50`。指标使用导入时保留的原始标注及稳定正整数图像 ID，保留 crowd 和面积，每图每类最多 100 个预测框；最后不足一批的验证样本保留。`validation.json` 的 `execution` 为 `rtdetr.batched_inference/v1`。该选择参与恢复身份，默认保留原验证路径；最终官方 COCO 全部指标仍需统一评估器核对。
+`rtdetr_inference_validation: true` 在每批上只执行一次验证推理，不计算验证 loss，也不再逐图进行第二遍推理。它要求 `rtdetr_data`、完整指标、原始方向坐标和 `evaluation` 中未过滤的 `confidence: 0`、`multi_label: true`、`max_detections: 300`、`clip_boxes: false`；模型选择使用 `validation.map` 或 `validation.ap50`。指标使用导入时保留的原始标注及稳定正整数图像 ID，保留 crowd 和面积，每图每类最多 100 个预测框；最后不足一批的验证样本保留。`validation.json` 的 `execution` 为 `rtdetr.batched_inference/v1`，`coco_metrics` 汇总 COCO bbox 的 12 项 AP/AR（含面积区间和 maxDet 1/10/100，缺失类别结果为 -1）。该选择参与恢复身份，默认保留原验证路径；最终官方 COCO 全部指标仍需统一评估器核对。
+
+`save_best_checkpoint: false` 关闭指标改善时的 `best.checkpoint` 和 `best.safetensors` 发布；仍跟踪最佳指标并按 `save_interval_epochs` 保存周期检查点和 last。默认值为 `true`，关闭选择参与恢复身份。文件格式、保存内容和耗时仍应分别测量，不能仅凭保存频率推定不同框架的检查点工作量相同。
 
 `drop_last_training_batch: true` 丢弃每轮末不足 `batch_size` 的训练批次，验证仍保留所有样本；默认 false。该策略参与恢复身份，预热与调度按实际保留的训练批次数计算；若样本不足一整批会拒绝启动。
 

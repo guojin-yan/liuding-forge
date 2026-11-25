@@ -31,7 +31,21 @@ RtDetrValidation::RtDetrValidation(
   reset();
 }
 void RtDetrValidation::reset() {
-  metric_ = std::make_unique<tm::DetectionAveragePrecisionMetric>(options_);
+  metrics_.clear();
+  // COCO summarizes all-area recall at maxDet1/10/100 and AP/recall for
+  // small/medium/large at maxDet100. Boundaries are inclusive, as in COCOeval.
+  for (std::size_t i = 0; i < 6; ++i) {
+    auto options = options_;
+    options.max_detections_per_image_class = i == 0 ? 1 : i == 1 ? 10 : 100;
+    if (i == 3) options.max_area = 32 * 32;
+    if (i == 4) {
+      options.min_area = 32 * 32;
+      options.max_area = 96 * 96;
+    }
+    if (i == 5) options.min_area = 96 * 96;
+    metrics_.push_back(
+        std::make_unique<tm::DetectionAveragePrecisionMetric>(options));
+  }
   images_ = 0;
 }
 training::StepOutput RtDetrValidation::step(TaskBinding& binding,
@@ -88,7 +102,7 @@ training::StepOutput RtDetrValidation::step(TaskBinding& binding,
            static_cast<std::size_t>(classes[row])});
     updates.push_back(std::move(image));
   }
-  metric_->update(updates);
+  for (auto& metric : metrics_) metric->update(updates);
   images_ += updates.size();
   training::StepOutput output;
   output.sample_count = batch.items.size();
@@ -98,7 +112,9 @@ std::string RtDetrValidation::finish(std::stop_token stop) {
   if (stop.stop_requested()) throw Cancelled("RT-DETR validation cancelled");
   if (images_ != targets_->images.size())
     throw InvalidArgument("RT-DETR validation did not visit the entire split");
-  const auto summary = metric_->summarize();
+  std::vector<tm::DetectionSummary> summaries;
+  for (const auto& metric : metrics_) summaries.push_back(metric->summarize());
+  const auto& summary = summaries[2];
   nlohmann::json report{{"schema", "vision.evaluation/v1"},
                         {"protocol", "axis_aligned_box_ap.r101/v1"},
                         {"execution", "rtdetr.batched_inference/v1"},
@@ -118,6 +134,37 @@ std::string RtDetrValidation::finish(std::stop_token stop) {
       ++classes;
     }
   if (classes) report["ap50"] = total / classes;
+  const auto recall = [](const tm::DetectionSummary& s) {
+    double sum = 0;
+    std::size_t count = 0;
+    for (const auto& c : s.per_class)
+      for (const auto value : c.recall_by_iou)
+        if (value) {
+          sum += *value;
+          ++count;
+        }
+    return count ? sum / count : -1.;
+  };
+  double ap75 = 0;
+  std::size_t ap75_classes = 0;
+  for (const auto& c : summary.per_class)
+    if (c.ap_by_iou[5]) {
+      ap75 += *c.ap_by_iou[5];
+      ++ap75_classes;
+    }
+  report["coco_metrics"] = {
+      {"AP", summary.mean_average_precision.value_or(-1.)},
+      {"AP50", classes ? total / classes : -1.},
+      {"AP75", ap75_classes ? ap75 / ap75_classes : -1.},
+      {"AP_small", summaries[3].mean_average_precision.value_or(-1.)},
+      {"AP_medium", summaries[4].mean_average_precision.value_or(-1.)},
+      {"AP_large", summaries[5].mean_average_precision.value_or(-1.)},
+      {"AR1", recall(summaries[0])},
+      {"AR10", recall(summaries[1])},
+      {"AR100", recall(summary)},
+      {"AR_small", recall(summaries[3])},
+      {"AR_medium", recall(summaries[4])},
+      {"AR_large", recall(summaries[5])}};
   epoch_.reset();
   return report.dump(2);
 }

@@ -836,7 +836,7 @@ TrainResult train_vision(const TrainRequest& request) {
     fit.checkpoint_action = [selection, path = request.output, binding,
                              eval_binding,
                              r](const training::CheckpointCoordinator& c) {
-      if (selection->state().last_improved) {
+      if (r.save_best_checkpoint && selection->state().last_improved) {
         training::FileCheckpointStore store(path / "best.checkpoint",
                                             VisionCheckpointOptions());
         c.save(store);

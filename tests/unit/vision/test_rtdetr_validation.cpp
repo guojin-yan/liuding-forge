@@ -138,6 +138,12 @@ TEST(RtDetrValidation, OneForwardPerBatchKeepsTailAndSourceCrowdAcrossEpochs) {
     EXPECT_DOUBLE_EQ(report["map"].get<double>(), 1);
     EXPECT_DOUBLE_EQ(report["ap50"].get<double>(), 1);
     EXPECT_EQ(report["metric_max_detections_per_image_class"], 100);
+    EXPECT_EQ(report["coco_metrics"].size(), 12U);
+    EXPECT_DOUBLE_EQ(report["coco_metrics"]["AP75"].get<double>(), 1);
+    EXPECT_DOUBLE_EQ(report["coco_metrics"]["AR1"].get<double>(), 0);
+    EXPECT_DOUBLE_EQ(report["coco_metrics"]["AR10"].get<double>(), 1);
+    EXPECT_DOUBLE_EQ(report["coco_metrics"]["AP_small"].get<double>(), 1);
+    EXPECT_DOUBLE_EQ(report["coco_metrics"]["AP_medium"].get<double>(), -1);
     EXPECT_EQ(calls, 2 * (epoch + 1));
   }
 }

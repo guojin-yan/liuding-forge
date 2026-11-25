@@ -159,7 +159,8 @@ TEST_F(VisionTrainingTail, RejectsUnknownJpegBackendValues) {
     EXPECT_THROW(t::parse_recipe(json, root), InvalidArgument);
   }
 }
-TEST_F(VisionTrainingTail, RtDetrInferenceValidationPublishesMetricsWithoutLoss) {
+TEST_F(VisionTrainingTail,
+       RtDetrInferenceValidationPublishesMetricsWithoutLoss) {
   auto recipe = Recipe();
   recipe.model.architecture = "rtdetr_resnet18_vd_coco72";
   recipe.data.letterbox.canvas = {256, 256};
@@ -170,7 +171,8 @@ TEST_F(VisionTrainingTail, RtDetrInferenceValidationPublishesMetricsWithoutLoss)
   recipe.data.rtdetr.horizontal_flip_probability = 0;
   recipe.rtdetr_inference_validation = true;
   recipe.full_validation_metrics = true;
-  recipe.evaluation = {.confidence = 0, .multi_label = true, .clip_boxes = false};
+  recipe.evaluation = {
+      .confidence = 0, .multi_label = true, .clip_boxes = false};
   recipe.epochs = 2;
   recipe.ema = true;
   recipe.drop_last_training_batch = true;
@@ -198,6 +200,39 @@ TEST_F(VisionTrainingTail, RtDetrInferenceValidationPublishesMetricsWithoutLoss)
   EXPECT_EQ(report["execution"], "rtdetr.batched_inference/v1");
   EXPECT_EQ(report["images"], 3);
   EXPECT_EQ(report["metric_max_detections_per_image_class"], 100);
+}
+TEST_F(VisionTrainingTail,
+       BestArtifactPolicyPreservesPeriodicAndLastCheckpoints) {
+  auto recipe = Recipe();
+  recipe.save_interval_epochs = 1;
+  recipe.data.augmentation.multi_source.total_epochs = recipe.epochs;
+  recipe.data.augmentation.multi_source.close_epochs = 0;
+  const auto original = t::recipe_json(recipe), id = t::recipe_identity(recipe);
+  EXPECT_EQ(original.find("save_best_checkpoint"), std::string::npos);
+  recipe.save_best_checkpoint = false;
+  const auto restored = t::parse_recipe(t::recipe_json(recipe), root);
+  EXPECT_FALSE(restored.save_best_checkpoint);
+  EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
+  EXPECT_NE(id, t::recipe_identity(recipe));
+  for (bool best : {false, true}) {
+    recipe.save_best_checkpoint = best;
+    t::TrainRequest request;
+    request.recipe = recipe;
+    request.output = root / (best ? "with-best" : "without-best");
+    const auto result = t::train_vision(request);
+    EXPECT_EQ(result.fit.completed_epochs, 1U);
+    EXPECT_TRUE(
+        std::filesystem::is_regular_file(request.output / "last.checkpoint"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(request.output /
+                                                 "epoch-1.checkpoint"));
+    EXPECT_EQ(std::filesystem::exists(request.output / "best.checkpoint"),
+              best);
+    EXPECT_EQ(std::filesystem::exists(request.output / "best.safetensors"),
+              best);
+  }
+  auto malformed = J::parse(original);
+  malformed["save_best_checkpoint"] = 0;
+  EXPECT_THROW(t::parse_recipe(malformed.dump(), root), InvalidArgument);
 }
 }  // namespace
 }  // namespace jyppx::liuding::vision::tests

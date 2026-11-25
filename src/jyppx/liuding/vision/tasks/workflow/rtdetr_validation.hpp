@@ -23,7 +23,9 @@ class RtDetrValidation {
   std::map<std::string, std::size_t> by_path_;
   training::metrics::DetectionMetricOptions options_;
   ResultOptions results_;
-  std::unique_ptr<training::metrics::DetectionAveragePrecisionMetric> metric_;
+  std::vector<
+      std::unique_ptr<training::metrics::DetectionAveragePrecisionMetric>>
+      metrics_;
   std::size_t images_ = 0;
   std::optional<std::uint64_t> epoch_;
 };

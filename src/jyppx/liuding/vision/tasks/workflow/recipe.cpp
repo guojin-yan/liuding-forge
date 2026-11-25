@@ -241,6 +241,7 @@ RecipeSpec parse_recipe(std::string_view text,
            "ema",
            "early_stopping_patience",
            "save_interval_epochs",
+           "save_best_checkpoint",
            "prediction",
            "evaluation",
            "classification_augmentation",
@@ -658,6 +659,11 @@ RecipeSpec parse_recipe(std::string_view text,
       j.value("early_stopping_patience", r.early_stopping_patience);
   r.save_interval_epochs =
       j.value("save_interval_epochs", r.save_interval_epochs);
+  if (j.contains("save_best_checkpoint") &&
+      !j["save_best_checkpoint"].is_boolean())
+    throw InvalidArgument("save_best_checkpoint must be boolean");
+  r.save_best_checkpoint =
+      j.value("save_best_checkpoint", r.save_best_checkpoint);
   if (j.contains("optimizer")) {
     const auto& v = j["optimizer"];
     Keys(v, {"name", "learning_rate", "momentum", "weight_decay", "nesterov",
@@ -1405,6 +1411,7 @@ std::string recipe_json(const RecipeSpec& r) {
     j["rtdetr_training_sizes"] = r.rtdetr_training_sizes;
   if (r.drop_last_training_batch) j["drop_last_training_batch"] = true;
   if (r.rtdetr_inference_validation) j["rtdetr_inference_validation"] = true;
+  if (!r.save_best_checkpoint) j["save_best_checkpoint"] = false;
   if (r.jpeg_backend == data::image::JpegDecodeBackend::libjpeg_turbo)
     j["jpeg_backend"] = "libjpeg-turbo";
   if (r.data.rtdetr.enabled) {

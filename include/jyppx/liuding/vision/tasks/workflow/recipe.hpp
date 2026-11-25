@@ -136,6 +136,8 @@ struct RecipeSpec {
   double ema_ramp_updates = 2000.;
   std::uint64_t early_stopping_patience = 50;
   std::uint64_t save_interval_epochs = 1;
+  bool save_best_checkpoint = true;
+  ///< Publish best checkpoint/weights on improvement; metric tracking remains.
   ResultOptions prediction;
   ResultOptions evaluation{.confidence = .001, .nms_iou = .7};
 };
