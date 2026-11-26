@@ -213,8 +213,10 @@ class DinoV2Attention final : public torch::nn::Module {
       auto qkv = qkv_->forward(input)
                      .view({batch, tokens, 3, heads_, head_dimension})
                      .permute({2, 0, 3, 1, 4});
+      // Share one backward node when reassembling the packed projection.
+      const auto projections = qkv.unbind(0);
       auto attended = at::scaled_dot_product_attention(
-                          qkv.select(0, 0), qkv.select(0, 1), qkv.select(0, 2))
+                          projections[0], projections[1], projections[2])
                           .transpose(1, 2)
                           .contiguous()
                           .view({batch, tokens, dimension_});
