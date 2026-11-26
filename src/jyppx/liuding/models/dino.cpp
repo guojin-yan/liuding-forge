@@ -17,6 +17,7 @@
 #include <torch/torch.h>
 
 #include <ATen/ops/linear.h>
+#include <ATen/ops/scaled_dot_product_attention.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -207,8 +208,19 @@ class DinoV2Attention final : public torch::nn::Module {
     const auto batch = input.size(0);
     const auto tokens = input.size(1);
     const auto head_dimension = dimension_ / heads_;
+    if (input.is_cuda() && !at::globalContext().deterministicAlgorithms()) {
+      auto qkv = qkv_->forward(input)
+                     .view({batch, tokens, 3, heads_, head_dimension})
+                     .permute({2, 0, 3, 1, 4});
+      auto attended = at::scaled_dot_product_attention(
+                          qkv.select(0, 0), qkv.select(0, 1), qkv.select(0, 2))
+                          .transpose(1, 2)
+                          .contiguous()
+                          .view({batch, tokens, dimension_});
+      return projection_->forward(attended);
+    }
     // Retain the fused checkpoint layout while matching the independent
-    // reference's K/V/Q projection shapes and branch accumulation order.
+    // CPU/strict-deterministic reference's projection and accumulation order.
     const auto project = [&](std::int64_t row) {
       return at::linear(input, qkv_->weight.narrow(0, row, dimension_),
                         qkv_->bias.narrow(0, row, dimension_));

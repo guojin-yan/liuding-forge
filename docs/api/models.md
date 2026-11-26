@@ -26,6 +26,8 @@ CNN 分类模型接收与模块设备、dtype 一致的稠密浮点 NCHW 图像�
 
 DINOv2 在 CUDA 严格确定性模式下使用可求导的分离矩阵计算缩放位置编码，支持非原生分辨率的完整微调；位置参数、激活与梯度保留在设备上，仅小型插值系数从 CPU 传入。该路径按 FP32 计算并恢复参数 dtype，不改变 state 键或形状；与原生插值的浮点舍入可能不同。CUDA 确定性矩阵运算还要求进程启动前设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`，完整训练恢复须另按实际配方验收。
 
+DINOv2 在 GPU 且未启用 LibTorch 严格确定性算法时，合并 Q/K/V 投影并调用 LibTorch SDPA，由所选后端决定注意力内核；CPU 与严格确定性模式保留分开投影及显式注意力计算。两条路线共享参数布局，浮点舍入及梯度不承诺逐位一致，性能取决于设备、精度和输入形状。
+
 ## 查询与替换分类头
 
 `classifier_info(adapter)` 查询当前类别数、embedding 宽度、池化或 CLS 语义和被替换的参数前缀。`reset_classifier(adapter, classes)` 替换 head 并刷新传入 adapter 的输出 schema；`classes` 为 0–1,000,000，正数创建全新可训练 head，零移除 head。它保留具体模块与骨干参数身份、冻结标志、device、dtype 和当前模式，不自动冻结骨干或加载权重。

@@ -1039,6 +1039,56 @@ TEST(Models, DinoV2SmallSupportsCpuBackwardAndOptimizerStep) {
       [](DinoV2Options options) { return dinov2_vits14(options); }, 384);
 }
 
+TEST(Models, DinoV2SmallCudaAttentionMatchesDeterministicBackward) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  struct ContextGuard {
+    bool deterministic = at::globalContext().deterministicAlgorithms();
+    bool warn_only = at::globalContext().deterministicAlgorithmsWarnOnly();
+    bool cudnn_tf32 = at::globalContext().allowTF32CuDNN();
+    bool cublas_tf32 = at::globalContext().allowTF32CuBLAS();
+    ~ContextGuard() {
+      at::globalContext().setDeterministicAlgorithms(deterministic, warn_only);
+      at::globalContext().setAllowTF32CuDNN(cudnn_tf32);
+      at::globalContext().setAllowTF32CuBLAS(cublas_tf32);
+    }
+  } context;
+  at::globalContext().setAllowTF32CuDNN(false);
+  at::globalContext().setAllowTF32CuBLAS(false);
+  torch::manual_seed(20261126);
+  auto model = dinov2_vits14(DinoV2Options{
+      .num_classes = 3, .layer_scale_init = 0.1, .position_antialias = false});
+  model->to(torch::Device(torch::kCUDA, 0));
+  model->train();
+  auto input =
+      torch::randn({2, 3, 28, 42}, torch::TensorOptions().device(torch::kCUDA));
+  input.set_requires_grad(true);
+  const auto run = [&] {
+    const auto logits = model->forward(input);
+    logits.square().mean().backward();
+    std::vector<Tensor> values{logits.detach().cpu(),
+                               input.grad().detach().cpu()};
+    for (const auto& parameter : model->parameters()) {
+      if (!parameter.grad().defined())
+        throw std::runtime_error("Missing DINO attention comparison gradient");
+      values.push_back(parameter.grad().detach().cpu());
+    }
+    return values;
+  };
+  at::globalContext().setDeterministicAlgorithms(true, false);
+  const auto expected = run();
+  model->zero_grad();
+  input.mutable_grad() = Tensor{};
+  at::globalContext().setDeterministicAlgorithms(false, false);
+  const auto actual = run();
+  ASSERT_EQ(actual.size(), expected.size());
+  for (std::size_t index = 0; index < actual.size(); ++index) {
+    ASSERT_TRUE(torch::isfinite(actual[index]).all().item<bool>()) << index;
+    EXPECT_TRUE(torch::allclose(actual[index], expected[index], 2e-4, 2e-5))
+        << "gradient/output index=" << index << " max_abs="
+        << (actual[index] - expected[index]).abs().max().item<double>();
+  }
+}
+
 TEST(Models, DinoV2BaseAndLargeCpuTrainingGateIsExplicit) {
   const auto* enabled =
       std::getenv("JYPPX_LIUDING_DINOV2_TRAINING_CAPACITY_GATE");
