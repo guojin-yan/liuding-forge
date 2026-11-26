@@ -647,6 +647,104 @@ TEST_F(VisionContracts,
   EXPECT_NEAR(dn.grad()[0][0][1][0].item<double>(), .09375, 1e-7);
 }
 
+TEST_F(VisionContracts, RtDetrBatchedLossPreservesIndependentImageGradients) {
+  torch::manual_seed(26);
+  // Image 0 is empty, image 1 has two classes, image 2 has one target.
+  const auto targets =
+      torch::tensor({1.f, 0.f, 2.f, 3.f, 9.f, 11.f, 1.f, 1.f, 8.f, 7.f, 14.f,
+                     15.f, 2.f, 1.f, 1.f, 4.f, 7.f, 12.f})
+          .view({3, 6});
+  for (bool padding : {false, true}) {
+    std::vector<Tensor> raw{
+        torch::randn({2, 3, 4, 2}),
+        torch::rand({2, 3, 4, 4}) * .6 + .2,
+        torch::randn({3, 4, 2}),
+        torch::rand({3, 4, 4}) * .6 + .2,
+        torch::randn({2, 3, 8, 2}),
+        torch::rand({2, 3, 8, 4}) * .6 + .2,
+        torch::tensor({-1, -1, -1, -1, -1, -1, -1, -1, 0, 1,  0, 1,
+                       0,  1,  0,  1,  0,  -1, 0,  -1, 0, -1, 0, -1},
+                      torch::kInt64)
+            .view({3, 8}),
+        torch::tensor({false, false, false, false, false, false, false, false,
+                       true,  true,  false, false, true,  true,  false, false,
+                       true,  false, false, false, true,  false, false, false})
+            .view({3, 8})};
+    auto reference = raw;
+    for (I i = 0; i < 6; ++i) {
+      raw[i].requires_grad_(true);
+      reference[i] = raw[i].detach().clone().requires_grad_(true);
+    }
+    const auto batched = t::rtdetr_loss(raw, targets, {16, 16}, 2, padding);
+    auto expected = reference[0].sum() * 0;
+    for (I b = 0; b < 3; ++b) {
+      auto gt = targets.index({targets.select(1, 0) == b}).clone();
+      gt.select(1, 0).zero_();
+      std::vector<Tensor> image;
+      for (I i = 0; i < 8; ++i)
+        image.push_back(
+            reference[i].narrow(i < 2 || i == 4 || i == 5 ? 1 : 0, b, 1));
+      const auto full = t::rtdetr_loss(image, gt, {16, 16}, 2, padding);
+      auto ordinary = image;
+      ordinary[6] = ordinary[6].narrow(1, 0, 0);
+      const auto main = t::rtdetr_loss(ordinary, gt, {16, 16}, 2, padding);
+      const double count = static_cast<double>((std::max)(I{1}, gt.size(0)));
+      const double groups = gt.size(0) ? 2. : 1.;
+      expected = expected + main.total * (count / 3.) +
+                 (full.total - main.total) * (count * groups / 6.);
+    }
+    EXPECT_TRUE(torch::allclose(batched.total, expected, 2e-5, 2e-6));
+    batched.total.backward();
+    expected.backward();
+    for (I i = 0; i < 6; ++i) {
+      ASSERT_TRUE(raw[i].grad().defined());
+      ASSERT_TRUE(reference[i].grad().defined());
+      EXPECT_TRUE(
+          torch::allclose(raw[i].grad(), reference[i].grad(), 2e-5, 2e-6))
+          << "output " << i;
+    }
+  }
+}
+
+TEST_F(VisionContracts, RtDetrEmptyBatchTargetsKeepClassificationGraph) {
+  auto logits = torch::zeros({1, 3, 4, 2}, torch::requires_grad());
+  auto boxes = torch::full({1, 3, 4, 4}, .5, torch::requires_grad());
+  const std::vector<Tensor> raw{logits,
+                                boxes,
+                                logits[0],
+                                boxes[0],
+                                logits.narrow(2, 0, 0),
+                                boxes.narrow(2, 0, 0),
+                                torch::empty({3, 0}, torch::kInt64),
+                                torch::empty({3, 0}, torch::kBool)};
+  const auto loss = t::rtdetr_loss(raw, torch::empty({0, 6}), {16, 16}, 2);
+  EXPECT_NEAR(loss.total.item<double>(), 9. * std::log(2.), 2e-6);
+  loss.total.backward();
+  EXPECT_TRUE(torch::allclose(logits.grad(), torch::full_like(logits, .1875)));
+  EXPECT_TRUE(torch::equal(boxes.grad(), torch::zeros_like(boxes)));
+}
+
+TEST_F(VisionContracts,
+       RtDetrMatchingRetainsPerImagePairBudgetAndFiniteChecks) {
+  auto logits = torch::zeros({1, 2, 1025, 1});
+  auto boxes = torch::full({1, 2, 1025, 4}, .5);
+  std::vector<Tensor> raw{logits,
+                          boxes,
+                          logits[0],
+                          boxes[0],
+                          logits.narrow(2, 0, 0),
+                          boxes.narrow(2, 0, 0),
+                          torch::empty({2, 0}, torch::kInt64),
+                          torch::empty({2, 0}, torch::kBool)};
+  auto targets = torch::zeros({1024, 6});
+  targets.select(1, 4).fill_(4);
+  targets.select(1, 5).fill_(4);
+  EXPECT_THROW(t::rtdetr_loss(raw, targets, {16, 16}, 1), ResourceExhausted);
+  raw[3][0][0][0] = std::numeric_limits<float>::infinity();
+  EXPECT_THROW(t::rtdetr_loss(raw, torch::empty({0, 6}), {16, 16}, 1),
+               InvalidArgument);
+}
+
 TEST_F(VisionContracts, ExecutionPolicyRoundTripsAndChangesResumeIdentity) {
   t::RecipeSpec recipe;
   recipe.schema_version = 2;

@@ -43,57 +43,86 @@ Loss One(const Tensor& raw, const Tensor& prediction,
          double denominator, const Tensor& mapping = {},
          const Tensor& positive = {}, bool include_padding = false) {
   auto logits = raw.to(torch::kFloat32), pred = prediction.to(torch::kFloat32);
-  auto cls = logits.sum() * 0, l1 = pred.sum() * 0, giou = pred.sum() * 0;
-  for (I b = 0; b < logits.size(0); ++b) {
-    auto y = torch::zeros_like(logits[b]), score = torch::zeros_like(y);
-    Tensor row, column;
-    {
-      torch::NoGradGuard guard;
-      if (mapping.defined()) {
-        row = (positive[b] & (mapping[b] >= 0)).nonzero().flatten();
-        column = mapping[b].index_select(0, row);
-      } else if (labels[b].numel()) {
+  const auto queries = logits.size(1);
+  std::vector<I> offsets;
+  I total = 0;
+  for (const auto& label : labels) {
+    offsets.push_back(total);
+    total += label.numel();
+  }
+  Tensor row, column;
+  {
+    torch::NoGradGuard guard;
+    if (mapping.defined()) {
+      // One dynamic selection for the batch, instead of one per image.
+      row = (positive & (mapping >= 0)).flatten().nonzero().flatten();
+      auto offset = torch::tensor(offsets, torch::kInt64).to(pred.device());
+      column = mapping.flatten().index_select(0, row) +
+               offset.index_select(0, torch::floor_divide(row, queries));
+    } else {
+      std::vector<Tensor> costs;
+      for (I b = 0; b < logits.size(0); ++b) {
+        if (!labels[b].numel()) continue;
+        if (queries && labels[b].numel() > 1048576 / queries)
+          throw ResourceExhausted("Assignment pair limit exceeded");
         auto p = logits[b].sigmoid();
         auto neg = .75 * p.square() * (-(1 - p + 1e-8).log()),
              pos = .25 * (1 - p).square() * (-(p + 1e-8).log());
-        auto cost = (pos - neg).index_select(1, labels[b]) * 2 +
-                    torch::cdist(pred[b], boxes[b], 1) * 5 -
-                    GIoU(pred[b], boxes[b]) * 2;
-        auto match = vision_ops::linear_assignment(
-            cost, {.max_pairs = 1048576, .max_work = 200000000});
-        row = match.rows.to(pred.device());
-        column = match.columns.to(pred.device());
-      } else {
-        row = torch::empty({0}, logits.options().dtype(torch::kInt64));
-        column = row;
+        costs.push_back(((pos - neg).index_select(1, labels[b]) * 2 +
+                         torch::cdist(pred[b], boxes[b], 1) * 5 -
+                         GIoU(pred[b], boxes[b]) * 2)
+                            .flatten());
       }
+      std::vector<Tensor> rows, columns;
+      if (!costs.empty()) {
+        // Matching remains independently bounded per image. Transfer all costs
+        // once, then let the existing CPU solver inspect contiguous views.
+        auto snapshot = torch::cat(costs).to(torch::kCPU, torch::kFloat64);
+        I cursor = 0;
+        for (I b = 0; b < logits.size(0); ++b) {
+          if (!labels[b].numel()) continue;
+          const auto pairs = queries * labels[b].numel();
+          auto match = vision_ops::linear_assignment(
+              snapshot.narrow(0, cursor, pairs)
+                  .view({queries, labels[b].numel()}),
+              {.max_pairs = 1048576, .max_work = 200000000});
+          cursor += pairs;
+          rows.push_back(match.rows + b * queries);
+          columns.push_back(match.columns + offsets[b]);
+        }
+      }
+      auto empty = torch::empty({0}, torch::kInt64);
+      row = (rows.empty() ? empty : torch::cat(rows)).to(pred.device());
+      column =
+          (columns.empty() ? empty : torch::cat(columns)).to(pred.device());
     }
-    if (row.numel()) {
-      auto pb = pred[b].index_select(0, row),
-           gt = boxes[b].index_select(0, column),
-           ids = labels[b].index_select(0, column);
-      auto iou =
-          vision_ops::pairwise_box_iou(Xyxy(pb).detach(), Xyxy(gt)).diag();
-      y.index_put_({row, ids}, 1);
-      score.index_put_({row, ids}, iou);
-      l1 = l1 + (pb - gt).abs().sum();
-      giou =
-          giou +
-          (1 - vision_ops::aligned_generalized_iou(Xyxy(pb), Xyxy(gt))).sum();
-    }
-    auto weight =
-        (.75 * logits[b].sigmoid().square() * (1 - y) + score).detach();
-    auto loss =
-        torch::nn::functional::binary_cross_entropy_with_logits(
-            logits[b], score,
-            torch::nn::functional::BinaryCrossEntropyWithLogitsFuncOptions()
-                .reduction(torch::kNone)) *
-        weight;
-    if (mapping.defined() && !include_padding)
-      loss = loss * (mapping[b] >= 0).unsqueeze(1);
-    cls = cls + loss.sum();
   }
-  return {cls / denominator, l1 / denominator, giou / denominator};
+  logits = logits.flatten(0, 1);
+  pred = pred.flatten(0, 1);
+  auto y = torch::zeros_like(logits), score = torch::zeros_like(y);
+  auto l1 = pred.sum() * 0, giou = pred.sum() * 0;
+  if (row.numel()) {
+    auto pb = pred.index_select(0, row),
+         gt = torch::cat(boxes).index_select(0, column),
+         ids = torch::cat(labels).index_select(0, column);
+    auto pb_xyxy = Xyxy(pb), gt_xyxy = Xyxy(gt);
+    auto iou = vision_ops::aligned_box_iou(pb_xyxy.detach(), gt_xyxy);
+    y.index_put_({row, ids}, 1);
+    score.index_put_({row, ids}, iou);
+    l1 = l1 + (pb - gt).abs().sum();
+    giou = giou +
+           (1 - vision_ops::aligned_generalized_iou(pb_xyxy, gt_xyxy)).sum();
+  }
+  auto weight = (.75 * logits.sigmoid().square() * (1 - y) + score).detach();
+  auto loss =
+      torch::nn::functional::binary_cross_entropy_with_logits(
+          logits, score,
+          torch::nn::functional::BinaryCrossEntropyWithLogitsFuncOptions()
+              .reduction(torch::kNone)) *
+      weight;
+  if (mapping.defined() && !include_padding)
+    loss = loss * (mapping >= 0).flatten().unsqueeze(1);
+  return {loss.sum() / denominator, l1 / denominator, giou / denominator};
 }
 }  // namespace
 TaskLoss rtdetr_loss(std::span<const Tensor> x, const Tensor& targets,
