@@ -31,7 +31,7 @@ torch::nn::BatchNorm2d Norm(std::int64_t channels) {
       torch::nn::BatchNorm2dOptions(channels).eps(1e-5).momentum(0.1));
 }
 
-Tensor Relu6(const Tensor& input) { return torch::clamp(input, 0, 6); }
+Tensor Relu6(const Tensor& input) { return torch::relu6(input); }
 
 class MobileNetV2Block : public torch::nn::Module {
  public:

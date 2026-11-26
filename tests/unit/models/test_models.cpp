@@ -2010,6 +2010,50 @@ TEST(Models, MobileNetV2MatchesTimmBlockAndFeatureContracts) {
   EXPECT_THROW(mobilenetv2_100({.num_classes = -1}), InvalidArgument);
 }
 
+void CheckMobileNetV2Relu6BoundaryGradients(const torch::Device& device) {
+  auto model = mobilenetv2_100({.num_classes = 3});
+  model->to(device);
+  model->eval();
+  auto parameters = model->named_parameters(true);
+  {
+    torch::NoGradGuard no_grad;
+    for (auto& parameter : model->parameters()) parameter.zero_();
+    parameters["bn1.weight"].fill_(1);
+    parameters["blocks.0.0.bn1.weight"].fill_(1);
+    parameters["blocks.0.0.bn2.weight"].fill_(1);
+    parameters["blocks.0.0.conv_dw.weight"][0][0][1][1].fill_(0.25);
+    parameters["blocks.0.0.conv_pw.weight"][0][0][0][0].fill_(1);
+  }
+  for (const auto value : {0., 6., 3.}) {
+    model->zero_grad();
+    {
+      torch::NoGradGuard no_grad;
+      parameters["bn1.bias"][0].fill_(value);
+    }
+    const auto feature =
+        model->forward_features(torch::zeros({1, 3, 16, 16}, device)).front();
+    feature.select(1, 0).sum().backward();
+    const auto gradient = parameters["bn1.bias"].grad();
+    ASSERT_TRUE(gradient.defined());
+    ASSERT_TRUE(torch::isfinite(gradient).all().item<bool>());
+    // Official ReLU6 has zero derivative at both closed-interval endpoints.
+    // The first depthwise activation stays inside (0, 6) for the upper case.
+    if (value == 3.)
+      EXPECT_GT(gradient[0].item<double>(), 0.);
+    else
+      EXPECT_EQ(gradient[0].item<double>(), 0.) << value;
+  }
+}
+
+TEST(Models, MobileNetV2Relu6BoundaryGradientsMatchOfficial) {
+  CheckMobileNetV2Relu6BoundaryGradients(torch::Device(torch::kCPU));
+}
+
+TEST(ModelsCuda, MobileNetV2Relu6BoundaryGradientsMatchOfficial) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  CheckMobileNetV2Relu6BoundaryGradients(torch::Device(torch::kCUDA, 0));
+}
+
 TEST(Models, MobileNetV2SupportsBackwardAndOptimizerStep) {
   auto model = mobilenetv2_100({.num_classes = 3});
   model->train();
