@@ -208,7 +208,8 @@ class DinoV2Attention final : public torch::nn::Module {
     const auto batch = input.size(0);
     const auto tokens = input.size(1);
     const auto head_dimension = dimension_ / heads_;
-    if (input.is_cuda() && !at::globalContext().deterministicAlgorithms()) {
+    if (input.is_cuda() && !at::hasHIP() &&
+        !at::globalContext().deterministicAlgorithms()) {
       auto qkv = qkv_->forward(input)
                      .view({batch, tokens, 3, heads_, head_dimension})
                      .permute({2, 0, 3, 1, 4});
