@@ -179,13 +179,52 @@ Tensor CopyStep(const Tensor& input, ImageLayout layout, bool mask,
       mask                         ? std::vector<std::int64_t>{h, w}
       : layout == ImageLayout::chw ? std::vector<std::int64_t>{channels, h, w}
                                    : std::vector<std::int64_t>{h, w, channels};
-  auto output = torch::full(shape, fill, input.options().pinned_memory(false));
+  // Only padding leaves pixels unwritten. The other validated geometries
+  // cover the entire output, so an initial fill would duplicate memory work.
+  const auto allocation = input.options().pinned_memory(false);
+  auto output = step.kind == ImageGeometryKind::pad
+                    ? torch::full(shape, fill, allocation)
+                    : torch::empty(shape, allocation);
   const auto* source = static_cast<const std::byte*>(input.const_data_ptr());
   auto* destination = static_cast<std::byte*>(output.mutable_data_ptr());
   const auto scalar = input.element_size();
   const bool planar = mask || layout == ImageLayout::chw;
   const auto planes = planar ? channels : 1;
   const auto unit = scalar * (planar ? 1 : channels);
+  if (step.kind == ImageGeometryKind::horizontal_flip && unit == 1) {
+    for (std::int64_t c = 0; c < planes; ++c) {
+      for (std::uint32_t y = 0; y < after.height; ++y) {
+        CheckStop(stop);
+        const auto offset = (c * before.height + y) * before.width;
+        std::reverse_copy(source + offset, source + offset + before.width,
+                          destination + offset);
+      }
+    }
+    return output;
+  }
+  if (step.kind == ImageGeometryKind::crop ||
+      step.kind == ImageGeometryKind::pad ||
+      step.kind == ImageGeometryKind::vertical_flip) {
+    const auto count =
+        step.kind == ImageGeometryKind::pad ? before.width : after.width;
+    const auto sx = step.kind == ImageGeometryKind::crop ? step.left : 0U;
+    const auto dx = step.kind == ImageGeometryKind::pad ? step.left : 0U;
+    for (std::int64_t c = 0; c < planes; ++c) {
+      for (std::uint32_t y = 0; y < after.height; ++y) {
+        CheckStop(stop);
+        const std::int64_t sy =
+            step.kind == ImageGeometryKind::crop  ? std::int64_t(y) + step.top
+            : step.kind == ImageGeometryKind::pad ? std::int64_t(y) - step.top
+                                                  : before.height - 1U - y;
+        if (sy < 0 || sy >= before.height) continue;
+        const auto from = ((c * before.height + sy) * before.width + sx) * unit;
+        const auto to = ((c * after.height + y) * after.width + dx) * unit;
+        std::memcpy(destination + to, source + from,
+                    static_cast<std::size_t>(count * unit));
+      }
+    }
+    return output;
+  }
   for (std::int64_t c = 0; c < planes; ++c) {
     for (std::uint32_t y = 0; y < after.height; ++y) {
       CheckStop(stop);

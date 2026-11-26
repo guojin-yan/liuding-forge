@@ -466,6 +466,64 @@ TEST(JointTransformTest, StridedHwcAndChwPreserveAllSupportedPhotoDtypes) {
   }
 }
 
+TEST(JointTransformTest, RowCopiesPreserveStridedPhotosAndExactMaskPadding) {
+  for (const auto dtype :
+       {torch::kUInt8, torch::kUInt16, torch::kFloat16, torch::kBFloat16,
+        torch::kFloat32, torch::kFloat64}) {
+    for (const auto layout : {ImageLayout::chw, ImageLayout::hwc}) {
+      auto sample = Grid(7, 5);
+      sample.image = torch::arange(210, torch::kInt32)
+                         .reshape({3, 5, 14})
+                         .to(dtype)
+                         .slice(2, 0, 14, 2);
+      sample.pixels.dtype = dtype;
+      sample.pixels.color = PixelColorModel::rgb;
+      sample.pixels.layout = layout;
+      if (dtype != torch::kUInt8 && dtype != torch::kUInt16)
+        sample.pixels.range = PixelValueRange::unbounded;
+      AddMask(sample);
+      if (layout == ImageLayout::hwc)
+        sample.image = sample.image.permute({1, 2, 0});
+      const auto source = sample.image.clone();
+      const std::array steps{
+          ImageGeometryStep{.kind = ImageGeometryKind::crop,
+                            .extent = {5, 3},
+                            .left = 1,
+                            .top = 1},
+          ImageGeometryStep{.kind = ImageGeometryKind::pad,
+                            .left = 2,
+                            .top = 1,
+                            .right = 1,
+                            .bottom = 2},
+          ImageGeometryStep{.kind = ImageGeometryKind::vertical_flip}};
+      JointTransformOptions options;
+      options.image_padding = 17;
+      options.mask_padding_id = -9;
+      const auto result = transform_sample(sample, steps, options);
+      ASSERT_EQ(result.width, 8U);
+      ASSERT_EQ(result.height, 6U);
+      ASSERT_TRUE(result.mask_target);
+      auto pixels =
+          (layout == ImageLayout::chw ? result.image
+                                      : result.image.permute({2, 0, 1}))
+              .to(torch::kInt64);
+      for (int y = 0; y < 6; ++y) {
+        for (int x = 0; x < 8; ++x) {
+          const bool inside = x >= 2 && x < 7 && y >= 2 && y < 5;
+          const int sx = x - 1, sy = 5 - y;
+          for (int c = 0; c < 3; ++c)
+            EXPECT_EQ(pixels[c][y][x].item<std::int64_t>(),
+                      inside ? c * 70 + sy * 14 + sx * 2 : 17);
+          EXPECT_EQ(result.mask_target->ids[y][x].item<std::int64_t>(),
+                    inside ? 9007199254740993LL + sy * 14 + sx * 2 : -9);
+        }
+      }
+      EXPECT_TRUE(torch::equal(sample.image, source));
+      EXPECT_TRUE(result.image.is_contiguous());
+    }
+  }
+}
+
 TEST(JointTransformTest, AlignedPairedPhotosKeepIndependentPixelPolicies) {
   auto sample = Grid();
   sample.paired_target = sample.image.to(torch::kFloat32) / 255;
