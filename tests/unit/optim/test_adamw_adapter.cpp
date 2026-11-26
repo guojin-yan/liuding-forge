@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../../../src/jyppx/liuding/optim/detail/adamw_batch_step.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/optim/adam_adapter.hpp>
 #include <jyppx/liuding/optim/adamw_adapter.hpp>
@@ -242,6 +244,178 @@ TEST(AdamWOptimizerAdapterTest, MatchesLibTorchExactlyForLongRunAndGroups) {
   EXPECT_TRUE(torch::equal(actual_second, expected_second));
   EXPECT_EQ(actual.completed_steps(), 512U);
   EXPECT_EQ(actual.learning_rates(), (std::vector<double>{3e-3, 7e-4}));
+}
+
+TEST(AdamWOptimizerAdapterCudaTest,
+     BatchedPointwiseUpdatesMatchAllNativeMomentsAcrossScratchChunks) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA is not available";
+  namespace detail = jyppx::liuding::optim::adamw_detail;
+  const auto gpu = torch::Device(torch::kCUDA, 0);
+  std::vector<Tensor> actual, expected;
+  for (const auto size : {7, 3'000'000, 3'000'000, 19}) {
+    actual.push_back(make_parameter({size}, torch::kFloat32, gpu));
+    expected.push_back(actual.back().detach().clone().set_requires_grad(true));
+  }
+  auto options = torch::optim::AdamWOptions(3e-3)
+                     .betas({0.83, 0.97})
+                     .eps(1e-7)
+                     .weight_decay(0.02);
+  const auto groups = [](const std::vector<Tensor>& values) {
+    std::vector<torch::optim::OptimizerParamGroup> result;
+    result.emplace_back(std::vector<Tensor>{values[0], values[1], values[2]});
+    result.emplace_back(std::vector<Tensor>{values[3]});
+    return result;
+  };
+  torch::optim::AdamW batch(groups(actual), options),
+      native(groups(expected), options);
+  for (auto* optimizer : {&batch, &native})
+    optimizer->param_groups()[1].set_options(
+        std::make_unique<torch::optim::AdamWOptions>(
+            torch::optim::AdamWOptions(7e-4)
+                .betas({0.91, 0.995})
+                .eps(1e-9)
+                .weight_decay(0.)));
+  for (std::int64_t step = 0; step < 32; ++step) {
+    if (step == 16) {
+      batch.param_groups()[0].options().set_lr(0.);
+      native.param_groups()[0].options().set_lr(0.);
+    }
+    for (std::size_t index = 0; index < actual.size(); ++index) {
+      assign_gradient(actual[index], step + index);
+      expected[index].mutable_grad() = actual[index].grad().clone();
+    }
+    ASSERT_TRUE(detail::try_batched_step(batch));
+    native.step();
+  }
+  for (std::size_t index = 0; index < actual.size(); ++index) {
+    EXPECT_TRUE(torch::equal(actual[index], expected[index])) << index;
+    auto& a = static_cast<torch::optim::AdamWParamState&>(
+        *batch.state().at(actual[index].unsafeGetTensorImpl()));
+    auto& b = static_cast<torch::optim::AdamWParamState&>(
+        *native.state().at(expected[index].unsafeGetTensorImpl()));
+    EXPECT_EQ(a.step(), b.step());
+    EXPECT_TRUE(torch::equal(a.exp_avg(), b.exp_avg())) << index;
+    EXPECT_TRUE(torch::equal(a.exp_avg_sq(), b.exp_avg_sq())) << index;
+  }
+}
+
+TEST(AdamWOptimizerAdapterCudaTest,
+     BatchEligibilityPreservesAliasingUnsupportedTypesAndPartialSteps) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA is not available";
+  namespace detail = jyppx::liuding::optim::adamw_detail;
+  const auto gpu = torch::Device(torch::kCUDA, 0);
+  auto storage = torch::randn({12}, torch::TensorOptions().device(gpu));
+  auto a = storage.slice(0, 0, 8).set_requires_grad(true);
+  auto b = storage.slice(0, 4, 12).set_requires_grad(true);
+  assign_gradient(a, 0);
+  assign_gradient(b, 1);
+  torch::optim::AdamW overlap({a, b});
+  const auto before = storage.clone();
+  EXPECT_FALSE(detail::try_batched_step(overlap));
+  EXPECT_TRUE(torch::equal(storage, before));
+  EXPECT_TRUE(overlap.state().empty());
+  for (const auto dtype :
+       {torch::kFloat16, torch::kBFloat16, torch::kFloat64}) {
+    auto first = make_parameter({4}, dtype, gpu);
+    auto second = make_parameter({4}, dtype, gpu);
+    assign_gradient(first, 0);
+    assign_gradient(second, 1);
+    torch::optim::AdamW unsupported({first, second});
+    EXPECT_FALSE(detail::try_batched_step(unsupported));
+    EXPECT_TRUE(unsupported.state().empty());
+  }
+  auto first = make_parameter({4}, torch::kFloat32, gpu);
+  auto second = make_parameter({4}, torch::kFloat32, gpu);
+  assign_gradient(first, 0);
+  assign_gradient(second, 1);
+  torch::optim::AdamW amsgrad({first, second},
+                              torch::optim::AdamWOptions().amsgrad(true));
+  EXPECT_FALSE(detail::try_batched_step(amsgrad));
+  EXPECT_TRUE(amsgrad.state().empty());
+  torch::optim::AdamW partial({first, second});
+  second.mutable_grad() = Tensor{};
+  partial.step();
+  assign_gradient(second, 2);
+  const auto saved = first.clone();
+  EXPECT_FALSE(detail::try_batched_step(partial));
+  EXPECT_TRUE(torch::equal(first, saved));
+  EXPECT_EQ(partial.state().size(), 1U);
+  first.mutable_grad() = second.detach();
+  torch::optim::AdamW aliased_gradient({first, second});
+  EXPECT_FALSE(detail::try_batched_step(aliased_gradient));
+  EXPECT_TRUE(aliased_gradient.state().empty());
+}
+
+TEST(AdamWOptimizerAdapterCudaTest,
+     BatchedAdapterMatchesNativeAndResumesCompleteStateWithMissingGradients) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA is not available";
+  const auto gpu = torch::Device(torch::kCUDA, 0);
+  std::vector<Tensor> actual, expected, resumed;
+  for (const auto size : {7, 31}) {
+    actual.push_back(make_parameter({size}, torch::kFloat32, gpu));
+    expected.push_back(actual.back().detach().clone().set_requires_grad(true));
+    resumed.push_back(actual.back().detach().clone().set_requires_grad(true));
+  }
+  const auto make_groups = [](const std::vector<Tensor>& values) {
+    auto group = make_group("main", "first", values[0]);
+    group.parameters.push_back(
+        {.parameter_id = "second", .parameter = values[1]});
+    return std::vector<AdamWParameterGroup>{std::move(group)};
+  };
+  auto optimizer = std::make_shared<AdamWOptimizerAdapter>(
+      "optimizer.adamw.batch", make_groups(actual));
+  auto restored = std::make_shared<AdamWOptimizerAdapter>(
+      "optimizer.adamw.batch", make_groups(resumed));
+  torch::optim::AdamW native(expected);
+  AdamWOptimizerCheckpointParticipant participant(optimizer),
+      recovery(restored);
+  for (std::int64_t step = 0; step < 32; ++step) {
+    for (std::size_t index = 0; index < actual.size(); ++index) {
+      if (index == 1 && step >= 16 && step < 19) {
+        actual[index].mutable_grad() = Tensor{};
+        expected[index].mutable_grad() = Tensor{};
+        resumed[index].mutable_grad() = Tensor{};
+      } else {
+        assign_gradient(actual[index], step + index);
+        expected[index].mutable_grad() = actual[index].grad().clone();
+        resumed[index].mutable_grad() = actual[index].grad().clone();
+      }
+    }
+    if (step == 24) {
+      bool closure_ran = false;
+      optimizer->step([&] {
+        closure_ran = true;
+        EXPECT_TRUE(torch::GradMode::is_enabled());
+        return actual[0].sum();
+      });
+      EXPECT_TRUE(closure_ran);
+    } else {
+      optimizer->step();
+    }
+    native.step();
+    if (step >= 8) restored->step();
+    for (std::size_t index = 0; index < actual.size(); ++index) {
+      EXPECT_TRUE(torch::equal(actual[index], expected[index])) << step;
+      if (step >= 8) EXPECT_TRUE(torch::equal(actual[index], resumed[index]));
+    }
+    if (step == 7) {
+      MemoryStateStore store(participant.describe_state());
+      participant.save_state(store);
+      for (std::size_t index = 0; index < actual.size(); ++index)
+        copy_parameter(actual[index], resumed[index]);
+      recovery.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+    }
+  }
+  MemoryStateStore a(participant.describe_state()),
+      b(recovery.describe_state());
+  participant.save_state(a);
+  recovery.save_state(b);
+  for (const auto& field : a.manifest().fields) {
+    const auto x = a.read_blob(field.name, field.max_bytes);
+    const auto y = b.read_blob(field.name, field.max_bytes);
+    EXPECT_TRUE(std::equal(x.begin(), x.end(), y.begin(), y.end()))
+        << field.name;
+  }
 }
 
 TEST(AdamWOptimizerAdapterTest, AppliesDecoupledDecayToZeroGradient) {

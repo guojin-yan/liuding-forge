@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "detail/adamw_batch_step.hpp"
+
 #include <jyppx/liuding/optim/adamw_adapter.hpp>
 
 #include <torch/optim/adamw.h>
@@ -15,7 +17,7 @@
 #define JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS \
   AdamWOptimizerCheckpointOptions
 #define JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT AdamWOptimizerCheckpointParticipant
-#define JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER torch::optim::AdamW
+#define JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER adamw_detail::BatchedAdamW
 #define JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS torch::optim::AdamWOptions
 #define JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE torch::optim::AdamWParamState
 #define JYPPX_STATEFUL_OPTIMIZER_NAME "AdamW"
