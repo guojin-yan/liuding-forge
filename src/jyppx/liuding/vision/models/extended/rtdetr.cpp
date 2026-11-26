@@ -665,10 +665,14 @@ struct RtDetrImpl::Impl : torch::nn::Module {
           l && is_training() ? (delta + Inverse(previous)).sigmoid() : current;
       previous = current;
       ref = is_training() ? current.detach() : current;
-      all_boxes.push_back(result.slice(1, dn));
-      all_scores.push_back(classes[l](query).slice(1, dn));
-      dn_boxes.push_back(result.slice(1, 0, dn));
-      dn_scores.push_back(classes[l](query).slice(1, 0, dn));
+      // Both branches consume the same projection. Share its backward and the
+      // query partition instead of computing and differentiating it twice.
+      auto scores = classes[l](query).split_with_sizes({dn, o.queries}, 1);
+      auto coordinates = result.split_with_sizes({dn, o.queries}, 1);
+      all_scores.push_back(scores[1]);
+      all_boxes.push_back(coordinates[1]);
+      dn_scores.push_back(scores[0]);
+      dn_boxes.push_back(coordinates[0]);
     }
     return {torch::stack(all_scores),
             torch::stack(all_boxes),
