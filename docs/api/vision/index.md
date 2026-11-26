@@ -47,6 +47,8 @@ RT-DETR 的 `rtdetr_data` 拉伸配置可在 `evaluation`、`prediction` 中分�
 
 `yolo_detection_validation: true` 使 YOLO26 轴对齐检测直接复用逐批验证 loss 的预测结果计算 COCO bbox 的 12 项 AP/AR，省去第二遍逐图推理，同时保留 loss、分项指标和 EMA 模型选择。它要求 COCO 验证源、完整指标、原始方向坐标、裁剪框且不筛选类别，与 RT-DETR 专用验证互斥；使用导入时保留的原始 crowd、面积及唯一正整数图像 ID，验证尾批保留。`validation.json` 的 `execution` 为 `yolo.batched_loss_and_inference/v1`；预测阈值及数量仍由 `evaluation` 指定，COCO 指标每图每类最多取 100 框。该选择参与恢复身份，默认保留原验证路径；最终官方 COCO 结果仍需统一评估器核对。
 
+YOLO26 无 NMS 后处理仍遵循显式的 `multi_label` 选项：默认 `false` 时，每个位置仅保留最高分的类别；`true` 时，按位置和类别的组合排序，同一位置可以输出多个类别。对照官方端到端检测的类别组合 TopK 时，应在 `evaluation` 中明确设置 `multi_label: true` 和相同的阈值、`max_detections`；独立预测使用 `prediction` 中的设置。原生路径仍执行自身的候选额度、几何过滤及坐标还原，不能仅凭该选项宣称整个后处理逐位一致。评估配置变化影响指标及模型选择，已有检查点的精确恢复身份检查仍适用。
+
 `save_best_checkpoint: false` 关闭指标改善时的 `best.checkpoint` 和 `best.safetensors` 发布；仍跟踪最佳指标并按 `save_interval_epochs` 保存周期检查点和 last。默认值为 `true`，关闭选择参与恢复身份。文件格式、保存内容和耗时仍应分别测量，不能仅凭保存频率推定不同框架的检查点工作量相同。
 
 `ema.update_rule: "multiply-add-floating-only"` 使用 `decay*(1-exp(-updates/ramp_updates))`，先分别计算 shadow 与 source 的浮点乘积，再相加，并保留初始化时的整数及布尔缓冲区；临时 source 乘积最多保留当前一个张量，对应原始 RT-DETR 的更新顺序。默认 `lerp-copy-integral` 保留既有 lerp 和整数复制语义。C++ 的对应入口是 `ModelEmaOptions::update_rule` 与 `RecipeSpec::ema_update_rule`；该选择绑定配方及 EMA 检查点身份，不同规则不能互相恢复。
@@ -125,11 +127,11 @@ YOLO split 支持图片目录或 UTF-8 图片列表；最后一个 `images` 路�
 
 现代 YOLO 的分布解码、目标匹配和检测损失显式使用 FP32，即使模型处于 FP16 autocast；检测损失分支共享精度转换，在汇总梯度后才转换回输入精度。与上游对照时须同时核对损失精度策略；上游默认 autocast 的解码与相同输入下的 FP32 损失不保证逐位一致。完整梯度及更新等价资格须按模型和配方分别验收。
 
-YOLO26 检测、实例分割和姿态配方绑定 `yolo26-e2e-fp32/v3` 数值语义：双分支初始权重为 0.8/0.2，在 `max(epochs-1,1)` 处达到 0.1/0.9；one-to-one 在七个候选完成冲突处理后保留一个匹配。绑定使用第二级 stride 作为轴对齐小框候选边长下限，真实回归目标不扩张。`YoloDetectionOptions` 可显式选择候选边长下限与冲突后的二次 top-k，默认关闭，其他现有调用保持原候选策略。
+YOLO26 检测、实例分割和姿态配方绑定 `yolo26-e2e-fp32/v4` 数值语义：双分支初始权重为 0.8/0.2，在 `max(epochs-1,1)` 处达到 0.1/0.9；one-to-one 在七个候选完成冲突处理后保留一个匹配。轴对齐目标仅在边长小于首层 stride 时，将对应候选边长扩展至第二级 stride，真实回归目标不扩张；冲突解算仅允许包含该 anchor 的有效候选参与。`YoloDetectionOptions` 可显式选择候选边长下限、触发阈值与冲突后的二次 top-k；直接调用的默认配置保留原候选策略。
 
 YOLO26 旋转框进一步绑定 `yolo26-obb-fp32/v4`：宽或高小于 2 像素的目标不参与损失，候选旋转框按第二级 stride 扩张并包含边界，回归使用原始目标。ProbIoU 回归在网格单位下使用 0.01 协方差下限，匹配不加此下限；直接距离回归分别归一化预测和目标，并加入按长宽比加权、以 π 为周期的角度损失。预测共用一次 FP32 转换，汇总各分支梯度后才转回模型输出精度。`YoloTaskOptions::angle_gain` 默认 1，仅作用于此角度项。旋转框旧身份检查点须按权重初始化方式开始新训练。
 
-其他现代 YOLO 对象任务及 YOLO-World/YOLOE 配方继续在规范 JSON 后绑定 `yolo-detection-fp32/v2`；数值语义与模型架构 revision 分别进入运行身份。YOLO26 旧损失路径的检查点不能直接作为新路径的精确续训检查点，可按现有权重初始化接口开始新训练。分类、原始 YOLOv5 及其他模型的配方身份保持原规范 JSON 哈希。
+其他现代 YOLO 对象任务及 YOLO-World/YOLOE 配方在规范 JSON 后绑定 `yolo-detection-fp32/v3`；数值语义与模型架构 revision 分别进入运行身份。旧损失路径的检查点不能直接作为新路径的精确续训检查点，可按现有权重初始化接口开始新训练。分类、原始 YOLOv5 及其他模型的配方身份保持原规范 JSON 哈希。
 
 `deterministic` 默认开启，在训练作用域要求确定性算法并关闭 cuDNN benchmark，结束后恢复调用方设置；缺少确定性实现的操作会明确失败，可显式关闭以运行此类模型。同一软硬件环境下的精确 CUDA 恢复还需设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`。`initial_loss_scale` 控制 CUDA FP16 的初始动态损失缩放，默认 65536；较短训练可显式降低它，避免初始化阶段多次溢出而尚未完成有效更新。两项设置都进入配方与恢复身份。
 
