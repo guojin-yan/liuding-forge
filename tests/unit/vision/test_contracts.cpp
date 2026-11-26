@@ -222,6 +222,94 @@ TEST_F(VisionContracts, DeformableSamplingHasAnalyticValueAndGradients) {
                ResourceExhausted);
 }
 
+void CheckMultiscaleSampling(const Device& device) {
+  // Independent scalar bilinear oracle with different planes per batch,
+  // scale, head and channel. All coordinates stay inside the pixel centers.
+  const std::array<std::array<I, 2>, 3> shapes{{{2, 3}, {3, 2}, {4, 4}}};
+  auto value = torch::empty({2, 28, 2, 3}, torch::kFloat64);
+  auto locations = torch::empty({2, 3, 2, 3, 2, 2}, torch::kFloat64);
+  auto weights = torch::empty({2, 3, 2, 3, 2}, torch::kFloat64);
+  auto expected = torch::zeros({2, 3, 6}, torch::kFloat64);
+  auto upstream = torch::empty_like(expected);
+  auto dv = torch::zeros_like(value), dl = torch::zeros_like(locations),
+       dw = torch::zeros_like(weights);
+  auto v = value.accessor<double, 4>(), ev = dv.accessor<double, 4>();
+  auto l = locations.accessor<double, 6>(), el = dl.accessor<double, 6>();
+  auto w = weights.accessor<double, 5>(), ew = dw.accessor<double, 5>();
+  auto e = expected.accessor<double, 3>(), u = upstream.accessor<double, 3>();
+  for (I b = 0; b < 2; ++b) {
+    I offset = 0;
+    for (I level = 0; level < 3; ++level) {
+      const auto [height, width] = shapes[level];
+      for (I y = 0; y < height; ++y)
+        for (I x = 0; x < width; ++x)
+          for (I head = 0; head < 2; ++head)
+            for (I channel = 0; channel < 3; ++channel)
+              v[b][offset + y * width + x][head][channel] =
+                  31 * b + 11 * level + 5 * head + channel + 3 * x + 2 * y;
+      for (I q = 0; q < 3; ++q)
+        for (I head = 0; head < 2; ++head)
+          for (I p = 0; p < 2; ++p) {
+            const auto nx = .375 + .125 * ((q + p) % 3),
+                       ny = .4375 + .125 * ((q + head + p) % 2);
+            const auto px = nx * width - .5, py = ny * height - .5;
+            const auto x = static_cast<I>(std::floor(px)),
+                       y = static_cast<I>(std::floor(py));
+            const auto dx = px - x, dy = py - y;
+            const auto factor = .25 + .125 * (b + q + head + level + p);
+            l[b][q][head][level][p][0] = nx;
+            l[b][q][head][level][p][1] = ny;
+            w[b][q][head][level][p] = factor;
+            for (I c = 0; c < 3; ++c) {
+              const auto adjoint = .125 * (1 + b + q + head + c);
+              u[b][q][head * 3 + c] = adjoint;
+              const auto sampled =
+                  31 * b + 11 * level + 5 * head + c + 3 * px + 2 * py;
+              e[b][q][head * 3 + c] += sampled * factor;
+              ew[b][q][head][level][p] += sampled * adjoint;
+              el[b][q][head][level][p][0] += 3 * width * factor * adjoint;
+              el[b][q][head][level][p][1] += 2 * height * factor * adjoint;
+              for (I j = 0; j < 2; ++j)
+                for (I i = 0; i < 2; ++i)
+                  ev[b][offset + (y + j) * width + x + i][head][c] +=
+                      (i ? dx : 1 - dx) * (j ? dy : 1 - dy) * factor * adjoint;
+            }
+          }
+      offset += height * width;
+    }
+  }
+  const auto strided = [&](const Tensor& x) {
+    return x.to(device)
+        .transpose(1, 2)
+        .contiguous()
+        .transpose(1, 2)
+        .detach()
+        .requires_grad_(true);
+  };
+  auto a = strided(value), b = strided(locations), c = strided(weights);
+  ASSERT_FALSE(a.is_contiguous());
+  ASSERT_FALSE(b.is_contiguous());
+  ASSERT_FALSE(c.is_contiguous());
+  auto result = ops::multiscale_deformable_attention(a, shapes, b, c);
+  EXPECT_TRUE(torch::allclose(result.cpu(), expected, 0, 1e-10));
+  (result * upstream.to(device)).sum().backward();
+  EXPECT_TRUE(torch::allclose(a.grad().cpu(), dv, 0, 1e-10));
+  EXPECT_TRUE(torch::allclose(b.grad().cpu(), dl, 0, 1e-10));
+  EXPECT_TRUE(torch::allclose(c.grad().cpu(), dw, 0, 1e-10));
+  EXPECT_TRUE(torch::equal(a.detach().cpu(), value));
+  EXPECT_TRUE(torch::equal(b.detach().cpu(), locations));
+  EXPECT_TRUE(torch::equal(c.detach().cpu(), weights));
+}
+
+TEST_F(VisionContracts, MultiscaleSamplingPreservesAllPlaneAdjointsCpu) {
+  CheckMultiscaleSampling(Device(torch::kCPU));
+}
+
+TEST_F(VisionContracts, MultiscaleSamplingPreservesAllPlaneAdjointsCuda) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  CheckMultiscaleSampling(Device(torch::kCUDA, 0));
+}
+
 TEST_F(VisionContracts, RoiOperatorsMatchPlaneAndDiscreteMaxima) {
   auto feature = torch::arange(16, torch::kFloat64)
                      .view({1, 1, 4, 4})
@@ -510,7 +598,8 @@ TEST_F(VisionContracts, PhotometricGrayscaleMatchesBt601AndPreservesSource) {
   EXPECT_TRUE(torch::equal(sample.image, before));
 }
 
-TEST_F(VisionContracts, YoloBgrAugmentationReversesChannelsAndEvaluationDisablesIt) {
+TEST_F(VisionContracts,
+       YoloBgrAugmentationReversesChannelsAndEvaluationDisablesIt) {
   namespace im = data::image;
   auto sample = ColorBars();
   sample.pixels = {.layout = im::ImageLayout::chw,
@@ -525,13 +614,12 @@ TEST_F(VisionContracts, YoloBgrAugmentationReversesChannelsAndEvaluationDisables
   const std::array samples{sample};
   const std::array keys{im::ImageBatchKey{.id = "color-bars"}};
   const auto batch = t::prepare_yolo_batch(samples, keys, options);
-  const auto expected = torch::tensor({0.f, 0.f, 1.f, 0.f, 1.f, 0.f,
-                                       1.f, 0.f, 0.f})
-                            .view({1, 3, 1, 3});
+  const auto expected =
+      torch::tensor({0.f, 0.f, 1.f, 0.f, 1.f, 0.f, 1.f, 0.f, 0.f})
+          .view({1, 3, 1, 3});
   EXPECT_TRUE(torch::equal(batch.images, expected));
-  EXPECT_DOUBLE_EQ(t::yolo_evaluation_options(options)
-                       .augmentation.bgr_probability,
-                   0);
+  EXPECT_DOUBLE_EQ(
+      t::yolo_evaluation_options(options).augmentation.bgr_probability, 0);
 }
 
 TEST_F(VisionContracts, PhotometricReplayDoesNotConsumeGlobalTorchRng) {
