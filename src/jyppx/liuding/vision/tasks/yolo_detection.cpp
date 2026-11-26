@@ -373,16 +373,23 @@ YoloDetectionLoss yolo_detection_loss(const Tensor& raw, const Tensor& targets,
       denominator;
   auto box_loss = values.sum() * 0.0;
   auto dfl_loss = values.sum() * 0.0;
-  const auto mask = assigned.foreground;
-  const auto count = mask.sum().item<std::int64_t>();
+  // Reuse one row-major selection across all regression operands. Boolean
+  // indexing would discover these same coordinates (and synchronize a GPU)
+  // again for every operand, including during backward.
+  const auto foreground = assigned.foreground.nonzero();
+  const auto count = foreground.size(0);
   if (count > 0) {
-    const auto weight = assigned.scores.sum(-1).index({mask});
+    const auto rows = foreground.select(1, 0),
+               columns = foreground.select(1, 1);
+    const auto select = [&](const Tensor& value) {
+      return value.index({rows, columns});
+    };
+    const auto weight = select(assigned.scores.sum(-1));
     // Stabilization is defined in feature-grid coordinates for regression;
     // assignment above still compares boxes in canvas coordinates.
     box_loss =
-        ((1.0 -
-          CompleteIou((prediction.boxes / prediction.strides).index({mask}),
-                      (assigned.boxes / prediction.strides).index({mask}))) *
+        ((1.0 - CompleteIou(select(prediction.boxes / prediction.strides),
+                            select(assigned.boxes / prediction.strides))) *
          weight)
             .sum() /
         denominator;
@@ -391,16 +398,14 @@ YoloDetectionLoss yolo_detection_loss(const Tensor& raw, const Tensor& targets,
           {raw.size(0), raw.size(2), 2});
       auto target_boxes = assigned.boxes / prediction.strides;
       const auto target_distance =
-          torch::cat({anchor_grid - target_boxes.slice(2, 0, 2),
-                      target_boxes.slice(2, 2, 4) - anchor_grid},
-                     2)
-              .index({mask})
+          select(torch::cat({anchor_grid - target_boxes.slice(2, 0, 2),
+                             target_boxes.slice(2, 2, 4) - anchor_grid},
+                            2))
               .clamp(0, options.reg_max - 1.01);
       const auto lower = target_distance.floor().to(torch::kInt64);
       const auto upper = lower + 1;
       const auto upper_weight = target_distance - lower.to(torch::kFloat32);
-      const auto log_probs = values.slice(2, 0, options.reg_max * 4)
-                                 .index({mask})
+      const auto log_probs = select(values.slice(2, 0, options.reg_max * 4))
                                  .reshape({count, 4, options.reg_max})
                                  .log_softmax(-1);
       const auto lower_loss =
@@ -431,7 +436,7 @@ YoloDetectionLoss yolo_detection_loss(const Tensor& raw, const Tensor& targets,
       auto error = (values.slice(2, 0, 4) * prediction.strides / normalization -
                     desired * prediction.strides / normalization)
                        .abs();
-      dfl_loss = (error.index({mask}).mean(-1) * weight).sum() / denominator;
+      dfl_loss = (select(error).mean(-1) * weight).sum() / denominator;
     }
   }
   auto total =
