@@ -6176,6 +6176,49 @@
         }
       ]
     },
+    "upstream_stable_candidate": {
+      "version": "2.15.0",
+      "distribution": "cpu",
+      "status": "candidate",
+      "release_reference": "https://github.com/pytorch/pytorch/releases/tag/v2.15.0",
+      "verified_lanes": [],
+      "pending_lanes": [
+        {
+          "id": "linux-gcc114-libtorch215-cpu-candidate",
+          "distribution": "cpu",
+          "os": "Ubuntu 22.04.5 LTS",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU; official LibTorch 2.15.0+cpu",
+          "build_type": "Release",
+          "instrumentation": "独立 Ninja 构建，保留现有 LibTorch 2.14.1 环境；依赖预先准备，配置阶段离线。",
+          "status": "candidate",
+          "verification_status": "unverified",
+          "required_evidence": [
+            "core 与 optim 编译、原生优化器完整状态和恢复合同",
+            "已启用组件的针对性测试、模型独立数值与安装消费",
+            "精确源码和原生包身份；CPU 结果不授予 CUDA、ROCm 或 ONNX 资格"
+          ]
+        },
+        {
+          "id": "windows-msvc1944-libtorch215-cpu-candidate",
+          "distribution": "cpu",
+          "os": "Windows 11 x64",
+          "architecture": "x86_64",
+          "compiler": "MSVC 19.44; Release CRT /MD; _ITERATOR_DEBUG_LEVEL=0",
+          "accelerator": "CPU; official LibTorch 2.15.0+cpu",
+          "build_type": "Release",
+          "instrumentation": "独立构建与运行时目录；保留已验证的 CUDA 和 ROCm 开发环境。",
+          "status": "candidate",
+          "verification_status": "unverified",
+          "required_evidence": [
+            "原生包与 MSVC ABI、core 与 optim 编译及恢复合同",
+            "模型独立数值、相关组件回归与安装消费",
+            "不得从 Linux 或其他 LibTorch 版本继承通过成绩"
+          ]
+        }
+      ]
+    },
     "compatibility_candidate": {
       "version": "2.5.1",
       "distribution": "cpu-and-cuda",

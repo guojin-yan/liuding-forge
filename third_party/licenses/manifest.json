@@ -14,6 +14,7 @@
     "libtorch-primary-windows-cu126": "pending",
     "libtorch-primary-linux-cu126": "pending",
     "libtorch-primary-linux-cpu": "pending",
+    "libtorch-upstream-stable-linux-cpu": "pending",
     "nlohmann-json": "recorded",
     "sqlite": "recorded",
     "tinyxml2": "recorded",
