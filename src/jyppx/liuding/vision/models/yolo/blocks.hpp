@@ -179,8 +179,10 @@ struct Attention final : Unit {
       auto q = packed.slice(2, 0, key_width);
       auto k = packed.slice(2, key_width, 2 * key_width);
       auto v = packed.slice(2, 2 * key_width);
-      auto scores = torch::matmul(
-          (q / std::sqrt(static_cast<double>(key_width))).transpose(-2, -1), k);
+      // Match the official score scaling boundary: scaling Q before matmul
+      // introduces an extra low-precision rounding in mixed-precision runs.
+      auto scores = torch::matmul(q.transpose(-2, -1), k) *
+                    std::pow(static_cast<double>(key_width), -0.5);
       auto weights =
           torch::softmax(scores.to(torch::kFloat32), -1).to(v.scalar_type());
       auto attended = torch::matmul(v, weights.transpose(-2, -1))

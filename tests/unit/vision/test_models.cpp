@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include "../../../src/jyppx/liuding/vision/models/yolo/blocks.hpp"
+#include "yolo_attention_reference.hpp"
 
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #include <jyppx/liuding/training/amp/autocast.hpp>
@@ -61,7 +62,7 @@ TEST(VisionModelGraph, SppfActivationFollowsFrozenLegacyAndExtendedConfigs) {
                                   .num_classes = 3};
     EXPECT_TRUE(y::describe_model(options).revision.starts_with(
         scenario.first_active ? "native-yolo-graph/v2/"
-                              : "native-yolo-graph/v1/"));
+                              : "native-yolo-graph/v3/"));
     auto model = y::create_model(options);
     bool found = false;
     for (const auto& item : model.state().module().named_modules()) {
@@ -90,6 +91,79 @@ TEST(VisionModelGraph, SppfActivationFollowsFrozenLegacyAndExtendedConfigs) {
                                   1e-6, 1e-7));
     }
     EXPECT_TRUE(found);
+  }
+}
+
+void check_spatial_attention_reference(const Device& device,
+                                       c10::ScalarType dtype) {
+  namespace d = models::yolo::detail;
+  namespace r = yolo_attention_reference;
+  struct Packed final : d::Unit {
+    Tensor value;
+    explicit Packed(const Tensor& tensor) {
+      value = register_parameter("value", tensor.clone());
+    }
+    Tensor run(const Tensor&) override { return value; }
+  };
+  struct Zero final : d::Unit {
+    Tensor run(const Tensor& x) override { return torch::zeros_like(x); }
+  };
+  const auto tensor = [&](const auto& values, std::vector<I> shape) {
+    return torch::tensor(std::vector<float>(values.begin(), values.end()))
+        .view(shape)
+        .to(device, dtype);
+  };
+  const auto packed =
+      dtype == torch::kFloat32 ? r::fp32_packed : r::fp16_packed;
+  auto projection = std::make_shared<Packed>(tensor(packed, {1, 24, 2, 3}));
+  d::Attention attention(12, 2);
+  attention.qkv = projection;
+  attention.projection = std::make_shared<d::Identity>();
+  attention.positional = std::make_shared<Zero>();
+  // The fixed official forward isolates attention from convolution kernels.
+  // A non-power-of-two key width exposes premature FP16 query rounding.
+  const auto output = attention.run(torch::zeros(
+      {1, 12, 2, 3}, torch::TensorOptions().device(device).dtype(dtype)));
+  output.to(torch::kFloat32).square().mean().backward();
+  const auto expected_output =
+      tensor(dtype == torch::kFloat32 ? r::fp32_output : r::fp16_output,
+             {1, 12, 2, 3});
+  const auto expected_gradient =
+      tensor(dtype == torch::kFloat32 ? r::fp32_gradient : r::fp16_gradient,
+             {1, 24, 2, 3});
+  const auto rtol = dtype == torch::kFloat32 ? 2e-5 : 2e-4;
+  const auto atol = dtype == torch::kFloat32 ? 2e-6 : 2e-5;
+  EXPECT_TRUE(torch::allclose(output, expected_output, rtol, atol))
+      << (output - expected_output).abs().max().item<double>();
+  EXPECT_TRUE(
+      torch::allclose(projection->value.grad(), expected_gradient, rtol, atol))
+      << (projection->value.grad() - expected_gradient)
+             .abs()
+             .max()
+             .item<double>();
+}
+
+TEST(VisionModelGraph, SpatialAttentionCpuMatchesOfficialOutputAndGradients) {
+  check_spatial_attention_reference(Device(torch::kCPU), torch::kFloat32);
+  check_spatial_attention_reference(Device(torch::kCPU), torch::kFloat16);
+}
+
+TEST(VisionModelGraph, SpatialAttentionCudaMatchesOfficialOutputAndGradients) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA device unavailable";
+  check_spatial_attention_reference(Device(torch::kCUDA, 0), torch::kFloat32);
+  check_spatial_attention_reference(Device(torch::kCUDA, 0), torch::kFloat16);
+}
+
+TEST(VisionModelGraph, SpatialAttentionRevisionPreservesUnaffectedFamilies) {
+  namespace y = models::yolo;
+  for (const auto family : {y::Family::v8, y::Family::yolo11, y::Family::yolo12,
+                            y::Family::yolo26}) {
+    const auto definition = y::describe_model({.family = family});
+    EXPECT_TRUE(definition.revision.starts_with(
+        family == y::Family::yolo11 || family == y::Family::yolo26
+            ? "native-yolo-graph/v3/"
+        : family == y::Family::v8 ? "native-yolo-graph/v2/"
+                                  : "native-yolo-graph/v1/"));
   }
 }
 

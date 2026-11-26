@@ -156,8 +156,9 @@ struct DenseHead final : torch::nn::Module {
                 : o.task == Task::obb  ? 1
                                        : 0;
     const bool pose26 = o.family == Family::yolo26 && o.task == Task::pose;
-    const I ew = (std::max)(
-        ch[0] / 4, pose26 ? o.keypoints * (o.keypoint_dimensions + 2) : e);
+    const I ew =
+        (std::max)(ch[0] / 4,
+                   pose26 ? o.keypoints * (o.keypoint_dimensions + 2) : e);
     for (std::size_t i = 0; i < ch.size(); ++i) {
       auto bout = std::make_shared<OutputConv>(box_width, 4 * bins);
       auto cout = std::make_shared<OutputConv>(cls_width, o.num_classes);
@@ -376,8 +377,15 @@ ModelDefinition describe_model(const ModelOptions& o) {
       graph.layers.begin(), graph.layers.end(), [](const LayerSpec& layer) {
         return layer.kind == "SPPF" && layer.args.size() <= 2;
       });
-  d.revision = std::string(legacy_sppf ? "native-yolo-graph/v2/"
-                                       : "native-yolo-graph/v1/") +
+  const bool spatial_attention = std::any_of(
+      graph.layers.begin(), graph.layers.end(), [](const LayerSpec& layer) {
+        return layer.kind == "C2PSA" ||
+               (layer.kind == "C3k2" && layer.args.size() > 3 &&
+                layer.args[3] != 0);
+      });
+  d.revision = std::string(spatial_attention ? "native-yolo-graph/v3/"
+                           : legacy_sppf     ? "native-yolo-graph/v2/"
+                                             : "native-yolo-graph/v1/") +
                graph.sha;
   d.reg_max = o.reg_max ? o.reg_max : o.family == Family::yolo26 ? 1 : 16;
   d.end_to_end = o.family == Family::yolo26 && o.task != Task::classify;
