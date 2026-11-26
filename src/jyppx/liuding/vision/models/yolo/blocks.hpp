@@ -183,8 +183,10 @@ struct Attention final : Unit {
       // introduces an extra low-precision rounding in mixed-precision runs.
       auto scores = torch::matmul(q.transpose(-2, -1), k) *
                     std::pow(static_cast<double>(key_width), -0.5);
+      // Request the FP32 softmax output directly, as autocast does. Casting
+      // scores first selects a different low-precision backward boundary.
       auto weights =
-          torch::softmax(scores.to(torch::kFloat32), -1).to(v.scalar_type());
+          torch::softmax(scores, -1, torch::kFloat32).to(v.scalar_type());
       auto attended = torch::matmul(v, weights.transpose(-2, -1))
                           .reshape({batch, channels, h, w});
       auto values = v.reshape({batch, channels, h, w});

@@ -80,6 +80,25 @@ def main():
             lines.extend('  ' + ', '.join(f'{v:.10e}f' for v in values[i:i+6]) + ','
                          for i in range(0, len(values), 6))
             lines.append('};')
+    # Signed adjoints exercise cancellation in the autocast softmax backward.
+    # The smaller square-mean fixture does not expose this boundary.
+    packed = ((((torch.arange(24 * 128) * 37) % 101).float() - 50)
+              .reshape(1, 24, 1, 128) / 23).cuda().half()
+    model = Attention(12, 2)
+    model.qkv = Packed(packed)
+    model.proj = torch.nn.Identity()
+    model.pe = Zero()
+    with torch.autocast('cuda', dtype=torch.float16):
+        output = model(torch.zeros(1, 12, 1, 128, device='cuda')).float()
+        adjoint = ((((torch.arange(output.numel()) * 29) % 97).float() - 48)
+                   .reshape(output.shape).cuda() / 31)
+        loss = (output * adjoint).sum() * 512
+    loss.backward()
+    values = model.qkv.value.grad.detach().float().flatten().tolist()
+    lines.append(f'inline constexpr std::array<float, {len(values)}> fp16_autocast_gradient = {{')
+    lines.extend('  ' + ', '.join(f'{v:.10e}f' for v in values[i:i+6]) + ','
+                 for i in range(0, len(values), 6))
+    lines.append('};')
     lines.extend(['}  // namespace yolo_attention_reference', '#endif'])
     args.output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 

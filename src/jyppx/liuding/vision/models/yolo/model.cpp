@@ -383,7 +383,7 @@ ModelDefinition describe_model(const ModelOptions& o) {
                (layer.kind == "C3k2" && layer.args.size() > 3 &&
                 layer.args[3] != 0);
       });
-  d.revision = std::string(spatial_attention ? "native-yolo-graph/v3/"
+  d.revision = std::string(spatial_attention ? "native-yolo-graph/v4/"
                            : legacy_sppf     ? "native-yolo-graph/v2/"
                                              : "native-yolo-graph/v1/") +
                graph.sha;

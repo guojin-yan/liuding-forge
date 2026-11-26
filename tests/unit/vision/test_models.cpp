@@ -62,7 +62,7 @@ TEST(VisionModelGraph, SppfActivationFollowsFrozenLegacyAndExtendedConfigs) {
                                   .num_classes = 3};
     EXPECT_TRUE(y::describe_model(options).revision.starts_with(
         scenario.first_active ? "native-yolo-graph/v2/"
-                              : "native-yolo-graph/v3/"));
+                              : "native-yolo-graph/v4/"));
     auto model = y::create_model(options);
     bool found = false;
     for (const auto& item : model.state().module().named_modules()) {
@@ -95,7 +95,8 @@ TEST(VisionModelGraph, SppfActivationFollowsFrozenLegacyAndExtendedConfigs) {
 }
 
 void check_spatial_attention_reference(const Device& device,
-                                       c10::ScalarType dtype) {
+                                       c10::ScalarType dtype,
+                                       bool signed_adjoints = false) {
   namespace d = models::yolo::detail;
   namespace r = yolo_attention_reference;
   struct Packed final : d::Unit {
@@ -113,6 +114,34 @@ void check_spatial_attention_reference(const Device& device,
         .view(shape)
         .to(device, dtype);
   };
+  if (signed_adjoints) {
+    const auto packed = (((torch::arange(24 * 128, torch::kInt64) * 37)
+                              .remainder(101)
+                              .to(torch::kFloat32) -
+                          50)
+                             .view({1, 24, 1, 128}) /
+                         23)
+                            .to(device, dtype);
+    auto projection = std::make_shared<Packed>(packed);
+    d::Attention attention(12, 2);
+    attention.qkv = projection;
+    attention.projection = std::make_shared<d::Identity>();
+    attention.positional = std::make_shared<Zero>();
+    const auto output = attention.run(torch::zeros(
+        {1, 12, 1, 128}, torch::TensorOptions().device(device).dtype(dtype)));
+    const auto adjoint = (((torch::arange(output.numel(), torch::kInt64) * 29)
+                               .remainder(97)
+                               .to(torch::kFloat32) -
+                           48)
+                              .view(output.sizes())
+                              .to(device) /
+                          31);
+    ((output.to(torch::kFloat32) * adjoint).sum() * 512).backward();
+    const auto expected = tensor(r::fp16_autocast_gradient, {1, 24, 1, 128});
+    EXPECT_TRUE(torch::allclose(projection->value.grad(), expected, 2e-4, 2e-5))
+        << (projection->value.grad() - expected).abs().max().item<double>();
+    return;
+  }
   const auto packed =
       dtype == torch::kFloat32 ? r::fp32_packed : r::fp16_packed;
   auto projection = std::make_shared<Packed>(tensor(packed, {1, 24, 2, 3}));
@@ -154,6 +183,12 @@ TEST(VisionModelGraph, SpatialAttentionCudaMatchesOfficialOutputAndGradients) {
   check_spatial_attention_reference(Device(torch::kCUDA, 0), torch::kFloat16);
 }
 
+TEST(VisionModelGraph, SpatialAttentionCudaMatchesOfficialAutocastAdjoints) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA device unavailable";
+  check_spatial_attention_reference(Device(torch::kCUDA, 0), torch::kFloat16,
+                                    true);
+}
+
 TEST(VisionModelGraph, SpatialAttentionRevisionPreservesUnaffectedFamilies) {
   namespace y = models::yolo;
   for (const auto family : {y::Family::v8, y::Family::yolo11, y::Family::yolo12,
@@ -161,7 +196,7 @@ TEST(VisionModelGraph, SpatialAttentionRevisionPreservesUnaffectedFamilies) {
     const auto definition = y::describe_model({.family = family});
     EXPECT_TRUE(definition.revision.starts_with(
         family == y::Family::yolo11 || family == y::Family::yolo26
-            ? "native-yolo-graph/v3/"
+            ? "native-yolo-graph/v4/"
         : family == y::Family::v8 ? "native-yolo-graph/v2/"
                                   : "native-yolo-graph/v1/"));
   }
