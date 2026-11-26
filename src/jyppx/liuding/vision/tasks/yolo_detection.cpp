@@ -178,78 +178,120 @@ YoloAssignment Assign(const YoloDecodedPrediction& prediction,
   auto target_indices = torch::full(
       {batch, anchors}, -1, prediction.boxes.options().dtype(torch::kInt64));
   const auto centers = prediction.anchor_points * prediction.strides;
-  for (std::int64_t image = 0; image < batch; ++image) {
-    auto target_rows = (targets.select(1, 0) == image).nonzero().flatten();
-    auto selected = targets.index_select(0, target_rows);
-    const auto count = selected.size(0);
-    if (count == 0) {
-      continue;
-    }
-    if (count > options.max_assignment_pairs / anchors) {
+  using I = std::int64_t;
+  if (anchors < 1) throw InvalidArgument("Detection assignment needs anchors");
+  // Snapshot only image IDs once. Per-image nonzero() would synchronize the
+  // accelerator twice for every image, even for a fully asynchronous caller.
+  const auto image_ids =
+      targets.select(1, 0).to(torch::kCPU, torch::kFloat64).contiguous();
+  std::vector<std::vector<I>> rows(batch);
+  const auto* ids = image_ids.const_data_ptr<double>();
+  for (I row = 0; row < targets.size(0); ++row)
+    if (ids[row] >= 0 && ids[row] < batch && ids[row] == std::floor(ids[row]))
+      rows[static_cast<I>(ids[row])].push_back(row);
+  std::vector<I> images;
+  for (I image = 0; image < batch; ++image) {
+    if (rows[image].empty()) continue;
+    if (static_cast<I>(rows[image].size()) >
+        options.max_assignment_pairs / anchors)
       throw ResourceExhausted("Detection assignment GT*anchor bound exceeded");
+    images.push_back(image);
+  }
+  // Similar target counts share a padded batch. Keep each chunk's pair tensor
+  // below one million entries, or one independently allowed dense image.
+  std::stable_sort(images.begin(), images.end(),
+                   [&](I a, I b) { return rows[a].size() > rows[b].size(); });
+  const I chunk_pairs = (std::min)(options.max_assignment_pairs, I{1048576});
+  const auto index_options = targets.options().dtype(torch::kInt64);
+  const auto anchor_ids = torch::arange(anchors, index_options).unsqueeze(0);
+  for (std::size_t first = 0; first < images.size();) {
+    const I count = static_cast<I>(rows[images[first]].size());
+    const I capacity = (std::max)(I{1}, chunk_pairs / anchors / count);
+    const I size = (std::min)(static_cast<I>(images.size() - first), capacity);
+    std::vector<I> packed(size * count), lengths, selected_images;
+    for (I k = 0; k < size; ++k) {
+      const auto image = images[first + k];
+      selected_images.push_back(image);
+      lengths.push_back(static_cast<I>(rows[image].size()));
+      std::copy(rows[image].begin(), rows[image].end(),
+                packed.begin() + k * count);
     }
-    const auto gt = selected.slice(1, 2, 6).to(torch::kFloat32);
-    const auto classes = selected.select(1, 1).to(torch::kInt64);
+    const auto image_index =
+        torch::tensor(selected_images, torch::kInt64).to(targets.device());
+    const auto target_rows = torch::tensor(packed, torch::kInt64)
+                                 .view({size, count})
+                                 .to(targets.device());
+    const auto valid =
+        torch::arange(count, index_options).unsqueeze(0) <
+        torch::tensor(lengths, torch::kInt64).to(targets.device()).unsqueeze(1);
+    const auto selected =
+        targets.index_select(0, target_rows.flatten()).view({size, count, 6});
+    const auto gt = selected.slice(2, 2, 6).to(torch::kFloat32);
+    const auto classes = selected.select(2, 1).to(torch::kInt64);
     auto candidates = gt;
     if (options.assignment_minimum_side > 0) {
-      const auto center = (gt.slice(1, 0, 2) + gt.slice(1, 2, 4)) * .5;
-      const auto half = (gt.slice(1, 2, 4) - gt.slice(1, 0, 2))
+      const auto center = (gt.slice(2, 0, 2) + gt.slice(2, 2, 4)) * .5;
+      const auto half = (gt.slice(2, 2, 4) - gt.slice(2, 0, 2))
                             .clamp_min(options.assignment_minimum_side) *
                         .5;
-      candidates = torch::cat({center - half, center + half}, 1);
+      candidates = torch::cat({center - half, center + half}, 2);
     }
-    const auto distances = torch::cat(
-        {centers.unsqueeze(0) - candidates.slice(1, 0, 2).unsqueeze(1),
-         candidates.slice(1, 2, 4).unsqueeze(1) - centers.unsqueeze(0)},
-        -1);
-    const auto inside = std::get<0>(distances.min(-1)) > kEpsilon;
+    const auto distances =
+        torch::cat({centers.view({1, 1, anchors, 2}) -
+                        candidates.slice(2, 0, 2).unsqueeze(2),
+                    candidates.slice(2, 2, 4).unsqueeze(2) -
+                        centers.view({1, 1, anchors, 2})},
+                   -1);
+    const auto inside =
+        (std::get<0>(distances.min(-1)) > kEpsilon) & valid.unsqueeze(-1);
     const auto overlaps =
-        CompleteIou(gt.unsqueeze(1),
-                    prediction.boxes[image].detach().unsqueeze(0))
-            .clamp_min(0);
-    const auto confidence = prediction.class_scores[image]
-                                .detach()
-                                .index_select(1, classes)
-                                .transpose(0, 1);
+        CompleteIou(
+            gt.unsqueeze(2),
+            prediction.boxes.index_select(0, image_index).detach().unsqueeze(1))
+            .clamp_min(0) *
+        valid.unsqueeze(-1);
+    const auto confidence =
+        prediction.class_scores.index_select(0, image_index)
+            .detach()
+            .transpose(1, 2)
+            .gather(1, classes.unsqueeze(-1).expand({size, count, anchors}));
     const auto alignment = confidence.pow(options.assignment_alpha) *
                            overlaps.pow(options.assignment_beta) * inside;
     const auto k = (std::min)(options.assignment_topk, anchors);
-    const auto top_indices = std::get<1>(alignment.topk(k, 1));
-    // A small positive alignment still belongs to the candidate set. The
-    // epsilon stabilizes score normalization; it is not a foreground cutoff.
+    const auto top_indices = std::get<1>(alignment.topk(k, 2));
+    // Epsilon stabilizes normalization; every positive alignment is eligible.
     auto positive =
-        torch::zeros_like(inside).scatter_(1, top_indices, 1) & inside;
-    auto conflicts = positive.to(torch::kInt64).sum(0) > 1;
-    const auto best_gt = std::get<1>(overlaps.max(0));
-    auto single_best =
-        torch::zeros_like(positive).scatter_(0, best_gt.unsqueeze(0), 1);
-    positive = torch::where(conflicts.unsqueeze(0), single_best, positive);
+        torch::zeros_like(inside).scatter_(2, top_indices, 1) & inside;
+    const auto conflicts = positive.to(torch::kInt64).sum(1) > 1;
+    const auto best_gt = std::get<1>(overlaps.max(1));
+    const auto single_best =
+        torch::zeros_like(positive).scatter_(1, best_gt.unsqueeze(1), 1);
+    positive = torch::where(conflicts.unsqueeze(1), single_best, positive);
     if (options.assignment_topk2 > 0 &&
         options.assignment_topk2 < options.assignment_topk) {
       const auto secondary = std::get<1>(
           (alignment * positive)
-              .topk((std::min)(options.assignment_topk2, anchors), 1));
+              .topk((std::min)(options.assignment_topk2, anchors), 2));
       positive =
-          positive & torch::zeros_like(positive).scatter_(1, secondary, 1);
+          positive & torch::zeros_like(positive).scatter_(2, secondary, 1);
     }
-    auto mask = positive.any(0);
-    auto assigned = std::get<1>(positive.to(torch::kInt64).max(0));
-    auto positive_alignment = alignment * positive;
-    auto best_alignment = std::get<0>(positive_alignment.max(1, true));
-    auto best_overlap = std::get<0>((overlaps * positive).max(1, true));
-    auto quality = std::get<0>(
+    const auto mask = positive.any(1);
+    const auto assigned = std::get<1>(positive.to(torch::kInt64).max(1));
+    const auto positive_alignment = alignment * positive;
+    const auto best_alignment = std::get<0>(positive_alignment.max(2, true));
+    const auto best_overlap = std::get<0>((overlaps * positive).max(2, true));
+    const auto quality = std::get<0>(
         (positive_alignment * best_overlap / (best_alignment + kEpsilon))
-            .max(0));
-    const auto positives = mask.nonzero().flatten();
-    const auto labels =
-        classes.index_select(0, assigned).index_select(0, positives);
-    scores[image].index_put_({positives, labels},
-                             quality.index_select(0, positives));
-    boxes[image].copy_(gt.index_select(0, assigned));
-    foreground[image].copy_(mask);
-    target_indices[image].index_put_(
-        {positives},
-        target_rows.index_select(0, assigned.index_select(0, positives)));
+            .max(1));
+    const auto labels = classes.gather(1, assigned);
+    scores.index_put_({image_index.unsqueeze(1), anchor_ids, labels}, quality);
+    boxes.index_copy_(
+        0, image_index,
+        gt.gather(1, assigned.unsqueeze(-1).expand({size, anchors, 4})));
+    foreground.index_copy_(0, image_index, mask);
+    target_indices.index_copy_(
+        0, image_index, target_rows.gather(1, assigned).masked_fill(~mask, -1));
+    first += size;
   }
   return {boxes, scores, foreground, target_indices};
 }

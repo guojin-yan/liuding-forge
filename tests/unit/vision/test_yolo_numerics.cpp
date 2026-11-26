@@ -113,6 +113,64 @@ void CheckNumerics(const Device& device, bool autocast, bool half_input) {
       1e-6, 1e-8));
 }
 
+void CheckBatchedAssignment(const Device& device) {
+  torch::set_num_threads(1);
+  torch::manual_seed(26);
+  t::YoloDetectionOptions options;
+  options.num_classes = 2;
+  options.reg_max = 1;
+  options.assignment_minimum_side = 16;
+  options.assignment_topk2 = 1;
+  auto raw = torch::randn({4, 6, 21}, torch::kFloat32).to(device);
+  raw.slice(1, 0, 4).abs_().add_(1);
+  auto targets =
+      torch::tensor({3.f, 1.f,  3.f,  2.f, 25.f, 26.f, 1.f, 0.f,  4.f,
+                     5.f, 23.f, 28.f, 2.f, 1.f,  1.f,  2.f, 17.f, 25.f,
+                     3.f, 0.f,  2.f,  4.f, 20.f, 30.f, 2.f, 0.f,  8.f,
+                     7.f, 29.f, 31.f, 3.f, 1.f,  6.f,  3.f, 27.f, 28.f})
+          .view({6, 6})
+          .to(device);
+  auto prediction = t::decode_yolo_detection(raw, {32, 32}, options);
+  // Exercise both the grouped path and the one-image chunk boundary.
+  for (const auto budget : {1048576, 63}) {
+    options.max_assignment_pairs = budget;
+    auto actual = t::assign_yolo_targets(prediction, targets, options);
+    for (std::int64_t b = 0; b < 4; ++b) {
+      auto rows = (targets.select(1, 0) == b).nonzero().flatten();
+      auto gt = targets.index_select(0, rows);
+      gt.select(1, 0).zero_();
+      auto one =
+          t::decode_yolo_detection(raw.narrow(0, b, 1), {32, 32}, options);
+      auto expected = t::assign_yolo_targets(one, gt, options);
+      EXPECT_TRUE(torch::equal(actual.foreground[b], expected.foreground[0]));
+      EXPECT_TRUE(
+          torch::allclose(actual.scores[b], expected.scores[0], 1e-6, 1e-7));
+      auto mask = expected.foreground[0];
+      EXPECT_TRUE(torch::equal(actual.boxes[b].index({mask}),
+                               expected.boxes[0].index({mask})));
+      if (rows.numel())
+        EXPECT_TRUE(torch::equal(
+            actual.target_indices[b].index({mask}),
+            rows.index_select(0, expected.target_indices[0].index({mask}))));
+      EXPECT_TRUE(
+          (actual.target_indices[b].index({~mask}) == -1).all().item<bool>());
+    }
+  }
+  options.max_assignment_pairs = 62;
+  EXPECT_THROW(t::assign_yolo_targets(prediction, targets, options),
+               ResourceExhausted);
+}
+
+TEST(VisionYoloNumerics, BatchedAssignmentPreservesImageRowsAndChunkBoundsCpu) {
+  CheckBatchedAssignment(Device(torch::kCPU));
+}
+
+TEST(VisionYoloNumerics,
+     BatchedAssignmentPreservesImageRowsAndChunkBoundsCuda) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA device unavailable";
+  CheckBatchedAssignment(Device(torch::kCUDA, 0));
+}
+
 TEST(VisionYoloNumerics, CpuReferenceAndAutocastPreserveFp32) {
   for (bool autocast : {false, true}) {
     SCOPED_TRACE(autocast);
