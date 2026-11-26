@@ -6181,7 +6181,29 @@
       "distribution": "cpu",
       "status": "candidate",
       "release_reference": "https://github.com/pytorch/pytorch/releases/tag/v2.15.0",
-      "verified_lanes": [],
+      "verified_lanes": [
+        {
+          "id": "linux-gcc114-libtorch215-cpu-core-optim-initial-f6011d6",
+          "distribution": "cpu",
+          "os": "Ubuntu 22.04.5 LTS",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU; official LibTorch 2.15.0+cpu; no GPU execution qualification",
+          "build_type": "Release",
+          "commit": "f6011d63ae947205f93629c0b1c57d07d0870dba",
+          "tests": "初始 core/SGD/Adam/AdamW 聚焦 CTest 共59项：53通过、零失败、6项按既有条件跳过。三项为2.5.1历史fixture，三项要求GPU能力；CPU不能授予这些跳过项资格。安装后独立C++ core/optim消费者编译、真实AdamW更新与完成步数检查通过。",
+          "instrumentation": "干净f6011d6、独立Ninja Release树，原2.14.1环境保留；仅启用core/optim，单编译、离线配置、复用固定GoogleTest源码。实际编译完整optim库及四个测试程序；CPU原生参考与完整恢复合同沿用原断言。",
+          "quality_evidence": {
+            "native_package": "Official libtorch-shared-with-deps-2.15.0+cpu.zip; build-version 2.15.0+cpu; 129389281 bytes; SHA256 f26d7550019005bac238fec4ae316b220b006cfcca29b40d7313c50f26875f60. Downloaded from the official HTTPS endpoint and pinned separately before offline configure.",
+            "state_contracts": "运行原有SGD/Adam/AdamW CPU逐步原生对照、异参数组、缺失梯度、完整检查点保存恢复及失败原子性等合同；CPU BF16部分遵从原测试结构，包含GPU能力的两个复合测试最终标记为skip，不计为通过。未运行GPU foreach数值或模型质量验证。",
+            "installation": "将此core/optim构建安装到独立前缀，以find_package(jyppx COMPONENTS core optim)构建独立C++消费者，实际AdamW更新成功且completed_steps为1，程序打印Torch2.15.0；仅授该消费者切片，不替代完整组件或SDK消费者矩阵。",
+            "retained_summary_failure": "CTest本身零失败。初始私有汇总只按Cuda名称识别跳过，漏掉DeviceTest.AcceleratorMatmulMatchesCpuAndReportsBackend；保留原失败收据和XML，修正统计后仅继续安装与消费，不重跑已完成编译或测试。",
+            "validation_receipt_sha256": "e21d06bca2bc0bc4c1d3792ebfa8a17ce1766d82cd55830438a23156705e09e1",
+            "ctest_xml_sha256": "3146eb4e7632965122bc8f7eca13d283869d2be07c1a83cf5f86fa949816f6b4",
+            "scope": "仅固定Linux/GCC11/LibTorch2.15.0 CPU core与三种优化器的初始切片。候选状态保持；Windows、CUDA、ROCm、新版GPU批量路径、模型数值/任务质量、其他组件、ONNX、完整SDK安装矩阵及发布资格待独立验收。"
+          }
+        }
+      ],
       "pending_lanes": [
         {
           "id": "linux-gcc114-libtorch215-cpu-candidate",
