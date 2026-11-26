@@ -210,6 +210,24 @@ TaskLoss Branch(const Tensor& raw, const Tensor& proto, const Tensor& semantic,
   const auto values =
       o.generation26 && o.task == TaskKind::obb ? raw.to(torch::kFloat32) : raw;
   auto head = values.slice(1, 0, base).to(torch::kFloat32);
+  if (o.task == TaskKind::detect) {
+    // The criterion already decodes and assigns targets. Only the richer
+    // mask/keypoint tasks below consume a second assignment result.
+    const auto detection =
+        yolo_detection_loss(head, t.boxes, size, o.detection);
+    TaskLoss result;
+    result.components = {{"box", detection.box},
+                         {"classification", detection.classification},
+                         {"distribution", detection.distribution}};
+    // Retain the general branch's accumulation order and zero adjoint.
+    result.total = values.to(torch::kFloat32).sum() * 0;
+    result.total = result.total + detection.box * o.detection.box_gain;
+    result.total =
+        result.total + detection.classification * o.detection.class_gain;
+    result.total = result.total + detection.distribution * o.detection.dfl_gain;
+    result.total = result.total * raw.size(0);
+    return result;
+  }
   auto prediction = decode_yolo_detection(head, size, o.detection);
   TaskLoss result;
   auto zero = values.to(torch::kFloat32).sum() * 0;
