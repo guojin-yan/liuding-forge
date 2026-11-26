@@ -128,6 +128,89 @@ TEST(VisionEma, OriginalCudaReferencePreservesInitialIntegralState) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA/ROCm required";
   OriginalReference(Device(torch::kCUDA, 0));
 }
+TEST(VisionEma, BatchedCudaUpdatesMatchScalarBytesAcrossDtypesAndChunks) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA/ROCm required";
+  const torch::NoGradGuard no_grad;
+  for (const auto rule : {t::ModelEmaUpdateRule::lerp_copy_integral,
+                          t::ModelEmaUpdateRule::multiply_add_floating_only}) {
+    const auto make = [] {
+      auto module = std::make_shared<torch::nn::Module>();
+      for (int index = 0; index < 265; ++index) {
+        // Include odd tails, scalar buffers, both floating groups, >128
+        // entries and products exceeding the normal 4 MiB batch bound.
+        const auto count = index < 2 ? 1048583 : 3 + (index % 17) * 101;
+        auto value =
+            (torch::arange(count, torch::kFloat64).remainder(97) - 48) / 31.7;
+        value = value.to(Device(torch::kCUDA, 0),
+                         index % 2 ? torch::kFloat64 : torch::kFloat32);
+        module->register_parameter("p" + std::to_string(index), value);
+      }
+      module->register_buffer("scalar", torch::tensor(1.234567f).cuda());
+      module->register_buffer("counter", torch::tensor(std::int64_t{7}).cuda());
+      module->register_buffer("flag", torch::tensor(true).cuda());
+      module->register_buffer("cpu", torch::tensor({.3125, -.777}));
+      auto state = std::make_shared<nn::ModelStateView>(module);
+      return std::make_shared<nn::ModelAdapter>(
+          state, [](const nn::Invocation&) -> c10::IValue { return Tensor{}; },
+          nn::InvocationSchema{}, ValueSchema::tensor());
+    };
+    auto source = make(), shadow = make();
+    t::ModelEma ema(source, shadow,
+                    {.decay = .9999, .ramp_updates = 2.7, .update_rule = rule});
+    std::vector<Tensor> live, expected, actual;
+    const auto collect = [&](const auto& from, const auto& to) {
+      for (const auto& item : from) {
+        live.push_back(item.value());
+        actual.push_back(to[item.key()]);
+        expected.push_back(item.value().clone());
+      }
+    };
+    collect(source->state().named_parameters(),
+            shadow->state().named_parameters());
+    collect(source->state().named_buffers(), shadow->state().named_buffers());
+    for (std::uint64_t step = 1; step <= 12; ++step) {
+      for (std::size_t index = 0; index < live.size(); ++index) {
+        if (live[index].is_floating_point())
+          live[index].mul_(1.00003).add_(.0031 * step);
+        else
+          live[index].fill_(step % 2);
+      }
+      ema.on_optimizer_update(step);
+      const auto decay = ema.current_decay();
+      for (std::size_t index = 0; index < live.size(); ++index) {
+        if (live[index].is_floating_point()) {
+          if (rule == t::ModelEmaUpdateRule::multiply_add_floating_only) {
+            expected[index].mul_(decay);
+            expected[index].add_(live[index] * (1.0 - decay));
+          } else {
+            expected[index].lerp_(live[index], 1.0 - decay);
+          }
+        } else if (rule == t::ModelEmaUpdateRule::lerp_copy_integral) {
+          expected[index].copy_(live[index]);
+        }
+        EXPECT_TRUE(torch::equal(
+            actual[index].cpu().reshape({-1}).view(torch::kUInt8),
+            expected[index].cpu().reshape({-1}).view(torch::kUInt8)))
+            << "rule=" << static_cast<int>(rule) << " step=" << step
+            << " tensor=" << index;
+      }
+    }
+    const EmaFixtureState before(ema);
+    auto restored_shadow = make();
+    t::ModelEma restored(
+        source, restored_shadow,
+        {.decay = .9999, .ramp_updates = 2.7, .update_rule = rule});
+    restored.load_state(before, RestorePolicy::exact_only);
+    EXPECT_EQ(EmaFixtureState(restored).blobs, before.blobs);
+    source->state().module().register_buffer("late", torch::ones({1}));
+    EXPECT_THROW(ema.on_optimizer_update(13), CompatibilityError);
+    EXPECT_EQ(ema.completed_updates(), 12U);
+    for (std::size_t index = 0; index < actual.size(); ++index)
+      EXPECT_TRUE(torch::equal(
+          actual[index].cpu().reshape({-1}).view(torch::kUInt8),
+          expected[index].cpu().reshape({-1}).view(torch::kUInt8)));
+  }
+}
 TEST(VisionEma, RestoreContinuesExactlyAndRejectsDifferentRuleTransactionally) {
   const auto rows = Reference()["updates"];
   Domain original;

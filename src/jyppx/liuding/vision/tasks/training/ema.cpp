@@ -8,7 +8,12 @@
 
 #include <jyppx/liuding/vision/tasks/training/ema.hpp>
 
+#include <ATen/ops/_foreach_add.h>
+#include <ATen/ops/_foreach_lerp.h>
+#include <ATen/ops/_foreach_mul.h>
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <set>
@@ -41,6 +46,69 @@ struct Entry {
   const c10::StorageImpl* source_storage;
   const c10::StorageImpl* shadow_storage;
 };
+
+void UpdateFloating(const std::vector<Entry>& entries, double decay,
+                    ModelEmaUpdateRule rule) {
+  struct Group {
+    Device device;
+    c10::ScalarType dtype;
+    std::vector<Tensor> source, shadow;
+    std::uint64_t largest = 0;
+  };
+  std::vector<Group> groups;
+  for (const auto& entry : entries) {
+    if (!entry.source.is_floating_point() || !entry.device.is_cuda()) continue;
+    auto group =
+        std::find_if(groups.begin(), groups.end(), [&](const Group& g) {
+          return g.device == entry.device && g.dtype == entry.dtype;
+        });
+    if (group == groups.end()) {
+      groups.push_back({entry.device, entry.dtype, {}, {}});
+      group = std::prev(groups.end());
+    }
+    group->source.push_back(entry.source);
+    group->shadow.push_back(entry.shadow);
+    group->largest =
+        (std::max)(group->largest,
+                   static_cast<std::uint64_t>(entry.source.nbytes()));
+  }
+  // Keep materialized products within the previous single-tensor peak. Large
+  // tensors run alone; small tensors share a bounded launch/temporary batch.
+  for (const auto& group : groups) {
+    const auto budget = (std::min)(group.largest, std::uint64_t{4U << 20U});
+    std::size_t begin = 0;
+    while (begin < group.source.size()) {
+      std::size_t end = begin;
+      std::uint64_t bytes = 0;
+      do {
+        const auto next =
+            static_cast<std::uint64_t>(group.source[end].nbytes());
+        if (end > begin && (next > budget || bytes > budget - next)) break;
+        bytes += next;
+        ++end;
+      } while (end < group.source.size() && end - begin < 128);
+      const at::TensorList source(group.source.data() + begin, end - begin);
+      const at::TensorList shadow(group.shadow.data() + begin, end - begin);
+      if (rule == ModelEmaUpdateRule::multiply_add_floating_only) {
+        at::_foreach_mul_(shadow, decay);
+        const auto products = at::_foreach_mul(source, 1.0 - decay);
+        at::_foreach_add_(shadow, products);
+      } else {
+        at::_foreach_lerp_(shadow, source, 1.0 - decay);
+      }
+      begin = end;
+    }
+  }
+  for (const auto& entry : entries) {
+    if (!entry.source.is_floating_point() || entry.device.is_cuda()) continue;
+    if (rule == ModelEmaUpdateRule::multiply_add_floating_only) {
+      entry.shadow.mul_(decay);
+      entry.shadow.add_(entry.source.detach() * (1.0 - decay));
+    } else {
+      entry.shadow.lerp_(entry.source.detach(), 1.0 - decay);
+    }
+  }
+}
 
 class ModelReader final : public StateReader {
  public:
@@ -226,20 +294,10 @@ void ModelEma::on_optimizer_update(std::uint64_t global_step) {
   impl_->ValidateBindings();
   const auto decay = Decay(impl_->options, global_step);
   const torch::NoGradGuard no_grad;
-  for (auto& entry : impl_->entries) {
-    if (entry.source.is_floating_point()) {
-      if (impl_->options.update_rule ==
-          ModelEmaUpdateRule::multiply_add_floating_only) {
-        entry.shadow.mul_(decay);
-        // Materialize the source product: add_(source, alpha) may fuse the
-        // multiply/add and has different FP32 rounding from the original rule.
-        entry.shadow.add_(entry.source.detach() * (1.0 - decay));
-      } else
-        entry.shadow.lerp_(entry.source.detach(), 1.0 - decay);
-    } else if (impl_->options.update_rule ==
-               ModelEmaUpdateRule::lerp_copy_integral)
-      entry.shadow.copy_(entry.source);
-  }
+  UpdateFloating(impl_->entries, decay, impl_->options.update_rule);
+  if (impl_->options.update_rule == ModelEmaUpdateRule::lerp_copy_integral)
+    for (auto& entry : impl_->entries)
+      if (!entry.source.is_floating_point()) entry.shadow.copy_(entry.source);
   impl_->updates = global_step;
 }
 std::string ModelEma::participant_id() const {
