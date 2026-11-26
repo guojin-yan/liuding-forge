@@ -1067,6 +1067,10 @@ if(TARGET jyppx::liuding::vision_tasks AND TARGET jyppx::liuding::models_yolo
     jyppx_add_gtest(jyppx_test_vision_models
         LINK_TARGET jyppx::liuding::vision_tasks
         vision/test_models.cpp)
+    if(TARGET torch_cuda)
+        target_compile_definitions(jyppx_test_vision_models PRIVATE
+            JYPPX_TEST_VISION_CUDA_DEVICE=1)
+    endif()
     add_executable(jyppx_test_vision_amp_recovery
         vision/test_amp_overflow_recovery.cpp
         "${JYPPX_TESTS_SOURCE_DIR}/test_utils/runtime_environment.cpp")

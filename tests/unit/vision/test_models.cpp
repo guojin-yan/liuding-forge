@@ -4,6 +4,8 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include "../../../src/jyppx/liuding/vision/models/yolo/blocks.hpp"
+#include "yolo_attention_cuda_sm75_reference.hpp"
+#include "yolo_attention_cuda_sm86_reference.hpp"
 #include "yolo_attention_reference.hpp"
 
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
@@ -15,6 +17,10 @@
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
 
 #include <torch/torch.h>
+
+#if defined(JYPPX_TEST_VISION_CUDA_DEVICE)
+#include <ATen/cuda/CUDAContextLight.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -137,7 +143,26 @@ void check_spatial_attention_reference(const Device& device,
                               .to(device) /
                           31);
     ((output.to(torch::kFloat32) * adjoint).sum() * 512).backward();
+#if defined(USE_ROCM)
     const auto expected = tensor(r::fp16_autocast_gradient, {1, 24, 1, 128});
+#elif defined(JYPPX_TEST_VISION_CUDA_DEVICE)
+    const auto* properties = at::cuda::getDeviceProperties(device.index());
+    Tensor expected;
+    if (properties->major == 7 && properties->minor == 5) {
+      expected =
+          tensor(yolo_attention_cuda_sm75_reference::fp16_autocast_gradient,
+                 {1, 24, 1, 128});
+    } else if (properties->major == 8 && properties->minor == 6) {
+      expected =
+          tensor(yolo_attention_cuda_sm86_reference::fp16_autocast_gradient,
+                 {1, 24, 1, 128});
+    } else {
+      GTEST_SKIP() << "Official signed-adjoint fixture is pinned to sm75/sm86";
+    }
+#else
+    GTEST_SKIP() << "Signed-adjoint fixture requires ROCm or CUDA build";
+    const Tensor expected;
+#endif
     EXPECT_TRUE(torch::allclose(projection->value.grad(), expected, 2e-4, 2e-5))
         << (projection->value.grad() - expected).abs().max().item<double>();
     return;
