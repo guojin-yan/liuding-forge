@@ -208,8 +208,8 @@ class DinoV2Attention final : public torch::nn::Module {
     const auto batch = input.size(0);
     const auto tokens = input.size(1);
     const auto head_dimension = dimension_ / heads_;
-    if (input.is_cuda() && !at::hasHIP() &&
-        !at::globalContext().deterministicAlgorithms()) {
+#if !defined(USE_ROCM)
+    if (input.is_cuda() && !at::globalContext().deterministicAlgorithms()) {
       auto qkv = qkv_->forward(input)
                      .view({batch, tokens, 3, heads_, head_dimension})
                      .permute({2, 0, 3, 1, 4});
@@ -220,6 +220,7 @@ class DinoV2Attention final : public torch::nn::Module {
                           .view({batch, tokens, dimension_});
       return projection_->forward(attended);
     }
+#endif
     // Retain the fused checkpoint layout while matching the independent
     // CPU/strict-deterministic reference's projection and accumulation order.
     const auto project = [&](std::int64_t row) {
