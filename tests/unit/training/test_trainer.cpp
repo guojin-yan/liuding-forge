@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../../../src/jyppx/liuding/training/gradient_finiteness.hpp"
+
 #include <jyppx/liuding/core/device.hpp>
 #include <jyppx/liuding/data/iterable_data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
@@ -1880,6 +1882,86 @@ TEST(TrainerDiagnostics,
   export_diagnostics(*diagnostics, "trainer-nonfinite-gradient",
                      td::TrainingDiagnosticOutcome::failed);
   EXPECT_EQ(trainer.global_step(), 0U);
+}
+
+TEST(TrainerGradientSafety, EmptyAndComplexGradientsRetainElementwiseChecks) {
+  using td::detail::first_nonfinite_gradient;
+  EXPECT_FALSE(first_nonfinite_gradient(std::span<const Tensor>{}));
+  const auto maximum = std::numeric_limits<float>::max();
+  std::vector<Tensor> values{
+      Tensor{}, torch::empty({0}),
+      torch::complex(torch::full({3}, maximum), torch::full({3}, maximum)),
+      torch::tensor({true, false}), torch::tensor({1, -1}, torch::kInt64)};
+  EXPECT_FALSE(first_nonfinite_gradient(values));
+  values.push_back(torch::tensor({std::numeric_limits<float>::infinity()}));
+  EXPECT_EQ(first_nonfinite_gradient(values), 5U);
+  values[2] =
+      torch::complex(torch::tensor({std::numeric_limits<float>::quiet_NaN()}),
+                     torch::zeros({1}));
+  EXPECT_EQ(first_nonfinite_gradient(values), 2U);
+}
+
+TEST(TrainerGradientSafetyCuda,
+     BatchedChecksCoverRealDtypesAndPreserveGradientBytes) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  using td::detail::first_nonfinite_gradient;
+  const auto gpu = torch::Device(torch::kCUDA, 0);
+  std::vector<Tensor> values;
+  for (const auto dtype :
+       {torch::kFloat16, torch::kBFloat16, torch::kFloat32, torch::kFloat64}) {
+    const auto maximum =
+        dtype == torch::kFloat16    ? 65504.
+        : dtype == torch::kBFloat16 ? 3.3895313892515355e38
+        : dtype == torch::kFloat32
+            ? static_cast<double>(std::numeric_limits<float>::max())
+            : std::numeric_limits<double>::max();
+    values.push_back(
+        torch::tensor({0., -0., maximum, -maximum}, torch::kFloat64)
+            .to(gpu, dtype));
+  }
+  values.push_back(torch::ones({2, 3}, gpu).transpose(0, 1));
+  values.front().set_requires_grad(true);
+  EXPECT_FALSE(first_nonfinite_gradient(values));
+  torch::NoGradGuard guard;
+  for (const auto abnormal : {std::numeric_limits<double>::quiet_NaN(),
+                              std::numeric_limits<double>::infinity(),
+                              -std::numeric_limits<double>::infinity()}) {
+    for (std::size_t index = 0; index < 4U; ++index) {
+      auto original = values[index].clone();
+      values[index].select(0, 2).fill_(abnormal);
+      std::vector<Tensor> before;
+      for (const auto& value : values)
+        before.push_back(value.cpu().contiguous().view(torch::kUInt8));
+      EXPECT_EQ(first_nonfinite_gradient(values), index);
+      for (std::size_t slot = 0; slot < values.size(); ++slot)
+        EXPECT_TRUE(torch::equal(
+            values[slot].cpu().contiguous().view(torch::kUInt8), before[slot]));
+      values[index].copy_(original);
+    }
+  }
+}
+
+TEST(TrainerGradientSafetyCuda,
+     FirstFailureUsesOriginalOrderAcrossDevicesAndFallbacks) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  using td::detail::first_nonfinite_gradient;
+  const auto gpu = torch::Device(torch::kCUDA, 0);
+  std::vector<Tensor> values{
+      torch::ones({2}, gpu),
+      torch::tensor({std::numeric_limits<float>::quiet_NaN()}), Tensor{},
+      torch::full({2}, std::numeric_limits<float>::infinity(), gpu)};
+  EXPECT_EQ(first_nonfinite_gradient(values), 1U);
+  values[1] = torch::ones({1});
+  EXPECT_EQ(first_nonfinite_gradient(values), 3U);
+  values.push_back(torch::empty({0}, gpu));
+  EXPECT_EQ(first_nonfinite_gradient(values), 3U);
+  values[3] = torch::ones({2}, gpu);
+  const auto maximum = std::numeric_limits<float>::max();
+  values.push_back(torch::complex(torch::full({2}, maximum, gpu),
+                                  torch::full({2}, maximum, gpu)));
+  EXPECT_FALSE(first_nonfinite_gradient(values));
+  values[0].fill_(std::numeric_limits<float>::infinity());
+  EXPECT_EQ(first_nonfinite_gradient(values), 0U);
 }
 
 TEST(TrainerDiagnostics, ReservedEventKeysCannotOverrideMeasurements) {

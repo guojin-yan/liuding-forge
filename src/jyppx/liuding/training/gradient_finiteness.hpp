@@ -7,23 +7,25 @@
 
 #include <jyppx/liuding/core/types.hpp>
 
+#include <ATen/ops/_foreach_norm.h>
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <span>
 #include <vector>
 
 namespace jyppx::liuding::training::detail {
 
-// Launch every reduction before reading flags. A per-parameter item<bool>()
-// serializes the host and accelerator hundreds of times for typical models.
-// Copy only one boolean vector per device, retaining the first failing index
-// for the Trainer's parameter-specific error. No gradient values are changed.
+// Batch dense real GPU reductions without changing gradient values. The
+// infinity norm cannot overflow for finite real elements, unlike an L2 norm.
+// Read only one flag vector per device, retaining the first failing index.
 inline std::optional<std::size_t> first_nonfinite_gradient(
     std::span<const Tensor> gradients) {
+  torch::NoGradGuard guard;
   struct DeviceChecks {
     Device device;
-    std::vector<Tensor> flags;
+    std::vector<Tensor> gradients;
     std::vector<std::size_t> indices;
   };
   std::vector<DeviceChecks> devices;
@@ -37,12 +39,35 @@ inline std::optional<std::size_t> first_nonfinite_gradient(
       devices.push_back({gradient.device(), {}, {}});
       device = std::prev(devices.end());
     }
-    device->flags.push_back(torch::isfinite(gradient).all());
+    device->gradients.push_back(gradient);
     device->indices.push_back(index);
   }
   std::optional<std::size_t> first;
   for (const auto& device : devices) {
-    const auto flags = torch::stack(device.flags).to(torch::kCPU);
+    const auto can_batch =
+        device.device.is_cuda() &&
+        std::all_of(
+            device.gradients.begin(), device.gradients.end(),
+            [](const Tensor& gradient) {
+              const auto dtype = gradient.scalar_type();
+              return gradient.layout() == c10::Layout::Strided &&
+                     gradient.numel() > 0 &&
+                     gradient.is_non_overlapping_and_dense() &&
+                     (dtype == torch::kFloat16 || dtype == torch::kBFloat16 ||
+                      dtype == torch::kFloat32 || dtype == torch::kFloat64);
+            });
+    Tensor flags;
+    if (can_batch) {
+      const auto norms = at::_foreach_norm(
+          device.gradients, std::numeric_limits<double>::infinity());
+      flags = torch::isfinite(torch::stack(norms)).to(torch::kCPU);
+    } else {
+      std::vector<Tensor> checks;
+      checks.reserve(device.gradients.size());
+      for (const auto& gradient : device.gradients)
+        checks.push_back(torch::isfinite(gradient).all());
+      flags = torch::stack(checks).to(torch::kCPU);
+    }
     const auto* finite = flags.const_data_ptr<bool>();
     for (std::size_t index = 0; index < device.indices.size(); ++index) {
       if (!finite[index] && (!first || device.indices[index] < *first))
