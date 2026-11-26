@@ -1070,6 +1070,8 @@ TEST_F(VisionContracts, Yolo26ExplicitLossRecipeRoundTripAndBinding) {
   EXPECT_DOUBLE_EQ(binding.yolo.detection.box_gain, 5.62767);
   EXPECT_DOUBLE_EQ(binding.yolo.detection.class_gain, .56099);
   EXPECT_DOUBLE_EQ(binding.yolo.detection.dfl_gain, 9.03871);
+  EXPECT_DOUBLE_EQ(binding.yolo.detection.assignment_minimum_side, 16.);
+  EXPECT_DOUBLE_EQ(binding.yolo.detection.assignment_small_side_threshold, 8.);
   EXPECT_EQ(binding.yolo.one_to_one_topk, 8);
   EXPECT_TRUE(binding.yolo.fixed_branch_gains);
   EXPECT_DOUBLE_EQ(binding.yolo.fixed_many_gain, 1.);

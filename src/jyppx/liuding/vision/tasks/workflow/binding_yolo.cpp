@@ -121,6 +121,8 @@ void bind_yolo(const RecipeSpec& r, TaskBinding& b,
         b.yolo.one_to_many_initial = .8;
         b.yolo.detection.assignment_minimum_side =
             d.strides.at(d.strides.size() > 1 ? 1 : 0);
+        if (r.model.task != TaskKind::obb)
+          b.yolo.detection.assignment_small_side_threshold = d.strides.front();
       }
       b.yolo.mask_channels = o.mask_channels;
       b.yolo.keypoints = o.keypoints;

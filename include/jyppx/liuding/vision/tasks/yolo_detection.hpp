@@ -50,6 +50,11 @@ struct YoloDetectionOptions {
                                       ///< 0 retains the first candidate set.
   double assignment_minimum_side = 0.;  ///< Axis-aligned candidate-box side
                                         ///< floor in pixels; 0 disables it.
+  double assignment_small_side_threshold =
+      0.;  ///< If positive, expand only
+           ///< sides below this threshold to assignment_minimum_side; 0 keeps
+           ///< the unconditional floor. Must not exceed
+           ///< assignment_minimum_side.
 };
 
 /** @brief Owning tensor handles for decoded dense predictions; no NMS. */

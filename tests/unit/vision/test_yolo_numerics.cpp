@@ -171,6 +171,78 @@ TEST(VisionYoloNumerics,
   CheckBatchedAssignment(Device(torch::kCUDA, 0));
 }
 
+void CheckConflictCandidates(const Device& device) {
+  const auto boxes =
+      torch::tensor({10.f, 10.f, 30.f, 30.f}).view({1, 1, 4}).to(device);
+  const t::YoloDecodedPrediction prediction{
+      boxes, torch::full({1, 1, 3}, .5, boxes.options()),
+      torch::tensor({2.5f, 2.5f}).view({1, 2}).to(device),
+      torch::full({1, 1}, 8., boxes.options())};
+  // The third box overlaps the prediction best but excludes its anchor center.
+  // It must not steal the conflict between the two eligible targets.
+  const auto targets =
+      torch::tensor({0.f, 0.f, 0.f, 0.f, 40.f, 40.f, 0.f, 1.f, 1.f, 1.f, 39.f,
+                     39.f, 0.f, 2.f, 10.f, 10.f, 30.f, 19.f})
+          .view({3, 6})
+          .to(device);
+  t::YoloDetectionOptions options{.num_classes = 3, .reg_max = 1};
+  options.assignment_topk = 1;
+  const auto assigned = t::assign_yolo_targets(prediction, targets, options);
+  EXPECT_TRUE(assigned.foreground.item<bool>());
+  EXPECT_EQ(assigned.target_indices.item<std::int64_t>(), 1);
+  EXPECT_GT(assigned.scores[0][0][1].item<float>(), .27f);
+  EXPECT_EQ(assigned.scores[0][0][2].item<float>(), 0.f);
+  EXPECT_TRUE(torch::equal(assigned.boxes[0][0], targets[1].slice(0, 2, 6)));
+}
+
+TEST(VisionYoloNumerics, ConflictCannotSelectIneligibleTargetCpu) {
+  CheckConflictCandidates(Device(torch::kCPU));
+}
+
+TEST(VisionYoloNumerics, ConflictCannotSelectIneligibleTargetCuda) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA device unavailable";
+  CheckConflictCandidates(Device(torch::kCUDA, 0));
+}
+
+void CheckSmallCandidateThreshold(const Device& device) {
+  auto gt =
+      torch::tensor({0.f, 0.f, 6.f, 6.f, 18.f, 18.f}).view({1, 6}).to(device);
+  t::YoloDecodedPrediction prediction{
+      gt.slice(1, 2, 6).view({1, 1, 4}),
+      torch::full({1, 1, 1}, .5, gt.options()),
+      torch::tensor({5.f, 12.f}).view({1, 2}).to(device),
+      torch::ones({1, 1}, gt.options())};
+  t::YoloDetectionOptions options{.num_classes = 1, .reg_max = 1};
+  options.assignment_topk = 1;
+  options.assignment_minimum_side = 16;
+  // Preserve the explicit unconditional floor used by direct callers.
+  EXPECT_TRUE(
+      t::assign_yolo_targets(prediction, gt, options).foreground.item<bool>());
+  options.assignment_small_side_threshold = 8;
+  // A 12-pixel side is not small under the YOLO26 stride-8 policy.
+  EXPECT_FALSE(
+      t::assign_yolo_targets(prediction, gt, options).foreground.item<bool>());
+  gt = torch::tensor({0.f, 0.f, 9.f, 9.f, 15.f, 15.f}).view({1, 6}).to(device);
+  prediction.boxes = gt.slice(1, 2, 6).view({1, 1, 4});
+  EXPECT_TRUE(
+      t::assign_yolo_targets(prediction, gt, options).foreground.item<bool>());
+  for (const auto invalid :
+       {-1., 17., std::numeric_limits<double>::infinity()}) {
+    options.assignment_small_side_threshold = invalid;
+    EXPECT_THROW(t::assign_yolo_targets(prediction, gt, options),
+                 InvalidArgument);
+  }
+}
+
+TEST(VisionYoloNumerics, SmallCandidateExpansionUsesSeparateThresholdCpu) {
+  CheckSmallCandidateThreshold(Device(torch::kCPU));
+}
+
+TEST(VisionYoloNumerics, SmallCandidateExpansionUsesSeparateThresholdCuda) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA device unavailable";
+  CheckSmallCandidateThreshold(Device(torch::kCUDA, 0));
+}
+
 TEST(VisionYoloNumerics, CpuReferenceAndAutocastPreserveFp32) {
   for (bool autocast : {false, true}) {
     SCOPED_TRACE(autocast);
@@ -482,6 +554,7 @@ TEST(VisionYoloNumerics, RecipeIdentityBindsOnlyAffectedTrainingSemantics) {
   };
   for (const auto& scenario :
        {std::pair{"yolov8n", t::TaskKind::detect},
+        std::pair{"yolo26n", t::TaskKind::detect},
         std::pair{"yolo26n", t::TaskKind::pose},
         std::pair{"yolo26n", t::TaskKind::obb},
         std::pair{"yoloe_v8s_text", t::TaskKind::detect},
@@ -498,11 +571,17 @@ TEST(VisionYoloNumerics, RecipeIdentityBindsOnlyAffectedTrainingSemantics) {
               hash(canonical + (recipe.model.architecture.starts_with("yolo26")
                                     ? (recipe.model.task == t::TaskKind::obb
                                            ? "\nyolo26-obb-fp32/v4"
-                                           : "\nyolo26-e2e-fp32/v3")
-                                    : "\nyolo-detection-fp32/v2")));
+                                           : "\nyolo26-e2e-fp32/v4")
+                                    : "\nyolo-detection-fp32/v3")));
     if (scenario.second == t::TaskKind::obb)
       EXPECT_NE(t::recipe_identity(recipe),
                 hash(canonical + "\nyolo26-e2e-fp32/v3"));
+    else
+      EXPECT_NE(
+          t::recipe_identity(recipe),
+          hash(canonical + (recipe.model.architecture.starts_with("yolo26")
+                                ? "\nyolo26-e2e-fp32/v3"
+                                : "\nyolo-detection-fp32/v2")));
     const auto restored =
         t::parse_recipe(canonical, std::filesystem::current_path());
     EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));

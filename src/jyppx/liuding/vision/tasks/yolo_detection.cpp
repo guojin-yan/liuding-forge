@@ -35,6 +35,10 @@ void ValidateOptions(const YoloDetectionOptions& options) {
       !std::isfinite(options.assignment_minimum_side) ||
       options.assignment_minimum_side < 0 ||
       options.assignment_minimum_side > 65536 ||
+      !std::isfinite(options.assignment_small_side_threshold) ||
+      options.assignment_small_side_threshold < 0 ||
+      options.assignment_small_side_threshold >
+          options.assignment_minimum_side ||
       options.max_assignment_pairs <= 0 ||
       options.max_prediction_elements <= 0 || options.strides.empty() ||
       options.strides.size() > 5) {
@@ -231,9 +235,15 @@ YoloAssignment Assign(const YoloDecodedPrediction& prediction,
     auto candidates = gt;
     if (options.assignment_minimum_side > 0) {
       const auto center = (gt.slice(2, 0, 2) + gt.slice(2, 2, 4)) * .5;
-      const auto half = (gt.slice(2, 2, 4) - gt.slice(2, 0, 2))
-                            .clamp_min(options.assignment_minimum_side) *
-                        .5;
+      const auto side = gt.slice(2, 2, 4) - gt.slice(2, 0, 2);
+      const auto expanded =
+          options.assignment_small_side_threshold > 0
+              ? torch::where(
+                    side < options.assignment_small_side_threshold,
+                    torch::full_like(side, options.assignment_minimum_side),
+                    side)
+              : side.clamp_min(options.assignment_minimum_side);
+      const auto half = expanded * .5;
       candidates = torch::cat({center - half, center + half}, 2);
     }
     const auto distances =
@@ -244,12 +254,13 @@ YoloAssignment Assign(const YoloDecodedPrediction& prediction,
                    -1);
     const auto inside =
         (std::get<0>(distances.min(-1)) > kEpsilon) & valid.unsqueeze(-1);
+    // Ineligible targets cannot win a conflict, even with a larger box IoU.
     const auto overlaps =
         CompleteIou(
             gt.unsqueeze(2),
             prediction.boxes.index_select(0, image_index).detach().unsqueeze(1))
             .clamp_min(0) *
-        valid.unsqueeze(-1);
+        inside;
     const auto confidence =
         prediction.class_scores.index_select(0, image_index)
             .detach()

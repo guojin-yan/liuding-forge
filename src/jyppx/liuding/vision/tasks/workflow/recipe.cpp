@@ -902,8 +902,7 @@ void check_recipe(const RecipeSpec& r) {
     const auto& loss = *r.yolo26_loss;
     if (!r.model.architecture.starts_with("yolo26") ||
         r.model.task != TaskKind::detect || loss.one_to_one_topk < 1 ||
-        loss.one_to_one_topk > 10000 ||
-        loss.max_assignment_pairs < 1 ||
+        loss.one_to_one_topk > 10000 || loss.max_assignment_pairs < 1 ||
         loss.max_assignment_pairs > (1LL << 30) ||
         (!loss.fixed_branch_gains &&
          (loss.fixed_many_gain != 1. || loss.fixed_one_gain != 1.)))
@@ -1505,8 +1504,8 @@ std::string recipe_identity(const RecipeSpec& r) {
           static_cast<unsigned>(TaskKind::obb))
     s += name.starts_with("yolo26")
              ? (r.model.task == TaskKind::obb ? "\nyolo26-obb-fp32/v4"
-                                              : "\nyolo26-e2e-fp32/v3")
-             : "\nyolo-detection-fp32/v2";
+                                              : "\nyolo26-e2e-fp32/v4")
+             : "\nyolo-detection-fp32/v3";
   return sha256_hex(std::as_bytes(std::span(s)));
 }
 }  // namespace jyppx::liuding::vision::tasks
