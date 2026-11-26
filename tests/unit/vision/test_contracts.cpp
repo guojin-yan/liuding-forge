@@ -830,6 +830,14 @@ TEST_F(VisionContracts, Yolo26OfficialWarmupRoundTripAndRecipeIdentity) {
                    .07105);
   EXPECT_EQ(t::recipe_identity(restored), identity);
 
+  recipe.optimizer_name = "musgd_bf16_separate";
+  ASSERT_NO_THROW(t::check_recipe(recipe));
+  const auto separate =
+      t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+  EXPECT_EQ(separate.optimizer_name, "musgd_bf16_separate");
+  EXPECT_EQ(t::recipe_identity(separate), t::recipe_identity(recipe));
+  EXPECT_NE(t::recipe_identity(separate), identity);
+  recipe.optimizer_name = "musgd_bf16";
   recipe.yolo26_warmup.warmup_momentum = .7;
   EXPECT_NE(t::recipe_identity(recipe), identity);
   recipe.data.augmentation.bgr_probability = 1.1;

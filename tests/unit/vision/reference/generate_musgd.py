@@ -10,16 +10,21 @@ import torch
 parser = argparse.ArgumentParser()
 parser.add_argument('--source', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
+parser.add_argument('--separate', action='store_true',
+                    help='Generate dense per-matrix BF16 references from the earlier official implementation.')
 args = parser.parse_args()
 spec = importlib.util.spec_from_file_location('official_muon_reference', args.source)
 official = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(official)
 
 shapes = [(3, 2), (1, 2), (40, 2), (2, 2, 2, 2), (2, 1, 3, 1), (3,)]
+if args.separate:
+    shapes = [(7, 5), (9, 5), (17, 5), (5, 11), (4, 3, 3, 3), (3,)]
+generator = torch.Generator().manual_seed(20261126)
 initial = [(torch.arange(torch.tensor(s).prod().item(), dtype=torch.float32)
             .reshape(s) * .01 - .07) for s in shapes]
 variants = {}
-for layout in ['contiguous', 'channels_last']:
+for layout in (['contiguous'] if args.separate else ['contiguous', 'channels_last']):
     parameters = [torch.nn.Parameter(x.clone().contiguous(memory_format=torch.channels_last)
                   if layout == 'channels_last' and x.ndim == 4 else x.clone()) for x in initial]
     optimizer = official.MuSGD([
@@ -30,11 +35,13 @@ for layout in ['contiguous', 'channels_last']:
     for step in range(3):
         gradients = []
         for i, p in enumerate(parameters):
-            if step == 1 and i in (1, 5):
+            if not args.separate and step == 1 and i in (1, 5):
                 p.grad = None
                 gradients.append(None)
             else:
                 g = torch.cos(torch.arange(p.numel(), dtype=torch.float32) * .17 + step + i)
+                if args.separate:
+                    g = torch.randint(-256, 257, (p.numel(),), generator=generator).float() / 256
                 g = g.reshape(p.shape) * .03
                 p.grad = g.contiguous(memory_format=torch.channels_last) if layout == 'channels_last' and g.ndim == 4 else g
                 gradients.append(p.grad.flatten().tolist())
@@ -67,5 +74,10 @@ inline constexpr std::string_view musgd_reference =
 #endif
 ''' % literals
 args.output.write_text(header, encoding='utf-8')
+if args.separate:
+    header = header.replace('Ultralytics 8.4.177', 'Ultralytics cb13d5f9')
+    header = header.replace('MUSGD_REFERENCE_HPP', 'MUSGD_SEPARATE_REFERENCE_HPP')
+    header = header.replace('musgd_reference =', 'musgd_separate_reference =')
+    args.output.write_text(header, encoding='utf-8')
 print(json.dumps({'output': str(args.output), 'source': payload['source_sha256'],
                   'torch': payload['torch'], 'steps': len(steps)}))

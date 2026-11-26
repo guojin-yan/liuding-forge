@@ -96,7 +96,8 @@ int main() try {
         throw std::runtime_error("disabled original YOLO silently fell back");
     }
   }
-  {
+  for (const auto math :
+       {tasks::MuSgdMath::bf16_batched, tasks::MuSgdMath::bf16_separate}) {
     auto parameter = torch::ones({2, 2}, torch::requires_grad());
     parameter.mutable_grad() = torch::ones_like(parameter);
     tasks::MuSgdOptimizer optimizer(
@@ -104,7 +105,7 @@ int main() try {
         {{.group_id = "matrix",
           .parameters = {{"weight", parameter}},
           .options = {.learning_rate = .01, .momentum = .9}}},
-        {.math = tasks::MuSgdMath::bf16_batched});
+        {.math = math});
     optimizer.step();
     if (optimizer.completed_steps() != 1 ||
         torch::equal(parameter, torch::ones_like(parameter)) ||

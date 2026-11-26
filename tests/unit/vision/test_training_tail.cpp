@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include <jyppx/liuding/data_image/image_encoder.hpp>
 #include <jyppx/liuding/vision/tasks/data/inspection.hpp>
+#include <jyppx/liuding/vision/tasks/workflow/preflight.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/suite.hpp>
 
 #include <chrono>
@@ -81,6 +82,27 @@ class VisionTrainingTail : public ::testing::Test {
     return r;
   }
 };
+TEST_F(VisionTrainingTail, SeparateMuSgdPreflightAndTrainerUpdate) {
+  auto recipe = Recipe();
+  recipe.model.architecture = "yolo26n";
+  recipe.optimizer_name = "musgd_bf16_separate";
+  recipe.optimizer.learning_rate = .0001;
+  recipe.gradient_clip_norm = 10;
+  recipe.validation.reset();
+  auto splits = t::load_vision_data(recipe);
+  const std::array samples{splits.training->get(0), splits.training->get(1)};
+  const auto probe = J::parse(t::preflight_vision(
+      recipe, samples, {.batch_candidates = {2}, .maximum_probes = 1}));
+  ASSERT_EQ(probe["probes"].size(), 1);
+  EXPECT_TRUE(probe["probes"][0]["success"].get<bool>()) << probe.dump();
+  t::TrainRequest request;
+  request.recipe = recipe;
+  request.output = root / "separate-musgd";
+  request.pause_after_updates = 1;
+  const auto result = t::train_vision(request);
+  EXPECT_EQ(result.fit.global_step, 1);
+  EXPECT_TRUE(std::filesystem::is_regular_file(result.last_checkpoint));
+}
 TEST_F(VisionTrainingTail, DropsOnlyTrainingTailAndKeepsValidationTail) {
   for (const auto drop : {false, true}) {
     SCOPED_TRACE(drop);

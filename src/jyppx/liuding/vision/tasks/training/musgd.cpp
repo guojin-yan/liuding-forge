@@ -116,7 +116,9 @@ struct MuSgdOptimizer::Impl {
     if (!state::Identifier(id) || !std::isfinite(o.muon) || o.muon < 0 ||
         !std::isfinite(o.sgd) || o.sgd <= 0 || o.newton_schulz_steps < 1 ||
         o.newton_schulz_steps > 16 || o.max_gram_elements < 1 ||
-        (o.math != MuSgdMath::fp32_native && o.math != MuSgdMath::bf16_batched))
+        (o.math != MuSgdMath::fp32_native &&
+         o.math != MuSgdMath::bf16_batched &&
+         o.math != MuSgdMath::bf16_separate))
       throw InvalidArgument("Invalid MuSGD profile");
     // Split matrix and vector parameters so pure SGD vectors retain full LR.
     std::vector<optim::SgdParameterGroup> split;
@@ -165,12 +167,13 @@ struct MuSgdOptimizer::Impl {
         std::make_shared<nn::ModelStateView>(momentum),
         nn::ModelCheckpointParticipantOptions{.participant_id =
                                                   id + ".momentum"});
-    recipe = nlohmann::json{o.math == MuSgdMath::fp32_native
-                                ? "musgd/fp32-ns/v1"
-                                : "musgd/bf16-batched-ns/v1",
-                            o.muon, o.sgd, o.newton_schulz_steps,
-                            o.max_gram_elements}
-                 .dump();
+    recipe =
+        nlohmann::json{
+            o.math == MuSgdMath::fp32_native    ? "musgd/fp32-ns/v1"
+            : o.math == MuSgdMath::bf16_batched ? "musgd/bf16-batched-ns/v1"
+                                                : "musgd/bf16-separate-ns/v1",
+            o.muon, o.sgd, o.newton_schulz_steps, o.max_gram_elements}
+            .dump();
   }
 };
 MuSgdOptimizer::MuSgdOptimizer(std::string id,
@@ -278,6 +281,33 @@ Tensor MuSgdOptimizer::step(LossClosure closure) {
         const auto grad = binding.parameter.grad();
         if (!buffer.defined() || !grad.defined()) continue;
         const auto& o = s.groups[gi].options;
+        if (s.options.math == MuSgdMath::bf16_separate) {
+          buffer.lerp_(grad, 1 - o.momentum);
+          auto update =
+              o.nesterov ? torch::lerp(grad, buffer, o.momentum) : buffer;
+          auto matrix =
+              update.reshape({update.size(0), -1}).to(torch::kBFloat16);
+          matrix.div_(matrix.norm() + 1e-7);
+          const bool transposed = matrix.size(0) > matrix.size(1);
+          if (transposed) matrix = matrix.transpose(0, 1);
+          for (std::uint32_t i = 0; i < s.options.newton_schulz_steps; ++i) {
+            auto gram = matrix.matmul(matrix.transpose(0, 1));
+            // Preserve each BF16 rounding boundary, including the scalar
+            // multiply before the Gram product; baddbmm is a different profile.
+            auto polynomial = gram * -4.7750 + (gram * 2.0315).matmul(gram);
+            matrix = matrix * 3.4445 + polynomial.matmul(matrix);
+          }
+          if (transposed) matrix = matrix.transpose(0, 1);
+          const auto scale =
+              std::sqrt((std::max)(1., static_cast<double>(grad.size(-2)) /
+                                           grad.size(-1)));
+          // Native CPU BF16 in-place multiplication can quantize the scalar
+          // first. Keep FP32 scalar arithmetic and round the result to BF16.
+          matrix = (matrix.to(torch::kFloat32) * scale).to(torch::kBFloat16);
+          binding.parameter.add_(matrix.reshape_as(binding.parameter),
+                                 -s.rates[gi] * s.options.muon);
+          continue;
+        }
         buffer.mul_(o.momentum).add_(grad, 1 - o.momentum);
         auto update =
             o.nesterov ? buffer * o.momentum + grad * (1 - o.momentum) : buffer;

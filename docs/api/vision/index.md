@@ -117,7 +117,7 @@ YOLO split 支持图片目录或 UTF-8 图片列表；最后一个 `images` 路�
 
 优化器支持 SGD、AdamW 和原生 MuSGD；`auto` 在训练前解析为 RCNN 的 SGD、YOLO26 的 MuSGD、其余的 AdamW，并保存解析后配方。参数按 decay/no-decay/bias 分组，可按名冻结模块及 BN/buffer，或配置差分学习率。冻结和权重初始化先于优化器与 EMA 绑定。
 
-`optimizer.name = "musgd"` 保留原 FP32 Newton-Schulz 运算；显式选择 `"musgd_bf16"` 使用 BF16 批处理正交化，可用 `muon_weight`、`sgd_weight` 设置两部分权重，默认均为 0.5。相同列数和缩放的矩阵分组计算，形状跨度过大时拆组，并在修改参数前检查批量 Gram 矩阵预算。两种运算配置具有不同的检查点身份，不能精确互相恢复；默认配置的既有配方身份保持。该选项本身不代表完整模型训练与官方实现等价或具有性能优势。
+`optimizer.name = "musgd"` 保留原 FP32 Newton-Schulz 运算；显式选择 `"musgd_bf16"` 使用融合 BF16 批处理正交化，可用 `muon_weight`、`sgd_weight` 设置两部分权重，默认均为 0.5。相同列数和缩放的矩阵分组计算，形状跨度过大时拆组，并在修改参数前检查批量 Gram 矩阵预算。`"musgd_bf16_separate"` 则使用 lerp 动量、逐矩阵 BF16 正交化，并保留各乘法、矩阵乘积、加法及最终缩放的独立舍入，适合对照采用该运算顺序的较早官方配方。其检查点数学身份为 `musgd/bf16-separate-ns/v1`；三种配置不能精确互相恢复，切换时须通过权重初始化开始新训练。三种配置均跳过缺失梯度，后端内核仍可能产生数值差异；配置名称本身不代表完整模型训练与官方实现等价或具有性能优势。
 
 支持梯度累积、裁剪、成功更新驱动的预热/余弦调度、显式 nominal/effective batch 的 decay 缩放、EMA、best/last/周期保存和早停。固定 `class_weights` 仅用于训练，验证损失清除类权重；数据统计只应来自训练集。调度器和 EMA 不随 AMP 跳步推进。
 

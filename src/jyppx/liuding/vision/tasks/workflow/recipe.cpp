@@ -1026,12 +1026,15 @@ void check_recipe(const RecipeSpec& r) {
     throw InvalidArgument("Invalid smoothing/EMA policy");
   if (r.optimizer_name != "sgd" && r.optimizer_name != "adamw" &&
       r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16" &&
-      r.optimizer_name != "auto")
-    throw InvalidArgument("Optimizer must be sgd/adamw/musgd/musgd_bf16/auto");
+      r.optimizer_name != "musgd_bf16_separate" && r.optimizer_name != "auto")
+    throw InvalidArgument(
+        "Optimizer must be "
+        "sgd/adamw/musgd/musgd_bf16/musgd_bf16_separate/auto");
   if (r.yolo26_warmup.enabled &&
       (!r.model.architecture.starts_with("yolo26") ||
        r.model.task != TaskKind::detect ||
-       (r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16") ||
+       (r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16" &&
+        r.optimizer_name != "musgd_bf16_separate") ||
        r.accumulation_tail != training::AccumulationTailPolicy::carry ||
        r.accumulation_reduction != training::AccumulationReduction::sum ||
        r.scheduler.warmup_updates != 0 ||
@@ -1049,7 +1052,8 @@ void check_recipe(const RecipeSpec& r) {
   if (!std::isfinite(r.musgd_muon_weight) || r.musgd_muon_weight < 0 ||
       !std::isfinite(r.musgd_sgd_weight) || r.musgd_sgd_weight <= 0 ||
       ((r.musgd_muon_weight != .5 || r.musgd_sgd_weight != .5) &&
-       r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16"))
+       r.optimizer_name != "musgd" && r.optimizer_name != "musgd_bf16" &&
+       r.optimizer_name != "musgd_bf16_separate"))
     throw InvalidArgument("Invalid or inapplicable MuSGD component weights");
   if (!std::isfinite(r.optimizer.learning_rate) ||
       r.optimizer.learning_rate <= 0 || !std::isfinite(r.optimizer.momentum) ||
@@ -1484,7 +1488,8 @@ std::string recipe_json(const RecipeSpec& r) {
         {"crop_trials", d.crop_trials},
         {"max_crop_rounds", d.max_crop_rounds}};
   }
-  if (r.optimizer_name == "musgd_bf16" || r.musgd_muon_weight != .5 ||
+  if (r.optimizer_name == "musgd_bf16" ||
+      r.optimizer_name == "musgd_bf16_separate" || r.musgd_muon_weight != .5 ||
       r.musgd_sgd_weight != .5) {
     j["optimizer"]["muon_weight"] = r.musgd_muon_weight;
     j["optimizer"]["sgd_weight"] = r.musgd_sgd_weight;

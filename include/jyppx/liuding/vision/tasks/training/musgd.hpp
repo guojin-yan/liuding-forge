@@ -8,7 +8,11 @@
  */
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 namespace jyppx::liuding::vision::tasks {
-enum class MuSgdMath { fp32_native, bf16_batched };
+enum class MuSgdMath {
+  fp32_native,
+  bf16_batched,
+  bf16_separate  ///< Per-matrix lerp and separately rounded BF16 operations.
+};
 struct MuSgdOptions {
   double muon = .5;
   double sgd = .5;
@@ -20,8 +24,11 @@ struct MuSgdOptions {
  * Rank>=2 parameters receive orthogonalized EMA momentum followed by weighted
  * SGD; vectors receive standard SGD. SGD decay sees post-Muon parameters.
  * Nesterov and momentum follow each frozen parameter group's recipe. This
- * native FP32 arithmetic profile is distinct from the opt-in BF16 batched
- * Newton-Schulz profile. Their checkpoint recipes cannot be interchanged.
+ * native FP32 arithmetic profile is distinct from both opt-in BF16 profiles.
+ * bf16_batched retains fused batched arithmetic; bf16_separate uses per-matrix
+ * BF16 products, sums and scaling with separate rounding. Missing gradients
+ * are skipped in every profile. Their checkpoint recipes cannot be
+ * interchanged.
  */
 class MuSgdOptimizer final : public optim::OptimizerAdapter,
                              public CheckpointParticipant {

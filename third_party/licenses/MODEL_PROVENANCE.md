@@ -31,6 +31,8 @@ YOLO26 双分支权重与调度对照同一 `utils/loss.py::E2ELoss`，直接距
 
 YOLO26 旋转框 criterion 另对照同版 `v8OBBLoss`、`RotatedBboxLoss`、`RotatedTaskAlignedAssigner`、`rbox2dist` 和 `utils/metrics.py::probiou`：保留含边界旋转候选、微小目标筛选、协方差下限、距离与周期角度项的原算术顺序。开发参考使用不改函数体的 `E2ELoss(v8OBBLoss)`，源码 SHA 与上述版本相同，继续适用既有 Ultralytics AGPL-3.0 归属及分发审查边界。
 
+`vision/tasks/training/musgd.cpp` 的融合 BF16 批处理对照 Ultralytics `v8.4.177` 的 `ultralytics/optim/muon.py`（SHA-256 `b2781aaf53a5e1796ae0ec628c5c15b39b1658cc3deba67d4a8a5aae5ed05a4d`）；显式的分步 BF16 配置另对照 `cb13d5f9cfbd6f299da3620c625f81d721dc2849` 中同文件的 `muon_update`、`zeropower_via_newtonschulz5` 和 `MuSGD`（SHA-256 `619c5ece085876db294740bfdab384543e4fdaecc88f4b395aa91d6bfa7bc3a5`）。后者保留各运算的 BF16 舍入边界，采用本项目检查点、资源边界及缺失梯度跳过策略；独立固定参考记录实际文件 SHA。上述适配继续适用已保留的 Ultralytics AGPL-3.0 归属及未完成的分发审查边界。
+
 套件不附带上游预训练权重。原生 `.pt` 到 safetensors 转换只处理格式，调用者须提供源摘要并保留具体权重的来源和许可；转换成功和自动提出的键映射报告均不代表预训练模型、数值等价或任务精度资格。
 
 ## 文件声明与原始署名
