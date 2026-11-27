@@ -28,6 +28,9 @@
 #include <jyppx/liuding/vision/tasks/data/yolo_original.hpp>
 #include <jyppx/liuding/vision/tasks/tracking/workflow.hpp>
 #include <jyppx/liuding/vision/tasks/yolo_detection.hpp>
+#ifdef VISION_CONSUMER_MODELS
+#include <jyppx/liuding/models/efficientnetv2.hpp>
+#endif
 #ifdef VISION_CONSUMER_MODELS_VISION
 #include <jyppx/liuding/vision/models/extended/pyramid.hpp>
 #include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
@@ -46,6 +49,39 @@
 int main() try {
   namespace tasks = jyppx::liuding::vision::tasks;
   jyppx::liuding::initialize_runtime();
+#ifdef VISION_CONSUMER_MODELS
+  {
+    const auto check_efficientnet = [](const torch::Device& device) {
+      auto model = jyppx::liuding::models::tf_efficientnetv2_s(
+          {.num_classes = 3, .activation_recomputation = true});
+      if (!model->options().activation_recomputation)
+        throw std::runtime_error(
+            "installed EfficientNet recomputation option mismatch");
+      model->to(device);
+      model->train();
+      model
+          ->forward(torch::randn({2, 3, 32, 32},
+                                 torch::TensorOptions().device(device)))
+          .square()
+          .mean()
+          .backward();
+      const auto weight = model->named_parameters()["classifier.weight"];
+      if (!weight.grad().defined() ||
+          !torch::isfinite(weight.grad()).all().item<bool>())
+        throw std::runtime_error("installed EfficientNet gradient mismatch");
+      const auto before = weight.detach().clone();
+      torch::optim::SGD optimizer(model->parameters(),
+                                  torch::optim::SGDOptions(.001));
+      optimizer.step();
+      if (torch::equal(before, weight))
+        throw std::runtime_error("installed EfficientNet update missing");
+    };
+    check_efficientnet(torch::Device(torch::kCPU));
+#ifdef VISION_CONSUMER_NATIVE_GPU
+    check_efficientnet(torch::Device(torch::kCUDA, 0));
+#endif
+  }
+#endif
 #ifdef VISION_CONSUMER_MODELS_VISION
   {
     namespace ex = jyppx::liuding::models::extended;

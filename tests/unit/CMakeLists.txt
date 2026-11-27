@@ -704,6 +704,7 @@ if(TARGET jyppx::liuding::models)
         LINK_TARGET jyppx::liuding::models
         models/test_models.cpp
         models/test_position_interpolation.cpp
+        models/test_efficientnet_recomputation.cpp
         ENVIRONMENT ${models_test_environment} "CUBLAS_WORKSPACE_CONFIG=:4096:8"
     )
     jyppx_add_gtest(jyppx_test_resnet_forward

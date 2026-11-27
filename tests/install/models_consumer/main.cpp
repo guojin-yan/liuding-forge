@@ -3,7 +3,10 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0 (the "License");
 
+#include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/models/models.hpp>
+
+#include <torch/optim.h>
 
 #include <exception>
 #include <iostream>
@@ -17,6 +20,7 @@ void Require(bool condition, const char* operation) {
 
 int main() {
   try {
+    jyppx::liuding::initialize_runtime();
     const auto entries = jyppx::liuding::models::list_models();
     Require(entries.size() == 34U, "installed-model-catalog");
     {
@@ -43,6 +47,27 @@ int main() {
               "installed-dinov2-timm-position-default");
       Require(!DinoV2Options{}.attention_recomputation,
               "installed-dinov2-attention-recomputation-default-off");
+      Require(!EfficientNetV2Options{}.activation_recomputation,
+              "installed-efficientnet-recomputation-default-off");
+      auto efficientnet = tf_efficientnetv2_s(
+          {.num_classes = 3, .activation_recomputation = true});
+      Require(efficientnet->options().activation_recomputation,
+              "installed-efficientnet-recomputation-option");
+      efficientnet->train();
+      efficientnet->forward(torch::randn({2, 3, 32, 32}))
+          .square()
+          .mean()
+          .backward();
+      const auto weight = efficientnet->named_parameters()["classifier.weight"];
+      Require(weight.grad().defined() &&
+                  torch::isfinite(weight.grad()).all().item<bool>(),
+              "installed-efficientnet-recomputation-gradient");
+      const auto before = weight.detach().clone();
+      torch::optim::SGD optimizer(efficientnet->parameters(),
+                                  torch::optim::SGDOptions(.001));
+      optimizer.step();
+      Require(!torch::equal(before, weight),
+              "installed-efficientnet-recomputation-update");
     }
     {
       using namespace jyppx::liuding::models;

@@ -7,6 +7,15 @@
 #include <jyppx/liuding/models/efficientnetv2.hpp>
 
 #include <torch/torch.h>
+#if defined(USE_ROCM)
+#include <torch/csrc/autograd/custom_function.h>
+#include <torch/csrc/jit/frontend/tracer.h>
+
+#include <ATen/autocast_mode.h>
+#include <ATen/ops/_batch_norm_impl_index.h>
+#include <ATen/ops/_batch_norm_impl_index_backward.h>
+#include <ATen/ops/silu_backward.h>
+#endif
 
 #include <array>
 #include <memory>
@@ -41,6 +50,73 @@ Tensor SamePad(const Tensor& input, std::int64_t kernel, std::int64_t stride) {
       input, {pad_w / 2, pad_w - pad_w / 2, pad_h / 2, pad_h - pad_h / 2}, 0);
 }
 
+#if defined(USE_ROCM)
+class RecomputedBnAct final
+    : public torch::autograd::Function<RecomputedBnAct> {
+ public:
+  static Tensor forward(torch::autograd::AutogradContext* context, Tensor input,
+                        Tensor weight, Tensor bias,
+                        torch::nn::BatchNorm2d norm) {
+    // Original module forward alone updates live running statistics/counter.
+    auto normalized = norm->forward(input);
+    context->save_for_backward({input, weight, bias});
+    context->saved_data["eps"] = norm->options.eps();
+    context->saved_data["momentum"] = *norm->options.momentum();
+    context->saved_data["cudnn"] = at::globalContext().userEnabledCuDNN();
+    return torch::silu(normalized);
+  }
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* context,
+      torch::autograd::variable_list gradients) {
+    TORCH_CHECK(
+        !torch::GradMode::is_enabled(),
+        "EfficientNetV2 BN activation recomputation is first-order only");
+    TORCH_CHECK(
+        !at::autocast::is_autocast_enabled(torch::kCUDA),
+        "EfficientNetV2 BN activation recomputation rejects autocast backward");
+    auto saved = context->get_saved_variables();
+    // Batch-mode replay has no running estimates. Only the original forward
+    // updates the module buffers; replay allocates no disposable estimates.
+    auto replay = at::_batch_norm_impl_index(
+        saved[0], saved[1], saved[2], std::nullopt, std::nullopt, true,
+        context->saved_data["momentum"].toDouble(),
+        context->saved_data["eps"].toDouble(),
+        context->saved_data["cudnn"].toBool());
+    auto gradient = at::silu_backward(gradients[0], std::get<0>(replay));
+    const std::array<bool, 3> required{context->needs_input_grad(0),
+                                       context->needs_input_grad(1),
+                                       context->needs_input_grad(2)};
+    auto result = at::_batch_norm_impl_index_backward(
+        std::get<4>(replay), saved[0], gradient, saved[1], std::nullopt,
+        std::nullopt, std::get<1>(replay), std::get<2>(replay), true,
+        context->saved_data["eps"].toDouble(), required, std::get<3>(replay));
+    return {std::get<0>(result), std::get<1>(result), std::get<2>(result),
+            Tensor{}};
+  }
+};
+#endif
+Tensor BnAct(const Tensor& input, torch::nn::BatchNorm2d& norm, bool enabled) {
+#if defined(USE_ROCM)
+  if (enabled && input.is_cuda() && input.scalar_type() == torch::kFloat32 &&
+      input.is_contiguous() && !input.is_conj() && !input.is_neg() &&
+      norm->weight.defined() && norm->bias.defined() &&
+      norm->weight.scalar_type() == torch::kFloat32 &&
+      norm->bias.scalar_type() == torch::kFloat32 &&
+      (input.requires_grad() || norm->weight.requires_grad() ||
+       norm->bias.requires_grad()) &&
+      norm->is_training() && norm->options.affine() &&
+      norm->options.track_running_stats() &&
+      norm->options.momentum().has_value() && torch::GradMode::is_enabled() &&
+      !torch::jit::tracer::getTracingState() &&
+      !at::autocast::is_autocast_enabled(torch::kCUDA) &&
+      !at::globalContext().deterministicAlgorithms())
+    return RecomputedBnAct::apply(input, norm->weight, norm->bias, norm);
+#else
+  static_cast<void>(enabled);
+#endif
+  return torch::silu(norm->forward(input));
+}
+
 class SqueezeExcite final : public torch::nn::Module {
  public:
   SqueezeExcite(std::int64_t channels, std::int64_t reduced) {
@@ -65,23 +141,28 @@ class Block : public torch::nn::Module {
 
 class ConvBnAct final : public Block {
  public:
-  explicit ConvBnAct(std::int64_t channels) {
+  ConvBnAct(std::int64_t channels, bool recomputation)
+      : recomputation_(recomputation) {
     conv_ = register_module("conv", Conv(channels, channels, 3));
     bn1_ = register_module("bn1", Norm(channels));
   }
   Tensor forward(const Tensor& input) override {
-    return input + torch::silu(bn1_(conv_(input)));
+    return input + BnAct(conv_(input), bn1_, recomputation_);
   }
 
  private:
+  bool recomputation_;
   torch::nn::Conv2d conv_{nullptr};
   torch::nn::BatchNorm2d bn1_{nullptr};
 };
 
 class FusedMbConv final : public Block {
  public:
-  FusedMbConv(std::int64_t input, std::int64_t output, std::int64_t stride)
-      : skip_(stride == 1 && input == output), stride_(stride) {
+  FusedMbConv(std::int64_t input, std::int64_t output, std::int64_t stride,
+              bool recomputation)
+      : recomputation_(recomputation),
+        skip_(stride == 1 && input == output),
+        stride_(stride) {
     const auto expanded = input * 4;
     conv_exp_ = register_module("conv_exp", Conv(input, expanded, 3, stride));
     bn1_ = register_module("bn1", Norm(expanded));
@@ -89,12 +170,14 @@ class FusedMbConv final : public Block {
     bn2_ = register_module("bn2", Norm(output));
   }
   Tensor forward(const Tensor& input) override {
-    auto value = torch::silu(bn1_(conv_exp_(SamePad(input, 3, stride_))));
+    auto value =
+        BnAct(conv_exp_(SamePad(input, 3, stride_)), bn1_, recomputation_);
     value = bn2_(conv_pwl_(value));
     return skip_ ? value + input : value;
   }
 
  private:
+  bool recomputation_;
   bool skip_;
   std::int64_t stride_;
   torch::nn::Conv2d conv_exp_{nullptr}, conv_pwl_{nullptr};
@@ -104,8 +187,10 @@ class FusedMbConv final : public Block {
 class MbConv final : public Block {
  public:
   MbConv(std::int64_t input, std::int64_t output, std::int64_t expansion,
-         std::int64_t stride)
-      : skip_(stride == 1 && input == output), stride_(stride) {
+         std::int64_t stride, bool recomputation)
+      : recomputation_(recomputation),
+        skip_(stride == 1 && input == output),
+        stride_(stride) {
     const auto expanded = input * expansion;
     conv_pw_ = register_module("conv_pw", Conv(input, expanded, 1));
     bn1_ = register_module("bn1", Norm(expanded));
@@ -118,13 +203,14 @@ class MbConv final : public Block {
     bn3_ = register_module("bn3", Norm(output));
   }
   Tensor forward(const Tensor& input) override {
-    auto value = torch::silu(bn1_(conv_pw_(input)));
-    value = torch::silu(bn2_(conv_dw_(SamePad(value, 3, stride_))));
+    auto value = BnAct(conv_pw_(input), bn1_, recomputation_);
+    value = BnAct(conv_dw_(SamePad(value, 3, stride_)), bn2_, recomputation_);
     value = bn3_(conv_pwl_(se_->forward(value)));
     return skip_ ? value + input : value;
   }
 
  private:
+  bool recomputation_;
   bool skip_;
   std::int64_t stride_;
   torch::nn::Conv2d conv_pw_{nullptr}, conv_dw_{nullptr}, conv_pwl_{nullptr};
@@ -136,20 +222,20 @@ class Stage final : public torch::nn::Module {
  public:
   Stage(std::int64_t input, std::int64_t output, std::int64_t count,
         std::int64_t stride, std::int64_t expansion, bool stem_stage,
-        bool fused_stage) {
+        bool fused_stage, bool recomputation) {
     blocks_.reserve(static_cast<std::size_t>(count));
     for (std::int64_t index = 0; index < count; ++index) {
       const auto block_input = index == 0 ? input : output;
       const auto block_stride = index == 0 ? stride : 1;
       std::shared_ptr<Block> block;
       if (stem_stage)
-        block = std::make_shared<ConvBnAct>(block_input);
+        block = std::make_shared<ConvBnAct>(block_input, recomputation);
       else if (fused_stage)
-        block =
-            std::make_shared<FusedMbConv>(block_input, output, block_stride);
+        block = std::make_shared<FusedMbConv>(block_input, output, block_stride,
+                                              recomputation);
       else
         block = std::make_shared<MbConv>(block_input, output, expansion,
-                                         block_stride);
+                                         block_stride, recomputation);
       blocks_.push_back(register_module(std::to_string(index), block));
     }
   }
@@ -165,7 +251,7 @@ class Stage final : public torch::nn::Module {
 
 class EfficientNetV2Blocks final : public torch::nn::Module {
  public:
-  EfficientNetV2Blocks() {
+  explicit EfficientNetV2Blocks(bool recomputation) {
     constexpr std::array<std::int64_t, 6> kCounts{2, 4, 4, 6, 9, 15};
     constexpr std::array<std::int64_t, 6> kChannels{24, 48, 64, 128, 160, 256};
     constexpr std::array<std::int64_t, 6> kStride{1, 2, 2, 2, 1, 2};
@@ -176,7 +262,7 @@ class EfficientNetV2Blocks final : public torch::nn::Module {
           std::to_string(index),
           std::make_shared<Stage>(input, kChannels[index], kCounts[index],
                                   kStride[index], kExpansion[index], index == 0,
-                                  index == 1 || index == 2));
+                                  index == 1 || index == 2, recomputation));
       input = kChannels[index];
     }
   }
@@ -204,8 +290,8 @@ EfficientNetV2Impl::EfficientNetV2Impl(EfficientNetV2Options options)
     conv_stem_ =
         register_module("conv_stem", Conv(options.input_channels, 24, 3, 2));
     bn1_ = register_module("bn1", Norm(24));
-    blocks_ =
-        register_module("blocks", std::make_shared<EfficientNetV2Blocks>());
+    blocks_ = register_module("blocks", std::make_shared<EfficientNetV2Blocks>(
+                                            options.activation_recomputation));
     conv_head_ = register_module("conv_head", Conv(256, 1280, 1));
     bn2_ = register_module("bn2", Norm(1280));
     if (options.num_classes > 0) {
@@ -221,15 +307,17 @@ std::vector<Tensor> EfficientNetV2Impl::forward_features(const Tensor& input) {
     if (input.size(1) != options_.input_channels)
       detail::Invalid("efficientnetv2.input",
                       "the configured image channel count");
-    return blocks_->forward_features(
-        torch::silu(bn1_(conv_stem_(SamePad(input, 3, 2)))));
+    return blocks_->forward_features(BnAct(conv_stem_(SamePad(input, 3, 2)),
+                                           bn1_,
+                                           options_.activation_recomputation));
   });
 }
 
 Tensor EfficientNetV2Impl::forward(const Tensor& input) {
   return detail::Backend("efficientnetv2.forward", [&] {
     const auto stages = forward_features(input);
-    const auto features = torch::silu(bn2_(conv_head_(stages.back())));
+    const auto features = BnAct(conv_head_(stages.back()), bn2_,
+                                options_.activation_recomputation);
     auto pooled = features.mean({2, 3});
     return classifier_ ? classifier_(pooled) : pooled;
   });

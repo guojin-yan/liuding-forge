@@ -32,6 +32,8 @@ DINOv2-S/14 可显式设置 `DinoV2Options::attention_recomputation = true`，�
 
 视觉任务目录提供 `vit_small_patch14_dinov2` 的分类和多标签分类绑定，输入宽高须为 14 的倍数。训练配方的 `extension.activation_recomputation` 对该模型选择上述注意力重算；该配置参与配方身份，续训时应保持一致。它不改变数据增强、优化器或学习率调度，也不等同于训练检查点保存。
 
+TF EfficientNetV2-S 可设置 `EfficientNetV2Options::activation_recomputation = true`，在 ROCm、非严格确定性、无 autocast 的 FP32 训练中重算连续布局的 BN+SiLU 激活，以减少反向保存量；选项默认关闭，可能增加训练耗时。运行统计和批计数仅在原前向更新，参数与缓冲区布局保持兼容。启用区域仅支持关闭 autocast 的一阶反向，`create_graph=true`、autocast 反向及已保存张量修改会报错；CPU、NVIDIA、其他精度、eval、no-grad、追踪及不适用 BN 配置保留原图；布局按各区域的 BN 输入判断，channels-last 图像经卷积变为连续布局的区域仍可能重算。分类和多标签工作流用 schema2 的 `extension.activation_recomputation` 绑定该选项并参与恢复身份；schema1 显式开启会拒绝。速度和资源取舍须按实际训练评估。
+
 ## 查询与替换分类头
 
 `classifier_info(adapter)` 查询当前类别数、embedding 宽度、池化或 CLS 语义和被替换的参数前缀。`reset_classifier(adapter, classes)` 替换 head 并刷新传入 adapter 的输出 schema；`classes` 为 0–1,000,000，正数创建全新可训练 head，零移除 head。它保留具体模块与骨干参数身份、冻结标志、device、dtype 和当前模式，不自动冻结骨干或加载权重。

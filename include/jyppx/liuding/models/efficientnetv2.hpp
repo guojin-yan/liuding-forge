@@ -27,6 +27,17 @@ class EfficientNetV2Blocks;
 struct EfficientNetV2Options {
   std::int64_t num_classes = 1000;  ///< Zero returns the pooled embedding.
   std::int64_t input_channels = 3;  ///< Positive image channel count.
+  /** @brief Opt-in BN+SiLU activation recomputation for ROCm FP32 training.
+   * @note Defaults off. Eligible contiguous training activations support only
+   * first-order backward with autocast disabled; saved tensor mutations fail
+   * version checks. Running statistics update only in the original forward.
+   * CPU/NVIDIA, other dtypes, autocast, eval, no-grad, tracing, strict
+   * determinism and regions with noncontiguous BN inputs or unsupported BN
+   * configurations retain ordinary autograd.
+   * Parameter/buffer topology is unchanged; recomputation trades time for
+   * saved activation memory. Evaluate the tradeoff on the actual workload.
+   */
+  bool activation_recomputation = false;
 };
 
 /** @brief Trainable TF-S backbone with dynamic SAME padding. */

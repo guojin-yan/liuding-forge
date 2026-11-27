@@ -80,6 +80,8 @@ YOLO26 检测配方可用 `yolo26_loss` 显式指定 `box_gain`、`class_gain`�
 
 ViT/Swin 可显式设置 `activation_recomputation`。原生 autograd 包装保留 RNG/autocast，支持输入本身无需梯度的参数训练；拒绝有 running stats 的训练 BN/IN 与状态副作用，不支持高阶梯度。它是激活重计算，与训练文件检查点不同。
 
+TF EfficientNetV2-S 的 schema2 配方使用同名字段选择模型专用的 BN+SiLU 重算，运行统计只在原前向更新，不使用上述通用包装；适用设备、精度、反向限制及时间/显存取舍见[模型组件](../models.md#创建模型)。
+
 SimMIM 的 `model_patch_size` 对应 Swin 的 4 或 ViT 的 16，`mask_patch_size` 默认 32，`mask_ratio` 默认 0.6；mask 身份绑定 epoch、sample、occurrence 和 view。`extract-encoder` 输出单独的编码器初始化制品，完整续训仍使用原训练检查点；下游 head 替换和 key mapping 必须显式配置。
 
 ## 提示资产和导出

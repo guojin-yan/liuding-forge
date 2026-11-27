@@ -7,6 +7,7 @@
 
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/models/dino.hpp>
+#include <jyppx/liuding/models/efficientnetv2.hpp>
 #include <jyppx/liuding/nn/recompute.hpp>
 #include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
 #include <jyppx/liuding/vision/ops/assignment.hpp>
@@ -1072,6 +1073,67 @@ TEST_F(VisionContracts, DinoAttentionRecomputationRoundTripAndBinding) {
   }
   recipe.data.letterbox.canvas = {225, 224};
   EXPECT_THROW(t::bind_task(recipe), InvalidArgument);
+}
+
+TEST_F(VisionContracts,
+       EfficientNetRecomputationRoundTripBindingAndCpuUpdates) {
+  for (const auto task :
+       {t::TaskKind::classify, t::TaskKind::classify_multilabel}) {
+    t::RecipeSpec recipe;
+    recipe.schema_version = 2;
+    recipe.model.architecture = "tf_efficientnetv2_s";
+    recipe.model.task = task;
+    recipe.model.num_classes = 3;
+    recipe.classification_root = std::filesystem::absolute("classification");
+    recipe.data.letterbox.canvas = {64, 64};
+    if (task == t::TaskKind::classify_multilabel) {
+      recipe.extension.training_manifest =
+          std::filesystem::absolute("__fixture__");
+      recipe.extension.validation_manifest =
+          std::filesystem::absolute("__validation__");
+    }
+    const auto identity = t::recipe_identity(recipe);
+    for (bool enabled : {false, true}) {
+      recipe.extension.activation_recomputation = enabled;
+      const auto restored = t::parse_recipe(t::recipe_json(recipe),
+                                            std::filesystem::current_path());
+      EXPECT_EQ(restored.extension.activation_recomputation, enabled);
+      EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
+      EXPECT_EQ(t::recipe_identity(restored) == identity, !enabled);
+      auto binding = t::bind_task(restored);
+      auto model = std::dynamic_pointer_cast<models::EfficientNetV2Impl>(
+          binding.model->state().shared_module());
+      ASSERT_TRUE(model);
+      EXPECT_EQ(model->options().activation_recomputation, enabled);
+      EXPECT_EQ(model->options().num_classes, 3);
+      model->train();
+      const nn::Invocation invocation{
+          .positional = {torch::randn({2, 3, 64, 64})}};
+      const std::optional<c10::IValue> target =
+          task == t::TaskKind::classify
+              ? c10::IValue(torch::tensor({0, 2}, torch::kInt64))
+              : c10::IValue(c10::ivalue::Tuple::create(
+                    {torch::tensor({1.f, 0.f, 1.f, 0.f, 1.f, 0.f}).view({2, 3}),
+                     torch::ones({2, 3}, torch::kBool)}));
+      const data::BatchEnvelope envelope;
+      const training::StepContext context;
+      const auto output =
+          binding.step({*binding.model, envelope, invocation, target, context});
+      ASSERT_EQ(output.sample_count, 2);
+      ASSERT_TRUE(torch::isfinite(output.loss).item<bool>());
+      output.loss.backward();
+      const auto weight = model->named_parameters()["classifier.weight"];
+      ASSERT_TRUE(weight.grad().defined());
+      EXPECT_TRUE(torch::isfinite(weight.grad()).all().item<bool>());
+      const auto before = weight.detach().clone();
+      torch::optim::SGD optimizer(model->parameters(),
+                                  torch::optim::SGDOptions(.001));
+      optimizer.step();
+      EXPECT_FALSE(torch::equal(before, weight));
+    }
+    recipe.schema_version = 1;
+    EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+  }
 }
 
 TEST_F(VisionContracts, RtDetrEncoderBudgetRoundTripAndBinding) {

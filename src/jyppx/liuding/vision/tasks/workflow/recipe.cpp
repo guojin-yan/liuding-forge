@@ -902,6 +902,10 @@ void check_recipe(const RecipeSpec& r) {
       r.extension.activation_recomputation && r.schema_version < 2)
     throw InvalidArgument(
         "RT-DETR encoder recomputation requires recipe schema_version=2");
+  if (r.model.architecture == "tf_efficientnetv2_s" &&
+      r.extension.activation_recomputation && r.schema_version < 2)
+    throw InvalidArgument(
+        "EfficientNetV2 activation recomputation requires recipe schema_version=2");
   if (r.yolo26_loss) {
     const auto& loss = *r.yolo26_loss;
     if (!r.model.architecture.starts_with("yolo26") ||

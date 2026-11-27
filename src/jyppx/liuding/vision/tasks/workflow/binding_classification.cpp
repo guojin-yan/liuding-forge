@@ -39,6 +39,7 @@ void bind_classification(const RecipeSpec& r, TaskBinding& b,
                         r.model.num_classes;
     o.swin.activation_recomputation=o.vit.activation_recomputation=r.extension.activation_recomputation;
     o.dinov2.attention_recomputation=r.extension.activation_recomputation;
+    o.efficientnet_v2.activation_recomputation=r.extension.activation_recomputation;
     b.model = std::make_shared<nn::ModelAdapter>(
         models::create_model(r.model.architecture, o));
     if(r.extension.feature_outputs) {
