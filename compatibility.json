@@ -15,6 +15,30 @@
         {
           "architecture": "x86_64",
           "build_type": "Release",
+          "commit": "382285858f7d26f323fba6512beddf52076f2d38",
+          "id": "windows-clang24-rocm101-gfx1100-3822858-efficientnet-recomputation",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "compiler": "AMD Clang 24.0.0 clang-cl",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0; HIP SDK10.1.0",
+          "instrumentation": "复用已登记Release缓存、精确工具链和离线依赖，单设备单编译；仅EfficientNetV2-S新选项及共享配方/安装定向检查，不扩张设备、LibTorch版本或完整发布矩阵。",
+          "tests": "必要模型6、schema2分类/多标签实际step及SGD/配方身份1、结构3、安装消费者2共12种分批通过、零跳过；保留初始构建和fixture/图断言失败，修正后仅补失败或原未运行项。干净提交12文件/全部25库/新鲜ABI程序同身份及结构3项复验通过，非单次全绿或从零SDK重建。",
+          "quality_evidence": {
+            "native_contract": "默认关闭activation_recomputation；仅符合条件的ROCm连续BN输入、FP32训练、grad开启、无autocast、非严格确定性区域重算BN+SiLU。真实统计/counter只在原前向更新一次，参数/缓冲拓扑不变；拒绝高阶/autocast反向及已保存affine修改，保留原2e-5/2e-4容差。布局按区域判断，channels-last经卷积变连续后仍可能重算。",
+            "fallback_contract": "CPU/NVIDIA、FP16和ROCm BF16、eval/no-grad/strict、累计momentum/未跟踪统计等不适用区域保留原图。数值测试固定并恢复确定cuDNN/禁TF32/禁benchmark，不改变产品默认训练。冻结affine/backbone、features/headless、重复forward/retain_graph及RNG/完整状态通过。",
+            "workflow_contract": "schema2 extension.activation_recomputation绑定分类/多标签并参与恢复身份，schema1显式ON拒绝。安装CPU/GPU实际反向和SGD更新通过。",
+            "numerical_scope": "新鲜当前ABI、实际产品库、无私有模型覆盖。真实PNG首批ON/OFF及ON/官方Py六完整文件2476张量、288批末态ON/OFF/ON-Py及三方A/A五完整文件3910张量均逐值相同且有限，原容差不变。",
+            "training_scope": "冻结官方CIFAR10原生PNG平衡5120清单、共同完整初态/B8/224FP32/SGD及2worker，OFF/ON/Py/Py/ON/OFF各288实际批、16预热+272热窗。实际读取/解码/缩放/归一化/pin/H2D，时间/RAM/显存/engine原值保留；首批worker启动边界不同，不授解码倍率、最终准确率、完整Trainer/完整官方配方或其他设备速度资格。",
+            "tradeoff": "显式显存取舍选项；相对本轮产品OFF仍有热/fit/完整process速度成本，早期私有候选速度和RAM负收益也保留。不将显存下降描述成对原C++提速；非多算法整体达标。",
+            "clean_receipt_sha256": "b0bbf3e05204fc6ba02ea6c141db119907031bb93541dfc57ae20bea5c8f73b8",
+            "numeric_sha256": "5a4ff1524e64f0a29c20e58f901bc681965a3e5db2c130e8bb185df38f4e97ad",
+            "training_sha256": "e81c59bdbd519c89e3c814c3fa571d4d54234ca793bad0979ff60cb9c718b742",
+            "contracts_receipt_sha256": "aca70e2a6884dbb5b4e6b00270ed92c145e0ca7d653a0e0ac00dab5fc793b146"
+          }
+        },
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
           "commit": "a9c8ed175044d40882078a28c58d1cc409c1c6a4",
           "instrumentation": "复用已登记工具链、Release缓存及离线依赖，每设备单编译。RT-DETR默认关闭选项、配方/原profile/预算、必要结构和适用安装定向检查；不扩张完整矩阵或发布资格。",
           "id": "windows-clang24-rocm101-gfx1100-a9c8ed1-rtdetr-encoder-recomputation",
@@ -4812,6 +4836,38 @@
       "distribution": "bundled-cuda",
       "status": "development-baseline",
       "verified_lanes": [
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "382285858f7d26f323fba6512beddf52076f2d38",
+          "id": "ubuntu22045-gcc114-cu126-sm75-3822858-efficientnet-fallback",
+          "distribution": "bundled-cuda",
+          "os": "ubuntu-22.04.5",
+          "compiler": "GCC 11.4.0; NVCC 12.6.3",
+          "accelerator": "NVIDIA RTX2060 sm75; LibTorch2.14.1+cu126; CUDA Toolkit12.6.3; driver580.178.04",
+          "instrumentation": "复用已登记Release缓存、精确工具链和离线依赖，单设备单编译；仅EfficientNetV2-S新选项及共享配方/安装定向检查，不扩张设备、LibTorch版本或完整发布矩阵。",
+          "tests": "干净提交定向模型5、分类/多标签实际step/SGD/配方身份1和结构3，共9项通过、零跳过；未重复历史训练或无关矩阵。",
+          "quality_evidence": {
+            "scope": "仅CPU/NVIDIA原图兼容，默认关闭/显式ON拓扑相同。固定并恢复数值测试后端策略，完整输出/loss/input/全部参数梯度/一步状态、RNG、features/冻结/重复、eval/no-grad/strict、累计momentum/未跟踪统计、FP16/autocast及布局对照保留原容差；未验证NVIDIA BF16。schema2分类/多标签实际step/SGD和身份、schema1拒绝及结构通过。不授ROCm重算、新远端性能/安装/最终准确率或完整矩阵资格。",
+            "receipt_sha256": "cd547d1613cc0a38b97028b021f606c44f21aa57d1b2c542adcd4b810eb11118"
+          }
+        },
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "382285858f7d26f323fba6512beddf52076f2d38",
+          "id": "windows-msvc1944-cu126-sm86-3822858-efficientnet-fallback",
+          "distribution": "bundled-cuda",
+          "os": "windows-11",
+          "compiler": "MSVC 19.44; NVCC 12.9",
+          "accelerator": "NVIDIA RTX3060 Laptop sm86; LibTorch2.14.1+cu126; CUDA Toolkit12.9; driver576.02",
+          "instrumentation": "复用已登记Release缓存、精确工具链和离线依赖，单设备单编译；仅EfficientNetV2-S新选项及共享配方/安装定向检查，不扩张设备、LibTorch版本或完整发布矩阵。",
+          "tests": "干净提交定向模型5、分类/多标签实际step/SGD/配方身份1和结构3，共9项通过、零跳过；未重复历史训练或无关矩阵。",
+          "quality_evidence": {
+            "scope": "仅CPU/NVIDIA原图兼容，默认关闭/显式ON拓扑相同。固定并恢复数值测试后端策略，完整输出/loss/input/全部参数梯度/一步状态、RNG、features/冻结/重复、eval/no-grad/strict、累计momentum/未跟踪统计、FP16/autocast及布局对照保留原容差；未验证NVIDIA BF16。schema2分类/多标签实际step/SGD和身份、schema1拒绝及结构通过。不授ROCm重算、新远端性能/安装/最终准确率或完整矩阵资格。",
+            "receipt_sha256": "108dd253eef8725caaf83c87f95e07fa5e62eadf04a3e4a3abb221c50a825928"
+          }
+        },
         {
           "architecture": "x86_64",
           "build_type": "Release",
