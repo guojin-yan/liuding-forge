@@ -14,6 +14,7 @@
 #include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
 #include <jyppx/liuding/vision/models/yolo/model.hpp>
 #include <jyppx/liuding/vision/tasks/extended.hpp>
+#include <jyppx/liuding/vision/tasks/rtdetr.hpp>
 #include <jyppx/liuding/vision/tasks/workflow/binding.hpp>
 
 #include <torch/torch.h>
@@ -27,6 +28,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <gtest/gtest.h>
+#include <map>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -514,6 +516,209 @@ TEST(VisionRtDetrProfile, ExplicitEncoderBudgetControlsActualForward) {
        std::initializer_list<std::int64_t>{0, -1, (1LL << 30) + 1}) {
     options.max_encoder_elements = invalid;
     EXPECT_THROW(ex::RtDetr model(options), InvalidArgument);
+  }
+}
+
+using RtRecomputationSnapshot = std::map<std::string, Tensor>;
+RtRecomputationSnapshot rt_recomputation_snapshot(const Device& device,
+                                                  bool enabled, int profile,
+                                                  int mode = 0) {
+  namespace ex = models::extended;
+  torch::manual_seed(20261127);
+  ex::RtDetrOptions options;
+  options.backbone = profile == 1 ? ex::RtDetrBackbone::resnet50_vd
+                                  : ex::RtDetrBackbone::resnet18_vd;
+  options.profile = profile == 2 ? ex::RtDetrProfile::r18_coco72
+                                 : ex::RtDetrProfile::native_v1;
+  options.num_classes = 5;
+  options.queries = 20;
+  options.decoder_layers = 2;
+  options.denoising_queries = 8;
+  options.encoder_recomputation = enabled;
+  ex::RtDetr model(options);
+  EXPECT_EQ(model->options().encoder_recomputation, enabled);
+  model->to(device);
+  model->train(mode != 3);
+  {
+    torch::NoGradGuard no_grad;
+    for (const auto& parameter : model->named_parameters()) {
+      if (parameter.key().find("enc_box.last.") != std::string::npos ||
+          (parameter.key().find("model.box") != std::string::npos &&
+           parameter.key().find(".last.") != std::string::npos))
+        parameter.value().uniform_(-.02, .02);
+      if (mode == 1 && parameter.key().starts_with("model.backbone."))
+        parameter.value().set_requires_grad(false);
+    }
+  }
+  auto images = torch::randn({2, 3, 128, 128}).to(device);
+  images.set_requires_grad(mode != 1);
+  auto target = torch::tensor({{1.f, 2.f, 10.f, 11.f, 50.f, 70.f},
+                               {0.f, 4.f, 20.f, 15.f, 90.f, 100.f},
+                               {1.f, 1.f, 2.f, 3.f, 25.f, 35.f}})
+                    .to(device)
+                    .transpose(0, 1)
+                    .contiguous()
+                    .transpose(0, 1)
+                    .detach()
+                    .requires_grad_(true);
+  RtRecomputationSnapshot result;
+  const auto retain = [&](const std::string& name, const Tensor& value) {
+    result[name] = value.detach().cpu().clone();
+  };
+  Tensor loss;
+  const int repeats = mode == 2 ? 2 : 1;
+  for (int repetition = 0; repetition < repeats; ++repetition) {
+    std::vector<Tensor> output;
+    {
+      torch::AutoGradMode grad(mode != 4);
+      std::optional<training::amp::AutocastGuard> autocast;
+      if (mode == 6 || mode == 7)
+        autocast.emplace(device.type(),
+                         mode == 6 ? torch::kFloat16 : torch::kBFloat16);
+      output = model->forward(images, target);
+    }
+    for (std::size_t index = 0; index < output.size(); ++index)
+      retain(
+          "output." + std::to_string(repetition) + "." + std::to_string(index),
+          output[index]);
+    if (mode >= 4) continue;
+    auto total =
+        t::rtdetr_loss(output, target, {128, 128}, 5, profile == 2).total;
+    for (int index = 0; index < 6; ++index) {
+      auto adjoint =
+          torch::linspace(-.3, .7, output[index].numel(),
+                          output[index].options().requires_grad(false))
+              .reshape_as(output[index]);
+      total = total + (output[index] * adjoint).sum() / 1000;
+    }
+    retain("loss." + std::to_string(repetition), total);
+    loss = loss.defined() ? loss + total : total;
+  }
+  if (mode < 4) {
+    loss.backward();
+    if (images.grad().defined()) retain("gradient.images", images.grad());
+    if (target.grad().defined()) retain("gradient.target", target.grad());
+    for (const auto& parameter : model->named_parameters())
+      if (parameter.value().grad().defined())
+        retain("gradient." + parameter.key(), parameter.value().grad());
+    torch::optim::SGD optimizer(model->parameters(),
+                                torch::optim::SGDOptions(.0001).momentum(.9));
+    optimizer.step();
+  }
+  for (const auto& parameter : model->named_parameters())
+    retain("parameter." + parameter.key(), parameter.value());
+  for (const auto& buffer : model->named_buffers())
+    retain("buffer." + buffer.key(), buffer.value());
+  retain("rng.cpu", torch::rand({64}));
+  retain("rng.device",
+         torch::rand({64}, torch::TensorOptions().device(device)));
+  return result;
+}
+void check_rt_recomputation(const Device& device, int profile, int mode = 0) {
+  const auto expected = rt_recomputation_snapshot(device, false, profile, mode);
+  const auto actual = rt_recomputation_snapshot(device, true, profile, mode);
+  ASSERT_EQ(actual.size(), expected.size());
+  for (const auto& [name, value] : expected) {
+    SCOPED_TRACE(name);
+    ASSERT_TRUE(actual.contains(name));
+    ASSERT_EQ(actual.at(name).sizes(), value.sizes());
+    ASSERT_EQ(actual.at(name).scalar_type(), value.scalar_type());
+    if (value.is_floating_point()) {
+      ASSERT_TRUE(torch::isfinite(value).all().item<bool>());
+      ASSERT_TRUE(torch::isfinite(actual.at(name)).all().item<bool>());
+    }
+    if (!value.is_floating_point() || name.starts_with("rng."))
+      EXPECT_TRUE(torch::equal(actual.at(name), value));
+    else
+      EXPECT_TRUE(torch::allclose(actual.at(name), value, 2e-4, 2e-5));
+  }
+}
+TEST(VisionRtDetrRecomputation, CpuFallbackFullGradientsAndRng) {
+  torch::set_num_threads(1);
+  EXPECT_FALSE(models::extended::RtDetrOptions{}.encoder_recomputation);
+  for (int profile = 0; profile < 3; ++profile)
+    ASSERT_NO_FATAL_FAILURE(
+        check_rt_recomputation(Device(torch::kCPU), profile));
+}
+TEST(VisionRtDetrRecomputation, CudaFullGradientsFrozenAndRepeatedForwards) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  torch::set_num_threads(1);
+  for (int profile = 0; profile < 3; ++profile)
+    ASSERT_NO_FATAL_FAILURE(
+        check_rt_recomputation(Device(torch::kCUDA, 0), profile));
+  for (int mode : {1, 2})
+    ASSERT_NO_FATAL_FAILURE(
+        check_rt_recomputation(Device(torch::kCUDA, 0), 2, mode));
+}
+TEST(VisionRtDetrRecomputation, CudaEvaluationAndNoGradFallbacks) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  torch::set_num_threads(1);
+  for (int mode : {3, 4})
+    ASSERT_NO_FATAL_FAILURE(
+        check_rt_recomputation(Device(torch::kCUDA, 0), 2, mode));
+}
+TEST(VisionRtDetrRecomputation, CudaAutocastUsesOriginalEncoderGraph) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  torch::set_num_threads(1);
+  namespace ex = models::extended;
+  // AMP ranking may contain ties even on unchanged repeated forwards. Check
+  // the actual fallback graph without claiming numerical repeatability.
+  for (const auto dtype : {torch::kFloat16, torch::kBFloat16}) {
+    for (bool enabled : {false, true}) {
+      ex::RtDetrOptions options;
+      options.backbone = ex::RtDetrBackbone::resnet18_vd;
+      options.profile = ex::RtDetrProfile::r18_coco72;
+      options.num_classes = 3;
+      options.queries = 20;
+      options.denoising_queries = 0;
+      options.encoder_recomputation = enabled;
+      ex::RtDetr model(options);
+      model->to(Device(torch::kCUDA, 0));
+      model->train();
+      const auto tensor_options = torch::TensorOptions().device(torch::kCUDA);
+      training::amp::AutocastGuard autocast(torch::kCUDA, dtype);
+      const auto output =
+          model->forward(torch::randn({2, 3, 128, 128}, tensor_options),
+                         torch::empty({0, 6}, tensor_options));
+      ASSERT_EQ(output.size(), 8U);
+      ASSERT_TRUE(output[2].grad_fn());
+      EXPECT_EQ(output[2].grad_fn()->name(), "GatherBackward0");
+      for (const auto& value : output)
+        EXPECT_TRUE(torch::isfinite(value).all().item<bool>());
+    }
+  }
+}
+TEST(VisionRtDetrRecomputation, CudaStrictFallbackAndSavedParameterMutation) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  torch::set_num_threads(1);
+  struct Restore {
+    bool strict = at::globalContext().deterministicAlgorithms();
+    bool warn_only = at::globalContext().deterministicAlgorithmsWarnOnly();
+    ~Restore() {
+      at::globalContext().setDeterministicAlgorithms(strict, warn_only);
+    }
+  } restore;
+  at::globalContext().setDeterministicAlgorithms(true, false);
+  ASSERT_NO_FATAL_FAILURE(
+      check_rt_recomputation(Device(torch::kCUDA, 0), 2, 5));
+  at::globalContext().setDeterministicAlgorithms(false, false);
+  for (bool enabled : {false, true}) {
+    namespace ex = models::extended;
+    ex::RtDetrOptions options;
+    options.backbone = ex::RtDetrBackbone::resnet18_vd;
+    options.queries = 20;
+    options.encoder_recomputation = enabled;
+    ex::RtDetr model(options);
+    model->to(Device(torch::kCUDA, 0));
+    auto output = model->forward(
+        torch::randn({2, 3, 128, 128},
+                     torch::TensorOptions().device(torch::kCUDA)),
+        torch::empty({0, 6}, torch::TensorOptions().device(torch::kCUDA)));
+    {
+      torch::NoGradGuard no_grad;
+      model->named_parameters()["model.enc_class.weight"].add_(1);
+    }
+    EXPECT_THROW(output[2].square().sum().backward(), c10::Error);
   }
 }
 

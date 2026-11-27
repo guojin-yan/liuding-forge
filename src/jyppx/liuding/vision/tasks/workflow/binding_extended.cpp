@@ -55,6 +55,7 @@ void bind_extended(const RecipeSpec& r,TaskBinding& b,const YoloDataOptions& dat
     if (name == "rtdetr_resnet18_vd_coco72")
       o.profile = ex::RtDetrProfile::r18_coco72;
     o.max_encoder_elements = r.model.rtdetr_max_encoder_elements;
+    o.encoder_recomputation = r.extension.activation_recomputation;
     b.model = std::make_shared<nn::ModelAdapter>(ex::adapt(ex::RtDetr(o)));
     b.step = make_rtdetr_step(r.model.num_classes,
                               o.profile == ex::RtDetrProfile::r18_coco72,

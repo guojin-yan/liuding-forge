@@ -8,6 +8,9 @@
 #include <jyppx/liuding/vision/ops/deformable.hpp>
 
 #include <torch/torch.h>
+#if defined(USE_ROCM)
+#include <ATen/autocast_mode.h>
+#endif
 
 #include <cmath>
 #include <numbers>
@@ -499,22 +502,71 @@ struct RtDetrImpl::Impl : torch::nn::Module {
             o.max_encoder_elements)
       throw ResourceExhausted("RT-DETR attention allocation budget exceeded");
     auto memory = torch::cat(flatten, 1), anchor = torch::cat(anchors, 1);
-    auto valid = ((anchor > .01) & (anchor < .99)).all(-1, true);
-    auto output = enc_norm(enc_output(memory * valid.to(memory.scalar_type())));
-    auto enc_logits = enc_class(output);
-    auto unact = enc_box->forward(output) +
-                 Inverse(anchor).masked_fill(
-                     ~valid, std::numeric_limits<float>::infinity());
-    auto top = std::get<1>(std::get<0>(enc_logits.max(-1)).topk(o.queries, 1));
-    auto gather = [&](const Tensor& x) {
-      return x.gather(1, top.unsqueeze(-1).expand({b, o.queries, x.size(2)}));
-    };
-    auto enc_boxes = gather(unact).sigmoid(), enc_scores = gather(enc_logits),
-         reference =
-             (o.profile == RtDetrProfile::r18_coco72 ? gather(unact)
-                                                     : Inverse(enc_boxes))
-                 .detach(),
-         query = gather(output).detach();
+    Tensor enc_boxes, enc_scores, reference, query;
+    bool selected_encoder = false;
+#if defined(USE_ROCM)
+    selected_encoder = o.encoder_recomputation && is_training() &&
+                       torch::GradMode::is_enabled() && memory.is_cuda() &&
+                       memory.scalar_type() == torch::kFloat32 &&
+                       !at::autocast::is_autocast_enabled(torch::kCUDA) &&
+                       !at::globalContext().deterministicAlgorithms();
+#endif
+    if (selected_encoder) {
+      auto valid = ((anchor > .01) & (anchor < .99)).all(-1, true);
+      Tensor top;
+      auto gather = [&](const Tensor& x) {
+        return x.gather(1, top.unsqueeze(-1).expand({b, o.queries, x.size(2)}));
+      };
+      {
+        // Ranking is discrete. Its full-spatial projection needs no gradient.
+        // Preserve the original full shape and top-k order for selection.
+        torch::NoGradGuard no_grad;
+        auto output =
+            enc_norm(enc_output(memory * valid.to(memory.scalar_type())));
+        auto logits = enc_class(output);
+        top = std::get<1>(std::get<0>(logits.max(-1)).topk(o.queries, 1));
+        query = gather(output).detach();
+      }
+      // Only selected tokens contribute to encoder supervision. Rebuild their
+      // pointwise graph, retaining gradients to the same memory and parameters.
+      auto selected_memory = gather(memory) * valid.expand({b, tokens, 1})
+                                                  .gather(1, top.unsqueeze(-1))
+                                                  .to(memory.scalar_type());
+      auto selected_output = enc_norm(enc_output(selected_memory));
+      enc_scores = enc_class(selected_output);
+      auto anchor_logits = Inverse(anchor).masked_fill(
+          ~valid, std::numeric_limits<float>::infinity());
+      auto unact = enc_box->forward(selected_output) +
+                   gather(anchor_logits.expand({b, tokens, 4}));
+      enc_boxes = unact.sigmoid();
+      reference =
+          (o.profile == RtDetrProfile::r18_coco72 ? unact : Inverse(enc_boxes))
+              .detach();
+    } else {
+      auto valid = ((anchor > .01) & (anchor < .99)).all(-1, true);
+      auto output =
+          enc_norm(enc_output(memory * valid.to(memory.scalar_type())));
+      auto enc_logits = enc_class(output);
+      auto unact = enc_box->forward(output) +
+                   Inverse(anchor).masked_fill(
+                       ~valid, std::numeric_limits<float>::infinity());
+      auto top =
+          std::get<1>(std::get<0>(enc_logits.max(-1)).topk(o.queries, 1));
+      auto gather = [&](const Tensor& x) {
+        return x.gather(1, top.unsqueeze(-1).expand({b, o.queries, x.size(2)}));
+      };
+      auto enc_boxes_original = gather(unact).sigmoid(),
+           enc_scores_original = gather(enc_logits),
+           reference_original = (o.profile == RtDetrProfile::r18_coco72
+                                     ? gather(unact)
+                                     : Inverse(enc_boxes_original))
+                                    .detach(),
+           query_original = gather(output).detach();
+      enc_boxes = enc_boxes_original;
+      enc_scores = enc_scores_original;
+      reference = reference_original;
+      query = query_original;
+    }
     I dn = 0, groups = 0, max_gt = 0;
     auto ground = vision::detail::group_targets_by_image(targets, b);
     for (const auto& gt : ground) max_gt = (std::max)(max_gt, gt.size(0));
@@ -687,6 +739,7 @@ RtDetrImpl::RtDetrImpl(RtDetrOptions o) {
   impl_ = register_module("model", std::make_shared<Impl>(o));
 }
 RtDetrImpl::~RtDetrImpl() = default;
+const RtDetrOptions& RtDetrImpl::options() const noexcept { return impl_->o; }
 std::vector<Tensor> RtDetrImpl::forward(const Tensor& x, const Tensor& target) {
   return impl_->forward(x, target);
 }

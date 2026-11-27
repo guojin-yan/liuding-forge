@@ -19,6 +19,11 @@ struct RtDetrOptions {
   RtDetrProfile profile = RtDetrProfile::native_v1;
   std::int64_t max_encoder_elements = 16777216;
   ///< Per-allocation encoder element bound; explicit range 1..2^30.
+  bool encoder_recomputation = false;
+  ///< Rebuild selected encoder tokens after ranking during ROCm FP32 training.
+  ///< CPU/NVIDIA, autocast, evaluation, no-grad and strict determinism retain
+  ///< the original full encoder graph. Parameter and buffer layouts do not
+  ///< change.
 };
 /** @brief Deep-stem vd backbone, C5 transformer, CSPRep FPN/PAN and
  * iterative multiscale deformable decoder. Input images [B,3,H,W], H/W
@@ -34,6 +39,7 @@ class RtDetrImpl final : public torch::nn::Module {
   explicit RtDetrImpl(RtDetrOptions options = {});
   ~RtDetrImpl() override;
   std::vector<Tensor> forward(const Tensor& images, const Tensor& targets);
+  const RtDetrOptions& options() const noexcept;
 
  private:
   struct Impl;

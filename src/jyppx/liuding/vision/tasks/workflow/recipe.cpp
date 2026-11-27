@@ -898,6 +898,10 @@ void check_recipe(const RecipeSpec& r) {
       (r.model.rtdetr_max_encoder_elements != 16777216 &&
        !r.model.architecture.starts_with("rtdetr_")))
     throw InvalidArgument("Invalid RT-DETR encoder allocation bound");
+  if (r.model.architecture.starts_with("rtdetr_") &&
+      r.extension.activation_recomputation && r.schema_version < 2)
+    throw InvalidArgument(
+        "RT-DETR encoder recomputation requires recipe schema_version=2");
   if (r.yolo26_loss) {
     const auto& loss = *r.yolo26_loss;
     if (!r.model.architecture.starts_with("yolo26") ||

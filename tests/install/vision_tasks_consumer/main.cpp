@@ -46,6 +46,46 @@
 int main() try {
   namespace tasks = jyppx::liuding::vision::tasks;
   jyppx::liuding::initialize_runtime();
+#ifdef VISION_CONSUMER_MODELS_VISION
+  {
+    namespace ex = jyppx::liuding::models::extended;
+    const auto check_encoder_recomputation = [](const torch::Device& device) {
+      ex::RtDetrOptions options;
+      options.backbone = ex::RtDetrBackbone::resnet18_vd;
+      options.profile = ex::RtDetrProfile::r18_coco72;
+      options.num_classes = 3;
+      options.queries = 20;
+      options.denoising_queries = 0;
+      options.encoder_recomputation = true;
+      ex::RtDetr model(options);
+      if (!model->options().encoder_recomputation)
+        throw std::runtime_error("installed RT-DETR encoder option mismatch");
+      model->to(device);
+      model->train();
+      const auto tensor_options = torch::TensorOptions().device(device);
+      const auto output =
+          model->forward(torch::randn({2, 3, 64, 64}, tensor_options),
+                         torch::empty({0, 6}, tensor_options));
+      (output[2].square().mean() + output[3].sum()).backward();
+      const auto parameter =
+          model->named_parameters()["model.enc_class.weight"];
+      if (!parameter.grad().defined() ||
+          !torch::isfinite(parameter.grad()).all().item<bool>() ||
+          parameter.grad().abs().sum().item<double>() == 0)
+        throw std::runtime_error("installed RT-DETR encoder gradient mismatch");
+      const auto before = parameter.detach().clone();
+      torch::optim::SGD optimizer(model->parameters(),
+                                  torch::optim::SGDOptions(.001));
+      optimizer.step();
+      if (torch::equal(before, parameter))
+        throw std::runtime_error("installed RT-DETR encoder update missing");
+    };
+    check_encoder_recomputation(torch::Device(torch::kCPU));
+#ifdef VISION_CONSUMER_NATIVE_GPU
+    check_encoder_recomputation(torch::Device(torch::kCUDA, 0));
+#endif
+  }
+#endif
   const auto check_yolo_loss = [](torch::Device device) {
     auto values =
         torch::linspace(-2., 3., 6 * 21, torch::kFloat32).view({1, 6, 21});
@@ -266,6 +306,8 @@ int main() try {
   }
   {
     auto rtdetr = recipe;
+    rtdetr.schema_version = 2;
+    rtdetr.extension.activation_recomputation = true;
     rtdetr.model.architecture = "rtdetr_resnet18_vd_coco72";
     rtdetr.data = {};
     rtdetr.data.rtdetr.enabled = true;
@@ -281,7 +323,8 @@ int main() try {
                                     640, 672, 704, 736, 768, 800};
     const auto restored = tasks::parse_recipe(tasks::recipe_json(rtdetr),
                                               std::filesystem::current_path());
-    if (!restored.data.rtdetr.enabled || !restored.drop_last_training_batch ||
+    if (!restored.extension.activation_recomputation ||
+        !restored.data.rtdetr.enabled || !restored.drop_last_training_batch ||
         !restored.rtdetr_inference_validation ||
         restored.save_best_checkpoint ||
         restored.ema_update_rule != rtdetr.ema_update_rule ||

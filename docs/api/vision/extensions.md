@@ -6,6 +6,8 @@
 
 RT-DETR 可在 recipe 的 `model.rtdetr_max_encoder_elements` 显式设置编码器每次分配的元素上限，默认 `16777216`，范围 `1..1073741824`；直接构造模型时对应 `RtDetrOptions::max_encoder_elements`。增大额度允许更大的 batch，并增加可能的内存和显存需求；它不改变模型参数或训练数学行为。非默认额度纳入训练和恢复身份，其余模型拒绝非默认设置。
 
+RT-DETR 的 `RtDetrOptions::encoder_recomputation` 默认关闭；视觉训练配方通过 `schema_version: 2` 下的 `extension.activation_recomputation` 选择。开启后，ROCm FP32 训练保留原始全空间排序，仅为选中的编码器位置重新建立可微计算图，以减少中间张量及无效反向计算。CPU、NVIDIA、autocast、评估、no-grad 和严格确定性模式保留原路径。参数及缓冲区布局保持，计算形状变化可能产生浮点舍入差异；不保证逐位一致、最终任务精度或所有容量的加速。该配方字段参与训练与恢复身份，续训时应保持一致；旧配方版本拒绝开启此项。
+
 | 任务 | architecture 起点 | 输入与输出 |
 | --- | --- | --- |
 | 多标签分类 | 既有分类骨干，如 `resnet50` | `classify_multilabel`；独立 logits，known mask 区分未知与负类 |

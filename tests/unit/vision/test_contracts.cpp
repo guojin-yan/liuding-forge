@@ -8,6 +8,7 @@
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/nn/recompute.hpp>
+#include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
 #include <jyppx/liuding/vision/ops/assignment.hpp>
 #include <jyppx/liuding/vision/ops/boxes.hpp>
 #include <jyppx/liuding/vision/ops/deformable.hpp>
@@ -1056,8 +1057,8 @@ TEST_F(VisionContracts, DinoAttentionRecomputationRoundTripAndBinding) {
   const auto identity = t::recipe_identity(recipe);
   for (bool enabled : {false, true}) {
     recipe.extension.activation_recomputation = enabled;
-    const auto restored =
-        t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+    const auto restored = t::parse_recipe(t::recipe_json(recipe),
+                                          std::filesystem::current_path());
     EXPECT_EQ(restored.extension.activation_recomputation, enabled);
     EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
     EXPECT_EQ(t::recipe_identity(restored) == identity, !enabled);
@@ -1104,6 +1105,31 @@ TEST_F(VisionContracts, RtDetrEncoderBudgetRoundTripAndBinding) {
                  InvalidArgument)
         << invalid;
   }
+}
+
+TEST_F(VisionContracts, RtDetrEncoderRecomputationRoundTripAndBinding) {
+  t::RecipeSpec recipe;
+  recipe.schema_version = 2;
+  recipe.model.architecture = "rtdetr_resnet18_vd_coco72";
+  recipe.training.source = std::filesystem::absolute("annotations.json");
+  const auto original_identity = t::recipe_identity(recipe);
+  for (bool enabled : {false, true}) {
+    recipe.extension.activation_recomputation = enabled;
+    const auto restored = t::parse_recipe(t::recipe_json(recipe),
+                                          std::filesystem::current_path());
+    EXPECT_EQ(restored.extension.activation_recomputation, enabled);
+    EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
+    EXPECT_EQ(t::recipe_identity(restored) == original_identity, !enabled);
+    auto binding = t::bind_task(restored);
+    auto model = std::dynamic_pointer_cast<models::extended::RtDetrImpl>(
+        binding.model->state().shared_module());
+    ASSERT_TRUE(model);
+    EXPECT_EQ(model->options().encoder_recomputation, enabled);
+    EXPECT_EQ(model->options().profile,
+              models::extended::RtDetrProfile::r18_coco72);
+  }
+  recipe.schema_version = 1;
+  EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
 }
 
 TEST_F(VisionContracts, Yolo26OfficialWarmupRoundTripAndRecipeIdentity) {
