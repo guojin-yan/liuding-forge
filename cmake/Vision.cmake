@@ -154,6 +154,10 @@ if(JYPPX_LIUDING_BUILD_VISION_TASKS)
                 jyppx_liuding_experiment jyppx_liuding_interop jyppx_liuding_vision_ops
                 $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_vision_tasks)
+    if(JYPPX_LIUDING_VISION_GPU_KERNELS)
+        set_property(SOURCE src/jyppx/liuding/vision/tasks/yolo_detection.cpp
+            APPEND PROPERTY COMPILE_DEFINITIONS JYPPX_VISION_GPU_KERNELS=1)
+    endif()
     if(JYPPX_LIUDING_VISION_OPENCV)
         set(OpenCV_STATIC ON)
         find_package(OpenCV 5.1.0 EXACT CONFIG REQUIRED COMPONENTS core imgproc)

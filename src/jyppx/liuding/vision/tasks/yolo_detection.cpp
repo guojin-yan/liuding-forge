@@ -12,6 +12,9 @@
 #include <jyppx/liuding/vision/tasks/yolo_detection.hpp>
 
 #include <torch/nn/functional/loss.h>
+#ifdef JYPPX_VISION_GPU_KERNELS
+#include "../ops/yolo_gpu.hpp"
+#endif
 
 #include <ATen/autocast_mode.h>
 #include <algorithm>
@@ -171,7 +174,8 @@ void ValidateTargets(const Tensor& targets, const Tensor& raw,
 
 YoloAssignment Assign(const YoloDecodedPrediction& prediction,
                       const Tensor& targets,
-                      const YoloDetectionOptions& options) {
+                      const YoloDetectionOptions& options,
+                      [[maybe_unused]] bool validated_targets = false) {
   const torch::NoGradGuard no_grad;
   const auto batch = prediction.boxes.size(0),
              anchors = prediction.boxes.size(1);
@@ -246,33 +250,60 @@ YoloAssignment Assign(const YoloDecodedPrediction& prediction,
       const auto half = expanded * .5;
       candidates = torch::cat({center - half, center + half}, 2);
     }
-    const auto distances =
-        torch::cat({centers.view({1, 1, anchors, 2}) -
-                        candidates.slice(2, 0, 2).unsqueeze(2),
-                    candidates.slice(2, 2, 4).unsqueeze(2) -
-                        centers.view({1, 1, anchors, 2})},
-                   -1);
-    const auto inside =
-        (std::get<0>(distances.min(-1)) > kEpsilon) & valid.unsqueeze(-1);
-    // Ineligible targets cannot win a conflict, even with a larger box IoU.
-    const auto overlaps =
-        CompleteIou(
-            gt.unsqueeze(2),
-            prediction.boxes.index_select(0, image_index).detach().unsqueeze(1))
-            .clamp_min(0) *
-        inside;
-    const auto confidence =
-        prediction.class_scores.index_select(0, image_index)
-            .detach()
-            .transpose(1, 2)
-            .gather(1, classes.unsqueeze(-1).expand({size, count, anchors}));
-    const auto alignment = confidence.pow(options.assignment_alpha) *
-                           overlaps.pow(options.assignment_beta) * inside;
+    Tensor inside, overlaps, alignment;
+#ifdef JYPPX_VISION_GPU_KERNELS
+    const auto native =
+        validated_targets
+            ? vision_ops::detail::try_yolo_pair_gpu(
+                  gt, candidates, centers, prediction.boxes,
+                  prediction.class_scores, image_index, classes, valid,
+                  options.assignment_alpha, options.assignment_beta)
+            : std::optional<std::array<Tensor, 3>>{};
+    if (native) {
+      inside = (*native)[0];
+      overlaps = (*native)[1];
+      alignment = (*native)[2];
+    } else
+#endif
+    {
+      const auto distances =
+          torch::cat({centers.view({1, 1, anchors, 2}) -
+                          candidates.slice(2, 0, 2).unsqueeze(2),
+                      candidates.slice(2, 2, 4).unsqueeze(2) -
+                          centers.view({1, 1, anchors, 2})},
+                     -1);
+      inside =
+          (std::get<0>(distances.min(-1)) > kEpsilon) & valid.unsqueeze(-1);
+      // Ineligible targets cannot win a conflict, even with a larger box IoU.
+      overlaps = CompleteIou(gt.unsqueeze(2),
+                             prediction.boxes.index_select(0, image_index)
+                                 .detach()
+                                 .unsqueeze(1))
+                     .clamp_min(0) *
+                 inside;
+      const auto confidence =
+          prediction.class_scores.index_select(0, image_index)
+              .detach()
+              .transpose(1, 2)
+              .gather(1, classes.unsqueeze(-1).expand({size, count, anchors}));
+      alignment = confidence.pow(options.assignment_alpha) *
+                  overlaps.pow(options.assignment_beta) * inside;
+    }
     const auto k = (std::min)(options.assignment_topk, anchors);
     const auto top_indices = std::get<1>(alignment.topk(k, 2));
     // Epsilon stabilizes normalization; every positive alignment is eligible.
     auto positive =
         torch::zeros_like(inside).scatter_(2, top_indices, 1) & inside;
+#ifdef JYPPX_VISION_GPU_KERNELS
+    if (native) {
+      vision_ops::detail::finish_yolo_assignment_gpu(
+          positive, overlaps, alignment, gt, classes, image_index, target_rows,
+          boxes, scores, foreground, target_indices, options.assignment_topk,
+          options.assignment_topk2);
+      first += size;
+      continue;
+    }
+#endif
     const auto conflicts = positive.to(torch::kInt64).sum(1) > 1;
     const auto best_gt = std::get<1>(overlaps.max(1));
     const auto single_best =
@@ -360,7 +391,7 @@ YoloDetectionLoss yolo_detection_loss(const Tensor& raw, const Tensor& targets,
   const auto fp32 = raw.to(torch::kFloat32);
   auto prediction = decode_yolo_detection(fp32, image_size, options);
   ValidateTargets(targets, raw, image_size, options);
-  auto assigned = Assign(prediction, targets, options);
+  auto assigned = Assign(prediction, targets, options, true);
   auto values = fp32.transpose(1, 2);
   const auto denominator = assigned.scores.sum().clamp_min(1.0);
   auto classification =

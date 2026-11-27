@@ -5,6 +5,15 @@ if(JYPPX_LIUDING_VISION_GPU_KERNELS AND TARGET jyppx::liuding::vision_ops)
         LINK_TARGET jyppx::liuding::vision_ops vision/test_roi_gpu.cpp)
     jyppx_add_gtest(jyppx_test_vision_gpu_deformable
         LINK_TARGET jyppx::liuding::vision_ops vision/test_deformable_gpu.cpp)
+    if(TARGET jyppx::liuding::vision_tasks)
+        jyppx_add_gtest(jyppx_test_vision_gpu_yolo
+            LINK_TARGET jyppx::liuding::vision_tasks vision/test_yolo_gpu.cpp)
+        target_include_directories(jyppx_test_vision_gpu_yolo PRIVATE
+            "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/vision/ops")
+        if(TARGET torch_hip)
+            target_compile_definitions(jyppx_test_vision_gpu_yolo PRIVATE JYPPX_VISION_GPU_HIP=1)
+        endif()
+    endif()
     if(TARGET torch_hip)
         target_compile_definitions(jyppx_test_vision_gpu_roi PRIVATE JYPPX_VISION_GPU_HIP=1)
         target_compile_definitions(jyppx_test_vision_gpu_deformable PRIVATE JYPPX_VISION_GPU_HIP=1)

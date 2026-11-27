@@ -25,6 +25,8 @@ python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 
 当前原生内核覆盖 ROIAlign 的 FP32/FP64 前向及一阶特征梯度，以及最多16尺度的多尺度可变形采样前向和全部三类一阶梯度。ROIAlign 保留 CPU ROI 验证和坐标 detach；多尺度采样按值传入有界尺度信息，不为元数据上传分配 GPU 张量或同步设备。两者保留原资源上限；CPU、FP16/BF16、特殊逻辑视图及不适用输入沿用既有路径。原生反向使用原子累加，在严格确定性模式或 `create_graph` 请求下拒绝。定向验证构建 `jyppx_test_vision_gpu_roi`、`jyppx_test_vision_gpu_deformable`，串行运行 `NativeRoiGpu.*`、`NativeDeformGpu.*` 和原 ROI/多尺度采样合同，并运行 `VisionTasksInstallConsumer` 验证已安装静态库实际执行原生 GPU 前向/反向。已声明的 LibTorch 多版本范围继续按各精确环境独立验证，不由新开关扩大。
 
+同一选项还融合现代 YOLO 轴对齐检测损失内部的 FP32 目标分配数学，仅适用于 `assignment_alpha=0.5`、`assignment_beta=6` 且已通过完整目标校验的解码输出。原 ATen top-k、每目标最大值归一化、损失精度、梯度及资源上限保持；公开独立分配入口、其他指数、追踪及不适用类型或视图沿用既有路径。构建 `jyppx_test_vision_gpu_yolo`，运行 `NativeYoloGpu.*` 与原 `VisionYoloNumerics.*`。并列值的 top-k 索引仍由 LibTorch 后端选择，逐次轨迹一致性需独立验证；固定共同 top-k 决策的原生数学检查不能替代端到端轨迹或任务质量验证。
+
 复用兼容的现有构建目录，保留其中的 generator、工具链和依赖路径；先检查目录内实际 `CMakeCache.txt` 的版本、配置和依赖身份，不能仅凭目录存在推定可复用。以下是已有兼容 Windows cache 时的增量构建示例：
 
 ```sh

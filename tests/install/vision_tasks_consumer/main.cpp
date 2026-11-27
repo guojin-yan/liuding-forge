@@ -27,6 +27,7 @@
 #include <jyppx/liuding/vision/tasks/data/opencv_preparation.hpp>
 #include <jyppx/liuding/vision/tasks/data/yolo_original.hpp>
 #include <jyppx/liuding/vision/tasks/tracking/workflow.hpp>
+#include <jyppx/liuding/vision/tasks/yolo_detection.hpp>
 #ifdef VISION_CONSUMER_MODELS_VISION
 #include <jyppx/liuding/vision/models/extended/pyramid.hpp>
 #include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
@@ -36,6 +37,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 #ifdef VISION_CONSUMER_NATIVE_GPU
 #include <jyppx/liuding/core/device.hpp>
 #include <jyppx/liuding/vision/ops/deformable.hpp>
@@ -44,6 +46,25 @@
 int main() try {
   namespace tasks = jyppx::liuding::vision::tasks;
   jyppx::liuding::initialize_runtime();
+  const auto check_yolo_loss = [](torch::Device device) {
+    auto values =
+        torch::linspace(-2., 3., 6 * 21, torch::kFloat32).view({1, 6, 21});
+    values.slice(1, 0, 4).fill_(2);
+    auto raw = values.to(device).requires_grad_(true);
+    auto targets = torch::tensor({0.f, 1.f, 2.f, 2.f, 30.f, 30.f},
+                                 raw.options().requires_grad(false))
+                       .view({1, 6});
+    auto loss = tasks::yolo_detection_loss(raw, targets, {32, 32},
+                                           {.num_classes = 2, .reg_max = 1});
+    loss.total.backward();
+    if (loss.foreground_anchors == 0 ||
+        !torch::isfinite(loss.total).item<bool>() ||
+        !torch::isfinite(raw.grad()).all().item<bool>() ||
+        raw.grad().abs().sum().item<double>() == 0)
+      throw std::runtime_error("installed YOLO loss/gradient mismatch");
+    return std::pair{loss.total.detach().cpu(), raw.grad().cpu()};
+  };
+  const auto cpu_yolo_loss = check_yolo_loss(torch::Device(torch::kCPU));
 #ifdef VISION_CONSUMER_NATIVE_GPU
   {
     if (!jyppx::liuding::cuda_is_available())
@@ -86,6 +107,12 @@ int main() try {
         std::abs(weights.grad().item<double>() - 1.5) > 1e-10)
       throw std::runtime_error(
           "installed native deformable gradients mismatch");
+    const auto gpu_yolo_loss = check_yolo_loss(torch::Device(torch::kCUDA, 0));
+    if (!torch::allclose(cpu_yolo_loss.first, gpu_yolo_loss.first, 2e-4,
+                         2e-5) ||
+        !torch::allclose(cpu_yolo_loss.second, gpu_yolo_loss.second, 2e-4,
+                         2e-5))
+      throw std::runtime_error("installed native YOLO loss/gradient mismatch");
   }
 #endif
   {
