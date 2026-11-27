@@ -615,6 +615,29 @@ RtRecomputationSnapshot rt_recomputation_snapshot(const Device& device,
   return result;
 }
 void check_rt_recomputation(const Device& device, int profile, int mode = 0) {
+  // Compare graph choices under a fixed numerical backend policy. The original
+  // NVIDIA path can exceed these tolerances on unchanged default OFF/OFF runs.
+  struct MathPolicy {
+    bool active;
+    bool deterministic = at::globalContext().deterministicCuDNN();
+    bool benchmark = at::globalContext().benchmarkCuDNN();
+    bool cudnn_tf32 = at::globalContext().allowTF32CuDNN();
+    bool blas_tf32 = at::globalContext().allowTF32CuBLAS();
+    explicit MathPolicy(bool enabled) : active(enabled) {
+      if (!active) return;
+      at::globalContext().setDeterministicCuDNN(true);
+      at::globalContext().setBenchmarkCuDNN(false);
+      at::globalContext().setAllowTF32CuDNN(false);
+      at::globalContext().setAllowTF32CuBLAS(false);
+    }
+    ~MathPolicy() {
+      if (!active) return;
+      at::globalContext().setDeterministicCuDNN(deterministic);
+      at::globalContext().setBenchmarkCuDNN(benchmark);
+      at::globalContext().setAllowTF32CuDNN(cudnn_tf32);
+      at::globalContext().setAllowTF32CuBLAS(blas_tf32);
+    }
+  } policy(device.is_cuda());
   const auto expected = rt_recomputation_snapshot(device, false, profile, mode);
   const auto actual = rt_recomputation_snapshot(device, true, profile, mode);
   ASSERT_EQ(actual.size(), expected.size());
