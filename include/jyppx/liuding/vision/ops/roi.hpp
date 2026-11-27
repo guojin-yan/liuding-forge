@@ -21,14 +21,17 @@ struct RoiAlignOptions {
   std::int64_t max_rois = 4096;
   std::int64_t max_output_elements = 67108864;
 };
-/** @brief ROIAlign via native ATen bilinear sampling; gradients reach features.
+/** @brief Bounded bilinear ROIAlign; first-order gradients reach features.
  * @param features Floating NCHW CPU/CUDA features.
  * @param rois Floating [K,5] batch/x1/y1/x2/y2 on feature device, finite with
  * valid batch indices. ROI coordinates are detached, as in the reference op.
  * @return [K,C,pooled_h,pooled_w]; an empty ROI set preserves autograd.
  * @throws InvalidArgument Invalid metadata/coordinates/options.
  * @throws ResourceExhausted Explicit ROI/output/sampling bound exceeded.
- * @note Host ROI checks and per-ROI batch selection synchronize CUDA.
+ * @note Host ROI checks synchronize CUDA-compatible devices. The optional
+ * VISION_GPU_KERNELS build uses native FP32/FP64 kernels on explicitly compiled
+ * architectures; other inputs retain ATen sampling. Native backward uses atomic
+ * accumulation, rejects strict determinism and does not support create_graph.
  */
 Tensor roi_align(const Tensor& features, const Tensor& rois,
                  const RoiAlignOptions& options = {});

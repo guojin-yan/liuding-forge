@@ -36,9 +36,33 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#ifdef VISION_CONSUMER_NATIVE_GPU
+#include <jyppx/liuding/core/device.hpp>
+#include <jyppx/liuding/vision/ops/roi.hpp>
+#endif
 int main() try {
   namespace tasks = jyppx::liuding::vision::tasks;
   jyppx::liuding::initialize_runtime();
+#ifdef VISION_CONSUMER_NATIVE_GPU
+  {
+    if (!jyppx::liuding::cuda_is_available())
+      throw std::runtime_error("native ROIAlign consumer requires a GPU");
+    auto image = torch::arange(16, torch::kFloat64)
+                     .view({1, 1, 4, 4})
+                     .to(torch::Device(torch::kCUDA, 0))
+                     .requires_grad_(true);
+    auto rois = torch::tensor({{0., 0., 0., 3., 3.}}, image.options());
+    auto output = jyppx::liuding::vision_ops::roi_align(
+        image, rois, {.output_size = {1, 1}});
+    if (output.grad_fn()->name().find("NativeRoi") == std::string::npos ||
+        std::abs(output.item<double>() - 7.5) > 1e-10)
+      throw std::runtime_error(
+          "installed native ROIAlign path/output mismatch");
+    output.sum().backward();
+    if (std::abs(image.grad().sum().item<double>() - 1.) > 1e-10)
+      throw std::runtime_error("installed native ROIAlign gradient mismatch");
+  }
+#endif
   {
     namespace im = jyppx::liuding::data::image;
     im::VisionSample sample;

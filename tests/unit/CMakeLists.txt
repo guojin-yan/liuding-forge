@@ -1,5 +1,13 @@
 # Unit test executables, one per framework module.
 
+if(JYPPX_LIUDING_VISION_GPU_KERNELS AND TARGET jyppx::liuding::vision_ops)
+    jyppx_add_gtest(jyppx_test_vision_gpu_roi
+        LINK_TARGET jyppx::liuding::vision_ops vision/test_roi_gpu.cpp)
+    if(TARGET torch_hip)
+        target_compile_definitions(jyppx_test_vision_gpu_roi PRIVATE JYPPX_VISION_GPU_HIP=1)
+    endif()
+endif()
+
 if(JYPPX_LIUDING_TEST_MIGRAPHX)
     include("${PROJECT_SOURCE_DIR}/cmake/MIGraphXInterchangeTests.cmake")
 endif()

@@ -6,6 +6,10 @@
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/vision/ops/roi.hpp>
 
+#ifdef JYPPX_VISION_GPU_KERNELS
+#include "roi_gpu.hpp"
+#endif
+
 #include <torch/nn/functional/vision.h>
 
 #include <algorithm>
@@ -113,6 +117,10 @@ Tensor roi_align(const Tensor& features, const Tensor& rois,
   if (features.scalar_type() == torch::kFloat16 ||
       features.scalar_type() == torch::kBFloat16)
     return PerRoiSampling(features, rows, o);
+#ifdef JYPPX_VISION_GPU_KERNELS
+  auto native = detail::try_roi_align_gpu(features, rows, o);
+  if (native.defined()) return native;
+#endif
   const auto tensor_options = features.options().requires_grad(false);
   const auto math_type = features.scalar_type() == torch::kFloat64
                              ? torch::kFloat64

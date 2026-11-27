@@ -22,6 +22,12 @@ set(consumer_build_dir "${test_root}/b")
 file(REMOVE_RECURSE "${install_dir}")
 file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_dir}")
 set(config_args)
+if(consumer_source_dir MATCHES "/vision_tasks_consumer$")
+    load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_gpu_
+        JYPPX_LIUDING_VISION_GPU_KERNELS)
+    list(APPEND config_args
+        "-DVISION_CONSUMER_NATIVE_GPU=${_jyppx_consumer_gpu_JYPPX_LIUDING_VISION_GPU_KERNELS}")
+endif()
 load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_jpeg_ libjpeg-turbo_DIR)
 load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_opencv_ OpenCV_DIR)
 if(_jyppx_consumer_opencv_OpenCV_DIR)

@@ -21,6 +21,10 @@ python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 
 组件矩阵的子配置继承父构建明确选择的编译器、toolchain 文件、构建程序、开发用 Python 解释器和 SDK 搜索根，以及离线依赖策略；子配置使用独立于父构建的构建和安装暂存，不复用父构建的可变依赖目录或产品组件开关。检查 ROCm 等需要特定编译器的配置时，同样核对子配置的 cache。
 
+原生视觉 GPU 内核是默认关闭的独立构建选项，需要已开启 `JYPPX_LIUDING_BUILD_VISION_OPS`、Windows/Linux x64 GPU LibTorch 和匹配的本机 SDK。开启 `JYPPX_LIUDING_VISION_GPU_KERNELS=ON` 时，显式设置绝对路径 `JYPPX_LIUDING_VISION_GPU_COMPILER`（HIP 的 amdclang++ 或 CUDA 的 nvcc）和 `JYPPX_LIUDING_VISION_GPU_ARCHITECTURES`（分号分隔的 gfx 名称或 CUDA SM 数字，CUDA 至少 60）。不下载编译器或隐式更换 LibTorch；主 C++ 工具链保持原配置，SDK 仅编译不依赖 Torch 头的私有设备对象。对象嵌入 `vision_ops` 静态库，安装消费者不需要再次编译这些内核。实际设备架构须在编译列表中，否则沿用 ATen 路径；启用选项不自动授予其他 SDK、设备或精度资格。
+
+当前原生内核覆盖 ROIAlign 的 FP32/FP64 前向及一阶特征梯度，保留 CPU ROI 验证、坐标 detach 和原资源上限；CPU、FP16/BF16、特殊逻辑视图与不适用坐标沿用既有路径。原生反向使用原子累加，在严格确定性模式或 `create_graph` 请求下拒绝。定向验证构建 `jyppx_test_vision_gpu_roi`，串行运行 `NativeRoiGpu.*` 和原 ROI 合同，并运行 `VisionTasksInstallConsumer` 验证已安装静态库实际执行原生 GPU 前向/反向。已声明的 LibTorch 多版本范围继续按各精确环境独立验证，不由新开关扩大。
+
 复用兼容的现有构建目录，保留其中的 generator、工具链和依赖路径；先检查目录内实际 `CMakeCache.txt` 的版本、配置和依赖身份，不能仅凭目录存在推定可复用。以下是已有兼容 Windows cache 时的增量构建示例：
 
 ```sh
