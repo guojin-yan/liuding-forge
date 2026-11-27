@@ -887,13 +887,15 @@ TEST_F(VisionContracts,
   EXPECT_NEAR(dn.grad()[0][0][1][0].item<double>(), .09375, 1e-7);
 }
 
-TEST_F(VisionContracts, RtDetrBatchedLossPreservesIndependentImageGradients) {
+namespace {
+void CheckRtDetrIndependentImageGradients(const Device& device) {
   torch::manual_seed(26);
   // Image 0 is empty, image 1 has two classes, image 2 has one target.
-  const auto targets =
-      torch::tensor({1.f, 0.f, 2.f, 3.f, 9.f, 11.f, 1.f, 1.f, 8.f, 7.f, 14.f,
-                     15.f, 2.f, 1.f, 1.f, 4.f, 7.f, 12.f})
-          .view({3, 6});
+  auto targets = torch::tensor({1.f, 0.f, 2.f, 3.f, 9.f, 11.f, 1.f, 1.f, 8.f,
+                                7.f, 14.f, 15.f, 2.f, 1.f, 1.f, 4.f, 7.f, 12.f})
+                     .view({3, 6})
+                     .to(device);
+  targets = targets.t().contiguous().t();
   for (bool padding : {false, true}) {
     std::vector<Tensor> raw{
         torch::randn({2, 3, 4, 2}),
@@ -910,15 +912,20 @@ TEST_F(VisionContracts, RtDetrBatchedLossPreservesIndependentImageGradients) {
                        true,  true,  false, false, true,  true,  false, false,
                        true,  false, false, false, true,  false, false, false})
             .view({3, 8})};
+    for (auto& value : raw) value = value.to(device);
     auto reference = raw;
+    auto current_targets = targets.detach().clone().requires_grad_(true);
+    auto reference_targets = targets.detach().clone().requires_grad_(true);
     for (I i = 0; i < 6; ++i) {
       raw[i].requires_grad_(true);
       reference[i] = raw[i].detach().clone().requires_grad_(true);
     }
-    const auto batched = t::rtdetr_loss(raw, targets, {16, 16}, 2, padding);
+    const auto batched =
+        t::rtdetr_loss(raw, current_targets, {16, 16}, 2, padding);
     auto expected = reference[0].sum() * 0;
     for (I b = 0; b < 3; ++b) {
-      auto gt = targets.index({targets.select(1, 0) == b}).clone();
+      auto gt = reference_targets.index({reference_targets.select(1, 0) == b})
+                    .clone();
       gt.select(1, 0).zero_();
       std::vector<Tensor> image;
       for (I i = 0; i < 8; ++i)
@@ -936,6 +943,10 @@ TEST_F(VisionContracts, RtDetrBatchedLossPreservesIndependentImageGradients) {
     EXPECT_TRUE(torch::allclose(batched.total, expected, 2e-5, 2e-6));
     batched.total.backward();
     expected.backward();
+    ASSERT_TRUE(current_targets.grad().defined());
+    ASSERT_TRUE(reference_targets.grad().defined());
+    EXPECT_TRUE(torch::allclose(current_targets.grad(),
+                                reference_targets.grad(), 2e-5, 2e-6));
     for (I i = 0; i < 6; ++i) {
       ASSERT_TRUE(raw[i].grad().defined());
       ASSERT_TRUE(reference[i].grad().defined());
@@ -944,6 +955,16 @@ TEST_F(VisionContracts, RtDetrBatchedLossPreservesIndependentImageGradients) {
           << "output " << i;
     }
   }
+}
+
+}  // namespace
+TEST_F(VisionContracts, RtDetrBatchedLossPreservesIndependentImageGradients) {
+  CheckRtDetrIndependentImageGradients(Device(torch::kCPU));
+}
+TEST_F(VisionContracts,
+       RtDetrBatchedMatchingPreservesIndependentImageGradientsGpu) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  CheckRtDetrIndependentImageGradients(Device(torch::kCUDA, 0));
 }
 
 TEST_F(VisionContracts, RtDetrEmptyBatchTargetsKeepClassificationGraph) {
@@ -964,8 +985,8 @@ TEST_F(VisionContracts, RtDetrEmptyBatchTargetsKeepClassificationGraph) {
   EXPECT_TRUE(torch::equal(boxes.grad(), torch::zeros_like(boxes)));
 }
 
-TEST_F(VisionContracts,
-       RtDetrMatchingRetainsPerImagePairBudgetAndFiniteChecks) {
+namespace {
+void CheckRtDetrMatchingBudget(const Device& device) {
   auto logits = torch::zeros({1, 2, 1025, 1});
   auto boxes = torch::full({1, 2, 1025, 4}, .5);
   std::vector<Tensor> raw{logits,
@@ -976,13 +997,28 @@ TEST_F(VisionContracts,
                           boxes.narrow(2, 0, 0),
                           torch::empty({2, 0}, torch::kInt64),
                           torch::empty({2, 0}, torch::kBool)};
-  auto targets = torch::zeros({1024, 6});
+  for (auto& value : raw) value = value.to(device);
+  auto targets = torch::zeros({1024, 6}, torch::TensorOptions().device(device));
   targets.select(1, 4).fill_(4);
   targets.select(1, 5).fill_(4);
   EXPECT_THROW(t::rtdetr_loss(raw, targets, {16, 16}, 1), ResourceExhausted);
   raw[3][0][0][0] = std::numeric_limits<float>::infinity();
-  EXPECT_THROW(t::rtdetr_loss(raw, torch::empty({0, 6}), {16, 16}, 1),
-               InvalidArgument);
+  EXPECT_THROW(
+      t::rtdetr_loss(
+          raw, torch::empty({0, 6}, torch::TensorOptions().device(device)),
+          {16, 16}, 1),
+      InvalidArgument);
+}
+
+}  // namespace
+TEST_F(VisionContracts,
+       RtDetrMatchingRetainsPerImagePairBudgetAndFiniteChecks) {
+  CheckRtDetrMatchingBudget(Device(torch::kCPU));
+}
+TEST_F(VisionContracts,
+       RtDetrBatchedMatchingRetainsPerImageBudgetAndFiniteChecksGpu) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  CheckRtDetrMatchingBudget(Device(torch::kCUDA, 0));
 }
 
 TEST_F(VisionContracts, ExecutionPolicyRoundTripsAndChangesResumeIdentity) {

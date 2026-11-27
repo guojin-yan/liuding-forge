@@ -37,6 +37,22 @@ Tensor GIoU(const Tensor& a, const Tensor& b) {
   auto cover = (chi - clo).clamp_min(0).prod(-1).clamp_min(1e-7);
   return inter / area.clamp_min(1e-7) - (cover - area) / cover;
 }
+Tensor BatchedGIoU(const Tensor& a, const Tensor& b) {
+  auto aa = Xyxy(a), bb = Xyxy(b);
+  auto lo = torch::maximum(aa.slice(-1, 0, 2).unsqueeze(2),
+                           bb.slice(-1, 0, 2).unsqueeze(1)),
+       hi = torch::minimum(aa.slice(-1, 2, 4).unsqueeze(2),
+                           bb.slice(-1, 2, 4).unsqueeze(1));
+  auto inter = (hi - lo).clamp_min(0).prod(-1);
+  auto area = a.slice(-1, 2, 4).prod(-1).unsqueeze(2) +
+              b.slice(-1, 2, 4).prod(-1).unsqueeze(1) - inter;
+  auto clo = torch::minimum(aa.slice(-1, 0, 2).unsqueeze(2),
+                            bb.slice(-1, 0, 2).unsqueeze(1)),
+       chi = torch::maximum(aa.slice(-1, 2, 4).unsqueeze(2),
+                            bb.slice(-1, 2, 4).unsqueeze(1));
+  auto cover = (chi - clo).clamp_min(0).prod(-1).clamp_min(1e-7);
+  return inter / area.clamp_min(1e-7) - (cover - area) / cover;
+}
 struct Loss {
   Tensor classification, box, giou;
 };
@@ -62,32 +78,64 @@ Loss One(const Tensor& raw, const Tensor& prediction,
       column = mapping.flatten().index_select(0, row) +
                offset.index_select(0, torch::floor_divide(row, queries));
     } else {
-      std::vector<Tensor> costs;
-      for (I b = 0; b < logits.size(0); ++b) {
-        if (!labels[b].numel()) continue;
-        if (queries && labels[b].numel() > 1048576 / queries)
+      I maximum = 0;
+      for (const auto& label : labels) {
+        if (queries && label.numel() > 1048576 / queries)
           throw ResourceExhausted("Assignment pair limit exceeded");
-        auto p = logits[b].sigmoid();
+        maximum = (std::max)(maximum, label.numel());
+      }
+      // Bound padded work across the batch; unusual sizes keep per-image work.
+      const bool batched = logits.is_cuda() && logits.size(0) <= 32 &&
+                           maximum && queries &&
+                           maximum <= 1048576 / queries / logits.size(0);
+      Tensor snapshot;
+      if (batched) {
+        std::vector<Tensor> padded_labels, padded_boxes;
+        for (I b = 0; b < logits.size(0); ++b) {
+          const auto missing = maximum - labels[b].numel();
+          padded_labels.push_back(torch::cat(
+              {labels[b], torch::zeros({missing}, labels[b].options())}));
+          padded_boxes.push_back(torch::cat(
+              {boxes[b], torch::zeros({missing, 4}, boxes[b].options())}));
+        }
+        auto ids = torch::stack(padded_labels)
+                       .unsqueeze(1)
+                       .expand({logits.size(0), queries, maximum});
+        auto target = torch::stack(padded_boxes);
+        auto p = logits.sigmoid();
         auto neg = .75 * p.square() * (-(1 - p + 1e-8).log()),
              pos = .25 * (1 - p).square() * (-(p + 1e-8).log());
-        costs.push_back(((pos - neg).index_select(1, labels[b]) * 2 +
-                         torch::cdist(pred[b], boxes[b], 1) * 5 -
-                         GIoU(pred[b], boxes[b]) * 2)
-                            .flatten());
+        snapshot =
+            ((pos - neg).gather(2, ids) * 2 +
+             torch::cdist(pred, target, 1) * 5 - BatchedGIoU(pred, target) * 2)
+                .to(torch::kCPU, torch::kFloat64);
+      } else {
+        std::vector<Tensor> costs;
+        for (I b = 0; b < logits.size(0); ++b) {
+          if (!labels[b].numel()) continue;
+          auto p = logits[b].sigmoid();
+          auto neg = .75 * p.square() * (-(1 - p + 1e-8).log()),
+               pos = .25 * (1 - p).square() * (-(p + 1e-8).log());
+          costs.push_back(((pos - neg).index_select(1, labels[b]) * 2 +
+                           torch::cdist(pred[b], boxes[b], 1) * 5 -
+                           GIoU(pred[b], boxes[b]) * 2)
+                              .flatten());
+        }
+        if (!costs.empty())
+          snapshot = torch::cat(costs).to(torch::kCPU, torch::kFloat64);
       }
       std::vector<Tensor> rows, columns;
-      if (!costs.empty()) {
-        // Matching remains independently bounded per image. Transfer all costs
-        // once, then let the existing CPU solver inspect contiguous views.
-        auto snapshot = torch::cat(costs).to(torch::kCPU, torch::kFloat64);
+      if (snapshot.defined()) {
         I cursor = 0;
         for (I b = 0; b < logits.size(0); ++b) {
           if (!labels[b].numel()) continue;
           const auto pairs = queries * labels[b].numel();
+          // Padding never enters matching, including ties and empty images.
+          auto matrix = batched ? snapshot[b].narrow(1, 0, labels[b].numel())
+                                : snapshot.narrow(0, cursor, pairs)
+                                      .view({queries, labels[b].numel()});
           auto match = vision_ops::linear_assignment(
-              snapshot.narrow(0, cursor, pairs)
-                  .view({queries, labels[b].numel()}),
-              {.max_pairs = 1048576, .max_work = 200000000});
+              matrix, {.max_pairs = 1048576, .max_work = 200000000});
           cursor += pairs;
           rows.push_back(match.rows + b * queries);
           columns.push_back(match.columns + offsets[b]);
