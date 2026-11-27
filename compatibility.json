@@ -13,6 +13,28 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "4a1459dd630de3fc6cd10871ac6e3868f41e704c",
+          "instrumentation": "默认关闭的原生GPU选项ON；复用固定Release工具链和离线依赖，每设备单编译。",
+          "quality_evidence": {
+            "native_contract": "已校验目标的现代YOLO轴对齐内部FP32分配，alpha=0.5/beta=6；原ATen top-k、GT max归一化和预算保持，不适用输入回退，公开独立分配入口保持原路径。固定共同top-k的数学检查覆盖视图、流、NaN/Inf及错误目标，有限值沿用atol2e-5/rtol2e-4、离散输出精确比较。",
+            "installed_contract": "安装后CPU/GPU同输入YOLO loss和完整raw梯度保持原atol2e-5/rtol2e-4，要求前景和有限非零梯度。",
+            "retained_limitations": "并列top-k逐次重复性、官方Python/AP/收敛、其他版本/架构及发布资格不由该原生路径保证；极端并列原失败保留。",
+            "clean_receipt_sha256": "9a3e45d27a24f612b8550525aa8ac51af57abfc5b05d19453229c48d549e6948",
+            "original_receipt_sha256": "92afe55ec17d627ebd8ba51d2b53eef591618be74bce934df536a65fdf7be137",
+            "installation_receipt_sha256": "3dc99d1bdeead67b90ca0971c6dc99fb4326f17992f45ec099555bfd78356b56",
+            "exact_source": "干净提交复用与数值/真实训练验证同源且SHA相同的库制品，追加原生及结构定向复验；非从零重建完整矩阵。",
+            "numerical_receipt_sha256": "5e50c59360a0a6188a75628b61600b8aafa6f1b1f03d9300491d06fcb79096f0"
+          },
+          "id": "windows-clang24-rocm101-gfx1100-4a1459d-native-yolo-assignment",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "compiler": "AMD Clang 24.0.0 clang-cl",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0; HIP SDK10.1.0",
+          "tests": "原22项定向CTest与3项结构/1项安装消费者通过、零跳过；干净4a1459d同源/库身份后补原生3项和结构3项通过、零跳过。"
+        },
+        {
           "distribution": "amd-rocm10.1.0",
           "os": "Ubuntu 24.04.5 LTS under WSL2, kernel 6.18.58.1-microsoft-standard-WSL2",
           "architecture": "x86_64",
@@ -4745,6 +4767,43 @@
       "distribution": "bundled-cuda",
       "status": "development-baseline",
       "verified_lanes": [
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "4a1459dd630de3fc6cd10871ac6e3868f41e704c",
+          "instrumentation": "默认关闭的原生GPU选项ON；复用固定Release工具链和离线依赖，每设备单编译。",
+          "quality_evidence": {
+            "native_contract": "已校验目标的现代YOLO轴对齐内部FP32分配，alpha=0.5/beta=6；原ATen top-k、GT max归一化和预算保持，不适用输入回退，公开独立分配入口保持原路径。固定共同top-k的数学检查覆盖视图、流、NaN/Inf及错误目标，有限值沿用atol2e-5/rtol2e-4、离散输出精确比较。",
+            "installed_contract": "安装后CPU/GPU同输入YOLO loss和完整raw梯度保持原atol2e-5/rtol2e-4，要求前景和有限非零梯度。",
+            "retained_limitations": "并列top-k逐次重复性、官方Python/AP/收敛、其他版本/架构及发布资格不由该原生路径保证；极端并列原失败保留。",
+            "validation_receipt_sha256": "f5537700e46f560931bf63ffec9eb60e2e64e7de0d8ecaf6acb439d6a99a7b27"
+          },
+          "id": "ubuntu22045-gcc114-cu126-sm75-4a1459d-native-yolo-assignment",
+          "distribution": "bundled-cuda",
+          "os": "ubuntu-22.04.5",
+          "compiler": "GCC 11.4.0; NVCC 12.6.3",
+          "accelerator": "NVIDIA RTX2060 sm75; LibTorch2.14.1+cu126; CUDA Toolkit12.6.3; driver580.178.04",
+          "tests": "干净4a1459d定向原生YOLO及原数值/资源合同22项、结构3项、安装消费者1项全部通过，零跳过。"
+        },
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "4a1459dd630de3fc6cd10871ac6e3868f41e704c",
+          "instrumentation": "默认关闭的原生GPU选项ON；复用固定Release工具链和离线依赖，每设备单编译。",
+          "quality_evidence": {
+            "native_contract": "已校验目标的现代YOLO轴对齐内部FP32分配，alpha=0.5/beta=6；原ATen top-k、GT max归一化和预算保持，不适用输入回退，公开独立分配入口保持原路径。固定共同top-k的数学检查覆盖视图、流、NaN/Inf及错误目标，有限值沿用atol2e-5/rtol2e-4、离散输出精确比较。",
+            "installed_contract": "安装后CPU/GPU同输入YOLO loss和完整raw梯度保持原atol2e-5/rtol2e-4，要求前景和有限非零梯度。",
+            "retained_limitations": "并列top-k逐次重复性、官方Python/AP/收敛、其他版本/架构及发布资格不由该原生路径保证；极端并列原失败保留。",
+            "original_failure_receipt_sha256": "f0494ccf2f6b8f0a0fba9d2b3700c3fc91c5b1dc0416ec24f2a04df79ff64bfe",
+            "install_retry_receipt_sha256": "15b828464c75a8e193b2e3d6208e75680deb58ebafee5ac1269cc16ab8bff7d8"
+          },
+          "id": "windows-msvc1944-cu126-sm86-4a1459d-native-yolo-assignment",
+          "distribution": "bundled-cuda",
+          "os": "windows-11",
+          "compiler": "MSVC 19.44; NVCC 12.9",
+          "accelerator": "NVIDIA RTX3060 Laptop sm86; LibTorch2.14.1+cu126; CUDA Toolkit12.9; driver576.02",
+          "tests": "干净4a1459d分两批取得26种定向CTest通过、零跳过：首22数值/资源及3结构通过，安装项保留磁盘不足失败后仅补1项通过。"
+        },
         {
           "id": "local-windows-msvc1944-cu126-15a5529-transfer-cli-gpu",
           "distribution": "bundled-cuda",
