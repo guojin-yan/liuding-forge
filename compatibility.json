@@ -15,6 +15,28 @@
         {
           "architecture": "x86_64",
           "build_type": "Release",
+          "commit": "0f07c6edc57cac9c4f33ec84ff62a49a0e7d12c7",
+          "instrumentation": "复用已登记工具链、Release缓存及离线依赖，每设备单编译；仅DINOv2-S/14新选项与目录/配方、必要结构和适用安装合同，不重跑无关矩阵。",
+          "id": "windows-clang24-rocm101-gfx1100-0f07c6e-dino-attention-recomputation",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "compiler": "AMD Clang 24.0.0 clang-cl",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0; HIP SDK10.1.0",
+          "tests": "必要模型、目录/配方及两分类执行、安装与结构检查分批通过、零跳过；反向边界修复后补受影响5项模型和1项安装。干净提交确认最终源码/八库/探针身份并补结构3项；不是单次完整矩阵或从零SDK构建。",
+          "quality_evidence": {
+            "native_contract": "默认关闭的DINOv2-S/14注意力重算，只用于ROCm FP32、训练、非严格确定性且无前向autocast的一阶反向；显式拒绝高阶及autocast反向，保存张量版本检查保持。完整输出/输入及参数梯度、LayerScale .1、冻结/重复前向、RNG和严格/AMP前向/eval/no-grad回退过原atol2e-5/rtol2e-4。",
+            "workflow_contract": "仅小容量分类/多标签入口，输入14倍数；配方原activation_recomputation字段绑定并参与续训身份。CPU两任务实际loss/反向/参数更新通过。",
+            "training_scope": "两批量4/8、224FP32、共享原始PNG与初态、SGD受控短训；最终直接默认CUDA SGD Python配对各528批，完整首步及末状态cross/AAs按原容差通过、非逐位相同。非完整Trainer/官方完整配方或最终任务质量。",
+            "retained_limitations": "autocast反向数值失配和局部强制精度候选失败保留；最终拒绝该组合。旧同条件ON/OFF中的减速、资源成本及其他算法原失败不由本选项消除；无其他容量/精度、AMD架构、操作系统或发布资格。",
+            "clean_receipt_sha256": "e134ba71ea4fccea83150f20ac858073ecb56e0418f70ec860bab9eb71437c10",
+            "native_receipt_sha256": "7b303b8e3ddf915c4708c9c4d923eb91ea088e3d1d23d1721eb26a0d10429315",
+            "binding_receipt_sha256": "88ab6b0972ec50f1d9018b58c2f4876b5a423431020f986bfad4a29e114fa2cb",
+            "numerical_receipt_sha256": "f3c1e81c42ac5cdfe01e00c6eb0bb5ac8166948f1042803f063febe91e3498a3"
+          }
+        },
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
           "commit": "4a1459dd630de3fc6cd10871ac6e3868f41e704c",
           "instrumentation": "默认关闭的原生GPU选项ON；复用固定Release工具链和离线依赖，每设备单编译。",
           "quality_evidence": {
@@ -4767,6 +4789,39 @@
       "distribution": "bundled-cuda",
       "status": "development-baseline",
       "verified_lanes": [
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "0f07c6edc57cac9c4f33ec84ff62a49a0e7d12c7",
+          "instrumentation": "复用已登记工具链、Release缓存及离线依赖，每设备单编译；仅DINOv2-S/14新选项与目录/配方、必要结构和适用安装合同，不重跑无关矩阵。",
+          "id": "ubuntu22045-gcc114-cu126-sm75-0f07c6e-dino-recomputation-fallback",
+          "distribution": "bundled-cuda",
+          "os": "ubuntu-22.04.5",
+          "compiler": "GCC 11.4.0; NVCC 12.6.3",
+          "accelerator": "NVIDIA RTX2060 sm75; LibTorch2.14.1+cu126; CUDA Toolkit12.6.3; driver580.178.04",
+          "tests": "干净0f07c6e分两批取得12种定向检查通过、零跳过：原模型5项及目录/配方2项通过；旧CMake测试名附加参数说明使收据脚本漏选2项并计数失败，保留原件，只补漏选两CPU执行和未运行3结构。非单次全绿。",
+          "quality_evidence": {
+            "scope": "仅CPU/NVIDIA原路径兼容：公开选项默认关闭，显式开启在该设备回退原注意力；完整输入/参数梯度、冻结/重复前向、RNG、严格/AMP/eval/no-grad和小容量目录/配方与两分类CPU实际更新。无ROCm重算执行、远端训练速度、安装消费者或新任务质量资格。",
+            "original_receipt_sha256": "ebdcd132286eb37b9ffe1da428395346d3d2e0765671697939f7a85296024ccd",
+            "missing_retry_receipt_sha256": "3499f98480f486cc8b9c6f27556cc1a1c39bbafef2d771a02cd05683fc70955b"
+          }
+        },
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "0f07c6edc57cac9c4f33ec84ff62a49a0e7d12c7",
+          "instrumentation": "复用已登记工具链、Release缓存及离线依赖，每设备单编译；仅DINOv2-S/14新选项与目录/配方、必要结构和适用安装合同，不重跑无关矩阵。",
+          "id": "windows-msvc1944-cu126-sm86-0f07c6e-dino-recomputation-fallback",
+          "distribution": "bundled-cuda",
+          "os": "windows-11",
+          "compiler": "MSVC 19.44; NVCC 12.9",
+          "accelerator": "NVIDIA RTX3060 Laptop sm86; LibTorch2.14.1+cu126; CUDA Toolkit12.9; driver576.02",
+          "tests": "干净0f07c6e定向模型5项、目录/配方及两分类CPU执行4项、结构3项全部通过，零跳过。",
+          "quality_evidence": {
+            "scope": "仅CPU/NVIDIA原路径兼容：公开选项默认关闭，显式开启在该设备回退原注意力；完整输入/参数梯度、冻结/重复前向、RNG、严格/AMP/eval/no-grad和小容量目录/配方与两分类CPU实际更新。无ROCm重算执行、远端训练速度、安装消费者或新任务质量资格。",
+            "validation_receipt_sha256": "e72b33e5a352c1c611e2b7b560d3978691c0f0719661f495efb2e615e5907495"
+          }
+        },
         {
           "architecture": "x86_64",
           "build_type": "Release",
