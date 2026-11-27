@@ -15,6 +15,29 @@
         {
           "architecture": "x86_64",
           "build_type": "Release",
+          "commit": "a9c8ed175044d40882078a28c58d1cc409c1c6a4",
+          "instrumentation": "复用已登记工具链、Release缓存及离线依赖，每设备单编译。RT-DETR默认关闭选项、配方/原profile/预算、必要结构和适用安装定向检查；不扩张完整矩阵或发布资格。",
+          "id": "windows-clang24-rocm101-gfx1100-a9c8ed1-rtdetr-encoder-recomputation",
+          "distribution": "amd-rocm10.1.0",
+          "os": "windows-11",
+          "compiler": "AMD Clang 24.0.0 clang-cl",
+          "accelerator": "AMD Radeon PRO W7900 gfx1100; LibTorch2.14.0+rocm10.1.0; HIP SDK10.1.0",
+          "tests": "必要模型5项、配方/profile/预算5项、结构3项及安装消费者1项分批通过、零跳过。数值测试固定计算策略后仅补3项受影响GPU合同。干净提交同源/25库/新鲜ABI探针身份及结构3项通过；非单次全绿或从零SDK重建。",
+          "quality_evidence": {
+            "native_contract": "默认关闭encoder_recomputation仅用于ROCm FP32训练、grad开启、无autocast且非严格确定性；保留全空间原排名和query，选中memory重建pointwise可微图。完整输出/loss、input/target/全部参数梯度、一步更新、RNG、冻结/重复、保存版本及模式回退保留原atol2e-5/rtol2e-4。",
+            "workflow_contract": "schema2 extension.activation_recomputation绑定并参与恢复身份；schema1显式开启拒绝，默认关闭原配方保持。安装公开选项CPU/GPU实际反向和更新通过。",
+            "numerical_scope": "当前产品无私有数学覆盖；产品ON/OFF六场景非零框头和真实COCO首步完整梯度/AdamW/EMA，加产品对私有候选映射共41文件通过原容差，真实输入逐字相同。",
+            "training_scope": "实际产品ON/OFF交错四进程，各64更新，原COCO4096、多尺度480-800、B16FP32AdamW/EMA；实训和资源原值留存。无新AP/最终任务质量、完整72轮或其他容量资格。",
+            "retained_failures": "原AMP严格数值重复失败，最终只授其原GatherBackward图回退；Windows原默认OFF/OFF完整梯度超差同样保留，数值测试采用固定确定cuDNN/禁TF32/禁benchmark并恢复设置，不改产品默认行为或容差。64更新last/EMA cross和双方A/A原严格阈值全部失败不豁免，无轨迹等价资格。",
+            "clean_receipt_sha256": "dea2538d0cbe4f187df678711bfb95743185638e789127bc98fe26b4a8ac9390",
+            "numerical_receipt_sha256": "2f2dff727054658e075f190af0432d770bccb164cc91221a05b687cc26bf12d6",
+            "math_policy_receipt_sha256": "b10aafd09bad2499dd11486f57b6c16d813f45e727c0c439219f1873ba648b64",
+            "installed_receipt_sha256": "490f12836a763a8d4ee904ba3681d89da5b8c3b9ef50df6b901636ab6fdb831d"
+          }
+        },
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
           "commit": "0f07c6edc57cac9c4f33ec84ff62a49a0e7d12c7",
           "instrumentation": "复用已登记工具链、Release缓存及离线依赖，每设备单编译；仅DINOv2-S/14新选项与目录/配方、必要结构和适用安装合同，不重跑无关矩阵。",
           "id": "windows-clang24-rocm101-gfx1100-0f07c6e-dino-attention-recomputation",
@@ -4789,6 +4812,42 @@
       "distribution": "bundled-cuda",
       "status": "development-baseline",
       "verified_lanes": [
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "a9c8ed175044d40882078a28c58d1cc409c1c6a4",
+          "instrumentation": "复用已登记工具链、Release缓存及离线依赖，每设备单编译。RT-DETR默认关闭选项、配方/原profile/预算、必要结构和适用安装定向检查；不扩张完整矩阵或发布资格。",
+          "id": "ubuntu22045-gcc114-cu126-sm75-a9c8ed1-rtdetr-encoder-fallback",
+          "distribution": "bundled-cuda",
+          "os": "ubuntu-22.04.5",
+          "compiler": "GCC 11.4.0; NVCC 12.6.3",
+          "accelerator": "NVIDIA RTX2060 sm75; LibTorch2.14.1+cu126; CUDA Toolkit12.6.3; driver580.178.04",
+          "tests": "干净产品a2ec37a模型5、配方/profile/预算5和结构3一次13项通过；仅测试数值策略修正后干净a9c8ed1补3受影响GPU项通过。零跳过，非新增性能或完整矩阵。",
+          "quality_evidence": {
+            "scope": "仅CPU/NVIDIA原路径兼容；公开选项默认关闭，显式开启也保留原编码器图。数值测试固定确定cuDNN/禁TF32/禁benchmark后恢复原设置，完整输出/loss/输入和参数梯度/一步更新、冻结/重复/RNG和strict/eval/no-grad通过；AMP只授原GatherBackward图回退。schema2配方往返和身份、原profile/预算及结构定向检查通过。无ROCm执行、新远端性能/安装/AP或收敛资格。",
+            "original_receipt_sha256": "c9ca9049dbdb4a1e84e8177a396522e8db5c71f915d01f80e6edf80c4bc0bedc",
+            "fixed_test_receipt_sha256": "55b24298a795e5bb3fe62647b5dbe557d5970bab7ad861b3abaec47e5eb2a73c"
+          }
+        },
+        {
+          "architecture": "x86_64",
+          "build_type": "Release",
+          "commit": "a9c8ed175044d40882078a28c58d1cc409c1c6a4",
+          "instrumentation": "复用已登记工具链、Release缓存及离线依赖，每设备单编译。RT-DETR默认关闭选项、配方/原profile/预算、必要结构和适用安装定向检查；不扩张完整矩阵或发布资格。",
+          "id": "windows-msvc1944-cu126-sm86-a9c8ed1-rtdetr-encoder-fallback",
+          "distribution": "bundled-cuda",
+          "os": "windows-11",
+          "compiler": "MSVC 19.44; NVCC 12.9",
+          "accelerator": "NVIDIA RTX3060 Laptop sm86; LibTorch2.14.1+cu126; CUDA Toolkit12.9; driver576.02",
+          "tests": "共13种必要合同分批通过、零跳过，非单次全绿：原模型5项4过1完整梯度失败，独立原OFF/OFF同样失败；固定计算策略OFF/ON通过，修正测试后仅补3受影响GPU项，另补原未运行配方/profile/预算5及结构3。",
+          "quality_evidence": {
+            "scope": "仅CPU/NVIDIA原路径兼容；公开选项默认关闭，显式开启也保留原编码器图。数值测试固定确定cuDNN/禁TF32/禁benchmark后恢复原设置，完整输出/loss/输入和参数梯度/一步更新、冻结/重复/RNG和strict/eval/no-grad通过；AMP只授原GatherBackward图回退。schema2配方往返和身份、原profile/预算及结构定向检查通过。无ROCm执行、新远端性能/安装/AP或收敛资格。",
+            "original_receipt_sha256": "a62ac919a40d738e14bb8b56dc4f5b9be9be0f771b8079e839156ab44ce93ad6",
+            "control_receipt_sha256": "b9fc3fc8dba67211b6ff4c0603f7a658fd382c1b013c07240265a64f5974fffb",
+            "missing_receipt_sha256": "5ed8d1539c3bf32219428f49087ea0233e6f99fa5d366c8de7ece2931eb699ff",
+            "fixed_test_receipt_sha256": "e759bc4ec9012779f9b53f1cd0a2d1e0b5e96ecdd0a484456b8b4f719e9c80db"
+          }
+        },
         {
           "architecture": "x86_64",
           "build_type": "Release",
