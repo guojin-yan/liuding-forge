@@ -2,6 +2,8 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "../../ops/target_grouping.hpp"
+
 #include <jyppx/liuding/vision/models/extended/rtdetr.hpp>
 #include <jyppx/liuding/vision/ops/deformable.hpp>
 
@@ -514,11 +516,8 @@ struct RtDetrImpl::Impl : torch::nn::Module {
                  .detach(),
          query = gather(output).detach();
     I dn = 0, groups = 0, max_gt = 0;
-    std::vector<Tensor> ground;
-    for (I i = 0; i < b; ++i) {
-      ground.push_back(targets.index({targets.select(1, 0) == i}));
-      max_gt = (std::max)(max_gt, ground.back().size(0));
-    }
+    auto ground = vision::detail::group_targets_by_image(targets, b);
+    for (const auto& gt : ground) max_gt = (std::max)(max_gt, gt.size(0));
     auto mapping = torch::empty({b, 0}, images.options().dtype(torch::kInt64)),
          positive = torch::empty({b, 0}, images.options().dtype(torch::kBool));
     Tensor attention_mask;

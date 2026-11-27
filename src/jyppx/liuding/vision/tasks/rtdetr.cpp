@@ -2,6 +2,8 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+#include "../ops/target_grouping.hpp"
+
 #include <jyppx/liuding/vision/ops/assignment.hpp>
 #include <jyppx/liuding/vision/ops/boxes.hpp>
 #include <jyppx/liuding/vision/ops/deformable.hpp>
@@ -140,8 +142,8 @@ TaskLoss rtdetr_loss(std::span<const Tensor> x, const Tensor& targets,
       {static_cast<float>(canvas[1]), static_cast<float>(canvas[0]),
        static_cast<float>(canvas[1]), static_cast<float>(canvas[0])},
       targets.options());
-  for (I b = 0; b < x[0].size(1); ++b) {
-    auto gt = targets.index({targets.select(1, 0) == b});
+  for (const auto& gt :
+       vision::detail::group_targets_by_image(targets, x[0].size(1))) {
     labels.push_back(gt.select(1, 1).to(torch::kInt64));
     auto xyxy = gt.slice(1, 2, 6) / scale;
     boxes.push_back(

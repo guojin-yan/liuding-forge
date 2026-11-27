@@ -3,6 +3,8 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
+#include "../../../src/jyppx/liuding/vision/ops/target_grouping.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/nn/recompute.hpp>
 #include <jyppx/liuding/vision/ops/assignment.hpp>
@@ -710,6 +712,65 @@ TEST_F(VisionContracts, SelectionMetricsFollowTaskAndDepthAlignment) {
   EXPECT_NO_THROW(t::check_recipe(recipe));
   recipe.full_validation_metrics = false;
   EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
+}
+
+void CheckTargetGrouping(const Device& device) {
+  const auto inf = std::numeric_limits<double>::infinity();
+  const auto nan = std::numeric_limits<double>::quiet_NaN();
+  for (const std::vector<double>& ids :
+       {std::vector<double>{0, 0, 2, 2, 3}, std::vector<double>{3, 2, 0, 3, 2},
+        std::vector<double>{-1, 2, .5, 0, inf, 2, nan, 4, 3},
+        std::vector<double>{-1, .5, inf, nan, 4}, std::vector<double>{}}) {
+    const auto count = static_cast<I>(ids.size());
+    auto source = torch::arange(count * 12, torch::kFloat64).view({count, 12});
+    if (count) source.select(1, 0).copy_(torch::tensor(ids, torch::kFloat64));
+    auto input =
+        source.to(device).slice(1, 0, 12, 2).detach().requires_grad_(true);
+    auto expected_input = input.detach().clone().requires_grad_(true);
+    auto grouped = vision::detail::group_targets_by_image(input, 4);
+    ASSERT_EQ(grouped.size(), 4U);
+    // Independent old equality selections, with nonuniform image/row/column
+    // adjoints to detect any changed within-image order or lost target
+    // gradient.
+    Tensor actual, expected;
+    for (I b = 0; b < 4; ++b) {
+      auto reference = expected_input.index({expected_input.select(1, 0) == b});
+      EXPECT_TRUE(torch::equal(grouped[b], reference));
+      auto weights =
+          (torch::arange(reference.numel(), reference.options()) + 1 + b * 13)
+              .view_as(reference);
+      auto a = (grouped[b].square() * weights).sum();
+      auto e = (reference.square() * weights).sum();
+      actual = actual.defined() ? actual + a : a;
+      expected = expected.defined() ? expected + e : e;
+    }
+    EXPECT_TRUE(torch::equal(actual, expected));
+    actual.backward();
+    expected.backward();
+    ASSERT_TRUE(input.grad().defined());
+    EXPECT_TRUE(torch::equal(input.grad(), expected_input.grad()));
+  }
+  for (I batch : {I{1}, I{32}, I{33}}) {
+    auto targets =
+        torch::tensor({{0., 0., 2., 3., 4., 5.},
+                       {static_cast<double>(batch - 1), 1., 2., 3., 4., 5.}},
+                      torch::kFloat64)
+            .to(device);
+    auto groups = vision::detail::group_targets_by_image(targets, batch);
+    ASSERT_EQ(groups.size(), static_cast<std::size_t>(batch));
+    for (I b = 0; b < batch; ++b)
+      EXPECT_TRUE(
+          torch::equal(groups[b], targets.index({targets.select(1, 0) == b})));
+  }
+}
+
+TEST_F(VisionContracts, TargetGroupingPreservesRowOrderAndFullGradientCpu) {
+  CheckTargetGrouping(Device(torch::kCPU));
+}
+
+TEST_F(VisionContracts, TargetGroupingPreservesRowOrderAndFullGradientGpu) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  CheckTargetGrouping(Device(torch::kCUDA, 0));
 }
 
 TEST_F(VisionContracts,
