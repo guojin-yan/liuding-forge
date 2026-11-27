@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <future>
 #include <gtest/gtest.h>
 #include <string>
 #include <string_view>
@@ -122,3 +123,32 @@ TEST(Sha256Test, UpdatesConsumeFullBlocksAndTailBeforeCallerReusesStorage) {
             "8a336ff92189b02c1992976e67b5e4dba9f03a76def3379161422bb364c510f0");
 }
 }  // namespace
+
+TEST(Sha256Test, IndependentStreamsRemainExactAcrossConcurrentDigestReads) {
+  // Fixed independently generated hashlib oracle; repeated interleaved streams
+  // also exercise one-time dispatch initialization without shared hash state.
+  const std::string prefix(4096U, 'x');
+  const std::string suffix(37U, 'y');
+  constexpr std::string_view expected_prefix =
+      "a2e659dacb4691e887ac0139f8893d04764ee197d70fb73d3190d56113d18e3e";
+  constexpr std::string_view expected_full =
+      "a84c3a1c0c705f84c9739acf94f03df1389833efdf71f004cd116e140aaf5a06";
+  std::vector<std::future<bool>> jobs;
+  for (int worker = 0; worker < 8; ++worker) {
+    jobs.push_back(std::async(std::launch::async, [&] {
+      for (int repeat = 0; repeat < 16; ++repeat) {
+        jyppx::liuding::Sha256 hash;
+        hash.update(as_bytes(prefix));
+        if (jyppx::liuding::sha256_digest_hex(hash.finish()) !=
+                expected_prefix ||
+            jyppx::liuding::sha256_digest_hex(hash.finish()) != expected_prefix)
+          return false;
+        hash.update(as_bytes(suffix));
+        if (jyppx::liuding::sha256_digest_hex(hash.finish()) != expected_full)
+          return false;
+      }
+      return true;
+    }));
+  }
+  for (auto& job : jobs) EXPECT_TRUE(job.get());
+}

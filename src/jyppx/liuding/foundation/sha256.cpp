@@ -8,8 +8,104 @@
 #include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <cstring>
+
+#if defined(_M_X64) || defined(__x86_64__)
+#include <immintrin.h>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <cpuid.h>
+#endif
+#define JYPPX_SHA256_X86 1
+#endif
+
+namespace {
+bool native_sha256_supported() noexcept {
+#if defined(JYPPX_SHA256_X86) && !defined(JYPPX_SHA256_FORCE_PORTABLE)
+  static const bool supported = [] {
+#if defined(_MSC_VER)
+    int registers[4]{};
+    __cpuidex(registers, 0, 0);
+    if (registers[0] < 7) return false;
+    __cpuidex(registers, 1, 0);
+    if (!(static_cast<unsigned>(registers[2]) & (1U << 9U))) return false;
+    __cpuidex(registers, 7, 0);
+    return (static_cast<unsigned>(registers[1]) & (1U << 29U)) != 0;
+#else
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    return __get_cpuid_max(0, nullptr) >= 7 && __get_cpuid(1, &a, &b, &c, &d) &&
+           (c & (1U << 9U)) && __get_cpuid_count(7, 0, &a, &b, &c, &d) &&
+           (b & (1U << 29U));
+#endif
+  }();
+  return supported;
+#else
+  return false;
+#endif
+}
+
+#if defined(JYPPX_SHA256_X86)
+#if defined(__clang__) || defined(__GNUC__)
+__attribute__((target("sha,ssse3"), noinline))
+#else
+__declspec(noinline)
+#endif
+void native_sha256_compress(std::uint32_t* state, const std::byte* block,
+                            const std::uint32_t* constants) noexcept {
+  // SHA256RNDS2 groups A/B/E/F and C/D/G/H in descending XMM lanes.
+  auto abef =
+      _mm_set_epi32(std::bit_cast<int>(state[0]), std::bit_cast<int>(state[1]),
+                    std::bit_cast<int>(state[4]), std::bit_cast<int>(state[5]));
+  auto cdgh =
+      _mm_set_epi32(std::bit_cast<int>(state[2]), std::bit_cast<int>(state[3]),
+                    std::bit_cast<int>(state[6]), std::bit_cast<int>(state[7]));
+  const auto swap =
+      _mm_setr_epi8(3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12);
+  __m128i words[4];
+  for (std::size_t i = 0; i < 4; ++i)
+    words[i] = _mm_shuffle_epi8(
+        _mm_loadu_si128(reinterpret_cast<const __m128i*>(block + i * 16)),
+        swap);
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#elif defined(__GNUC__)
+#pragma GCC unroll 16
+#endif
+  for (std::size_t group = 0; group < 16; ++group) {
+    const auto slot = group % 4;
+    if (group >= 4) {
+      // MSG1 supplies W[t-16]+sigma0(W[t-15]); MSG2 supplies the
+      // sigma1 recurrence, including the two words generated in this group.
+      const auto partial =
+          _mm_sha256msg1_epu32(words[slot], words[(slot + 1) % 4]);
+      const auto middle =
+          _mm_alignr_epi8(words[(slot + 3) % 4], words[(slot + 2) % 4], 4);
+      words[slot] = _mm_sha256msg2_epu32(_mm_add_epi32(partial, middle),
+                                         words[(slot + 3) % 4]);
+    }
+    const auto values = _mm_add_epi32(
+        words[slot], _mm_loadu_si128(reinterpret_cast<const __m128i*>(
+                         constants + group * 4)));
+    cdgh = _mm_sha256rnds2_epu32(cdgh, abef, values);
+    abef = _mm_sha256rnds2_epu32(abef, cdgh, _mm_shuffle_epi32(values, 0x0e));
+  }
+  std::uint32_t first[4], second[4];
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(first), abef);
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(second), cdgh);
+  state[0] += first[3];
+  state[1] += first[2];
+  state[2] += second[3];
+  state[3] += second[2];
+  state[4] += first[1];
+  state[5] += first[0];
+  state[6] += second[1];
+  state[7] += second[0];
+}
+#endif
+}  // namespace
 
 namespace jyppx::liuding {
 class Sha256::Impl final {
@@ -86,6 +182,12 @@ class Sha256::Impl final {
       0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U};
 
   void transform(const std::byte* block) {
+#if defined(JYPPX_SHA256_X86)
+    if (native_sha256_supported()) {
+      native_sha256_compress(state_, block, kRoundConstants);
+      return;
+    }
+#endif
     std::uint32_t schedule[64];
     for (std::size_t index = 0; index != 16U; ++index) {
       schedule[index] =

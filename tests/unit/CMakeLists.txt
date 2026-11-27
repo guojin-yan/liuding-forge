@@ -133,6 +133,17 @@ jyppx_add_gtest(jyppx_test_foundation
     foundation/test_sha256.cpp
     foundation/test_telemetry.cpp
 )
+# Exercise exactly the same byte/stream contracts without instruction dispatch,
+# including on development machines whose CPU supports the native SHA path.
+add_executable(jyppx_test_sha256_portable foundation/test_sha256.cpp
+    "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/foundation/sha256.cpp")
+target_link_libraries(jyppx_test_sha256_portable PRIVATE
+    jyppx::liuding::foundation GTest::gtest_main)
+target_compile_definitions(jyppx_test_sha256_portable PRIVATE
+    JYPPX_SHA256_FORCE_PORTABLE=1)
+jyppx_apply_instrumentation(jyppx_test_sha256_portable)
+gtest_discover_tests(jyppx_test_sha256_portable DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 30 TEST_PREFIX "Portable/")
 endif()
 
 if(TARGET jyppx::liuding::core)
