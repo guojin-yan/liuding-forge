@@ -10,12 +10,15 @@ namespace jyppx::liuding::vision::tasks {
 namespace detail {
 void catalog_classification(std::vector<CapabilityRecord>& entries) {
   for (const auto& info : models::list_models())
-    if (info.task == "image_classification") {
+    if (info.task == "image_classification" ||
+        info.name == "vit_small_patch14_dinov2") {
       entries.push_back({.architecture = info.name,
                          .revision = "models-registry/native-v1",
                          .task = TaskKind::classify,
                          .variant = "p5",
                          .component = "models"});
+      if (info.name == "vit_small_patch14_dinov2")
+        entries.back().input_divisor = 14;
       if (info.feature_input) {
         entries.back().fixed_input_size = info.feature_input->fixed_size;
         entries.back().minimum_input_size = info.feature_input->minimum_spatial;
@@ -35,6 +38,7 @@ void bind_classification(const RecipeSpec& r, TaskBinding& b,
                     o.dinov3.num_classes = o.dinov3_convnext.num_classes =
                         r.model.num_classes;
     o.swin.activation_recomputation=o.vit.activation_recomputation=r.extension.activation_recomputation;
+    o.dinov2.attention_recomputation=r.extension.activation_recomputation;
     b.model = std::make_shared<nn::ModelAdapter>(
         models::create_model(r.model.architecture, o));
     if(r.extension.feature_outputs) {

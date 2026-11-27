@@ -7,12 +7,14 @@
 
 #include <jyppx/liuding/core/runtime.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/random.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
 #include <jyppx/liuding/models/models.hpp>
 #include <jyppx/liuding/training/amp/autocast.hpp>
 
 #include <torch/optim.h>
 #include <torch/torch.h>
+#include <torch/csrc/autograd/autograd.h>
 
 #include <ATen/autocast_mode.h>
 
@@ -1088,6 +1090,151 @@ TEST(Models, DinoV2SmallCudaAttentionMatchesDeterministicBackward) {
         << (actual[index] - expected[index]).abs().max().item<double>();
   }
 }
+
+void CheckDinoAttentionRecomputation(const Device& device, bool frozen,
+                                     bool repeated, bool strict = false,
+                                     bool autocast = false) {
+  const auto deterministic = at::globalContext().deterministicAlgorithms();
+  const auto warn_only = at::globalContext().deterministicAlgorithmsWarnOnly();
+  struct Restore {
+    bool deterministic, warn_only;
+    ~Restore() {
+      at::globalContext().setDeterministicAlgorithms(deterministic, warn_only);
+    }
+  } restore{deterministic, warn_only};
+  at::globalContext().setDeterministicAlgorithms(strict, false);
+  const auto make = [&](bool enabled) {
+    torch::manual_seed(20261127);
+    auto model = dinov2_vits14({.num_classes = 3,
+                               .layer_scale_init = .1,
+                               .position_antialias = false,
+                               .attention_recomputation = enabled});
+    model->to(device);
+    model->train();
+    if (frozen) {
+      std::size_t index = 0;
+      for (auto& parameter : model->parameters())
+        if (++index % 3 == 0) parameter.set_requires_grad(false);
+    }
+    return model;
+  };
+  auto original = make(false), candidate = make(true);
+  auto source = torch::randn({2, 3, 28, 42},
+                              torch::TensorOptions().device(device));
+  const auto run = [&](auto model) {
+    auto input = source.detach().clone();
+    input.set_requires_grad(!frozen);
+    const auto before = core::get_rng_state(device.is_cuda());
+    std::unique_ptr<training::amp::AutocastGuard> precision;
+    if (autocast)
+      precision = std::make_unique<training::amp::AutocastGuard>(
+          c10::DeviceType::CUDA, at::kHalf);
+    auto logits = model->forward(input);
+    if (repeated) logits = logits + model->forward(input * .7);
+    auto direction = torch::linspace(-.7, .9, logits.numel(), logits.options())
+                         .view_as(logits);
+    (logits * direction).sum().backward();
+    const auto after = core::get_rng_state(device.is_cuda());
+    EXPECT_TRUE(torch::equal(before.cpu, after.cpu));
+    EXPECT_EQ(before.cuda.size(), after.cuda.size());
+    for (std::size_t index = 0; index < before.cuda.size(); ++index)
+      EXPECT_TRUE(torch::equal(before.cuda[index], after.cuda[index]));
+    std::vector<Tensor> values{logits.detach().cpu()};
+    if (!frozen) values.push_back(input.grad().detach().cpu());
+    for (const auto& parameter : model->parameters()) {
+      EXPECT_EQ(parameter.grad().defined(), parameter.requires_grad());
+      if (parameter.requires_grad())
+        values.push_back(parameter.grad().detach().cpu());
+    }
+    return values;
+  };
+  const auto expected = run(original), actual = run(candidate);
+  ASSERT_EQ(expected.size(), actual.size());
+  for (std::size_t index = 0; index < expected.size(); ++index) {
+    ASSERT_TRUE(torch::isfinite(expected[index]).all().item<bool>()) << index;
+    ASSERT_TRUE(torch::isfinite(actual[index]).all().item<bool>()) << index;
+    EXPECT_TRUE(torch::allclose(actual[index], expected[index], 2e-4, 2e-5))
+        << index;
+    if (device.is_cpu()) EXPECT_TRUE(torch::equal(actual[index], expected[index]));
+  }
+}
+
+TEST(Models, DinoV2AttentionRecomputationCpuFallbackPreservesGradients) {
+  EXPECT_FALSE(DinoV2Options{}.attention_recomputation);
+  CheckDinoAttentionRecomputation(Device(torch::kCPU), false, false);
+  EXPECT_THROW(dinov2_vitb14({.attention_recomputation = true}), InvalidArgument);
+  EXPECT_THROW(dinov2_vitl14({.attention_recomputation = true}), InvalidArgument);
+  EXPECT_THROW(dinov2_vit_giant14({.attention_recomputation = true}), InvalidArgument);
+}
+
+TEST(Models, DinoV2AttentionRecomputationCudaFullGradientsAndRng) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  CheckDinoAttentionRecomputation(Device(torch::kCUDA, 0), false, false);
+}
+
+TEST(Models, DinoV2AttentionRecomputationCudaFrozenAndRepeatedForwards) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  CheckDinoAttentionRecomputation(Device(torch::kCUDA, 0), true, true);
+}
+
+TEST(Models, DinoV2AttentionRecomputationCudaPrecisionAndModeFallbacks) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const Device device(torch::kCUDA, 0);
+  CheckDinoAttentionRecomputation(device, false, false, true);
+  CheckDinoAttentionRecomputation(device, false, false, false, true);
+  const auto make = [&](bool enabled) {
+    torch::manual_seed(20261127);
+    auto model = dinov2_vits14({.num_classes = 3,
+                               .attention_recomputation = enabled});
+    model->to(device);
+    model->eval();
+    return model;
+  };
+  auto original = make(false), candidate = make(true);
+  auto input = torch::randn({2, 3, 28, 42}, torch::TensorOptions().device(device));
+  torch::NoGradGuard no_grad;
+  EXPECT_TRUE(torch::equal(original->forward(input), candidate->forward(input)));
+  original->train();
+  candidate->train();
+  EXPECT_TRUE(torch::equal(original->forward(input), candidate->forward(input)));
+}
+
+#if defined(USE_ROCM)
+TEST(Models, DinoV2AttentionRecomputationRejectsUnsupportedBackwardAndSavedMutation) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const auto deterministic = at::globalContext().deterministicAlgorithms();
+  const auto warn_only = at::globalContext().deterministicAlgorithmsWarnOnly();
+  struct Restore {
+    bool deterministic, warn_only;
+    ~Restore() {
+      at::globalContext().setDeterministicAlgorithms(deterministic, warn_only);
+    }
+  } restore{deterministic, warn_only};
+  at::globalContext().setDeterministicAlgorithms(false, false);
+  auto model = dinov2_vits14({.num_classes = 3,
+                             .layer_scale_init = .1,
+                             .position_antialias = false,
+                             .attention_recomputation = true});
+  model->to(Device(torch::kCUDA, 0));
+  auto input = torch::randn({2, 3, 28, 42}, torch::TensorOptions().device(torch::kCUDA));
+  input.set_requires_grad(true);
+  auto logits = model->forward(input);
+  EXPECT_THROW(torch::autograd::grad({logits.sum()}, {input}, {}, false, true),
+               InvalidArgument);
+  auto autocast_loss = model->forward(input).sum();
+  {
+    training::amp::AutocastGuard precision(c10::DeviceType::CUDA, at::kHalf);
+    EXPECT_THROW(autocast_loss.backward(), InvalidArgument);
+    EXPECT_TRUE(at::autocast::is_autocast_enabled(torch::kCUDA));
+  }
+  auto loss = model->forward(input).sum();
+  {
+    torch::NoGradGuard guard;
+    model->named_parameters()["blocks.0.attn.qkv.weight"].add_(.001);
+  }
+  EXPECT_THROW(loss.backward(), c10::Error);
+}
+#endif
 
 TEST(Models, DinoV2BaseAndLargeCpuTrainingGateIsExplicit) {
   const auto* enabled =

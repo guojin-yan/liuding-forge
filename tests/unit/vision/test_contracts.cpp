@@ -6,6 +6,7 @@
 #include "../../../src/jyppx/liuding/vision/ops/target_grouping.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/nn/recompute.hpp>
 #include <jyppx/liuding/vision/ops/assignment.hpp>
 #include <jyppx/liuding/vision/ops/boxes.hpp>
@@ -1042,6 +1043,34 @@ TEST_F(VisionContracts, ExecutionPolicyRoundTripsAndChangesResumeIdentity) {
     recipe.initial_loss_scale = invalid;
     EXPECT_THROW(t::check_recipe(recipe), InvalidArgument);
   }
+}
+
+TEST_F(VisionContracts, DinoAttentionRecomputationRoundTripAndBinding) {
+  t::RecipeSpec recipe;
+  recipe.schema_version = 2;
+  recipe.model.architecture = "vit_small_patch14_dinov2";
+  recipe.model.task = t::TaskKind::classify;
+  recipe.model.num_classes = 3;
+  recipe.classification_root = std::filesystem::absolute("classification");
+  recipe.data.letterbox.canvas = {224, 224};
+  const auto identity = t::recipe_identity(recipe);
+  for (bool enabled : {false, true}) {
+    recipe.extension.activation_recomputation = enabled;
+    const auto restored =
+        t::parse_recipe(t::recipe_json(recipe), std::filesystem::current_path());
+    EXPECT_EQ(restored.extension.activation_recomputation, enabled);
+    EXPECT_EQ(t::recipe_identity(restored), t::recipe_identity(recipe));
+    EXPECT_EQ(t::recipe_identity(restored) == identity, !enabled);
+    auto binding = t::bind_task(restored);
+    EXPECT_EQ(binding.capability.input_divisor, 14);
+    auto model = std::dynamic_pointer_cast<models::DinoV2Impl>(
+        binding.model->state().shared_module());
+    ASSERT_TRUE(model);
+    EXPECT_EQ(model->options().attention_recomputation, enabled);
+    EXPECT_EQ(model->options().num_classes, 3);
+  }
+  recipe.data.letterbox.canvas = {225, 224};
+  EXPECT_THROW(t::bind_task(recipe), InvalidArgument);
 }
 
 TEST_F(VisionContracts, RtDetrEncoderBudgetRoundTripAndBinding) {

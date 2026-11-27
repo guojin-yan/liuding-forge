@@ -26,7 +26,11 @@ CNN 分类模型接收与模块设备、dtype 一致的稠密浮点 NCHW 图像�
 
 DINOv2 在 CUDA 严格确定性模式下使用可求导的分离矩阵计算缩放位置编码，支持非原生分辨率的完整微调；位置参数、激活与梯度保留在设备上，仅小型插值系数从 CPU 传入。该路径按 FP32 计算并恢复参数 dtype，不改变 state 键或形状；与原生插值的浮点舍入可能不同。CUDA 确定性矩阵运算还要求进程启动前设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`，完整训练恢复须另按实际配方验收。
 
-DINOv2 在 NVIDIA GPU 且未启用 LibTorch 严格确定性算法时，合并 Q/K/V 投影并调用 LibTorch SDPA，由所选后端决定注意力内核；CPU、ROCm 与严格确定性模式保留分开投影及显式注意力计算。两条路线共享参数布局，浮点舍入及梯度不承诺逐位一致，性能取决于设备、精度和输入形状。
+DINOv2 默认在 NVIDIA GPU 且未启用 LibTorch 严格确定性算法时，合并 Q/K/V 投影并调用 LibTorch SDPA，由所选后端决定注意力内核；CPU、ROCm 与严格确定性模式保留分开投影及显式注意力计算。两条路线共享参数布局，浮点舍入及梯度不承诺逐位一致，性能取决于设备、精度和输入形状。
+
+DINOv2-S/14 可显式设置 `DinoV2Options::attention_recomputation = true`，在 ROCm 的非严格确定性、无 autocast 的 FP32 训练中合并 Q/K/V 投影，并在反向重算显式注意力，以减少保存的激活。选项默认关闭；启用的重算区域只支持关闭 autocast 的一阶反向，`create_graph=true` 或在 autocast 中反向会报错，修改已保存张量仍触发版本检查。CPU、NVIDIA、其他精度、前向 autocast、eval、no-grad 和严格确定性模式沿用原路径；其他 DINOv2 容量拒绝该选项。参数与 state 布局保持兼容，速度和显存收益须按实际输入与设备评估。
+
+视觉任务目录提供 `vit_small_patch14_dinov2` 的分类和多标签分类绑定，输入宽高须为 14 的倍数。训练配方的 `extension.activation_recomputation` 对该模型选择上述注意力重算；该配置参与配方身份，续训时应保持一致。它不改变数据增强、优化器或学习率调度，也不等同于训练检查点保存。
 
 ## 查询与替换分类头
 

@@ -18,6 +18,11 @@
 
 #include <ATen/ops/linear.h>
 #include <ATen/ops/scaled_dot_product_attention.h>
+#if defined(USE_ROCM)
+#include <ATen/autocast_mode.h>
+#include <torch/csrc/autograd/autograd.h>
+#include <torch/csrc/autograd/custom_function.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -195,10 +200,83 @@ void ValidateOptions(const DinoV2Options& options) {
   }
 }
 
+#if defined(USE_ROCM)
+Tensor RecomputedAttentionForward(const Tensor& input, const Tensor& weight,
+                                 const Tensor& bias,
+                                 const Tensor& projection_weight,
+                                 const Tensor& projection_bias,
+                                 std::int64_t heads) {
+  const auto batch = input.size(0), tokens = input.size(1),
+             dimension = input.size(2), head_dimension = dimension / heads;
+  auto qkv = at::linear(input, weight, bias)
+                 .view({batch, tokens, 3, heads, head_dimension})
+                 .permute({2, 0, 3, 1, 4});
+  const auto projections = qkv.unbind(0);
+  auto attention = torch::softmax(
+      torch::matmul(projections[0], projections[1].transpose(-2, -1)) /
+          std::sqrt(static_cast<double>(head_dimension)),
+      -1);
+  auto attended = torch::matmul(attention, projections[2])
+                      .transpose(1, 2)
+                      .contiguous()
+                      .view({batch, tokens, dimension});
+  return at::linear(attended, projection_weight, projection_bias);
+}
+
+struct RecomputedAttention
+    : torch::autograd::Function<RecomputedAttention> {
+  static Tensor forward(torch::autograd::AutogradContext* context,
+                        Tensor input, Tensor weight, Tensor bias,
+                        Tensor projection_weight, Tensor projection_bias,
+                        std::int64_t heads) {
+    // This pure region has no RNG or mutable module state to snapshot.
+    context->save_for_backward(
+        {input, weight, bias, projection_weight, projection_bias});
+    context->saved_data["heads"] = heads;
+    return RecomputedAttentionForward(input, weight, bias, projection_weight,
+                                      projection_bias, heads);
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* context,
+      torch::autograd::variable_list gradient) {
+    if (torch::GradMode::is_enabled())
+      throw InvalidArgument(
+          "DINOv2 attention recomputation supports first-order gradients only");
+    if (at::autocast::is_autocast_enabled(torch::kCUDA))
+      throw InvalidArgument(
+          "DINOv2 attention recomputation requires backward outside autocast");
+    const auto saved = context->get_saved_variables();
+    torch::AutoGradMode enable(true);
+    std::vector<Tensor> inputs, differentiable;
+    std::vector<std::size_t> slots;
+    for (std::size_t index = 0; index < saved.size(); ++index) {
+      auto value = saved[index].detach();
+      value.set_requires_grad(saved[index].requires_grad());
+      inputs.push_back(value);
+      if (value.requires_grad()) {
+        differentiable.push_back(value);
+        slots.push_back(index);
+      }
+    }
+    auto output = RecomputedAttentionForward(
+        inputs[0], inputs[1], inputs[2], inputs[3], inputs[4],
+        context->saved_data.at("heads").toInt());
+    auto gradients = torch::autograd::grad(
+        {output}, differentiable, gradient, false, false, true);
+    torch::autograd::variable_list result(6);
+    for (std::size_t index = 0; index < gradients.size(); ++index)
+      result[slots[index]] = gradients[index];
+    return result;
+  }
+};
+#endif
+
 class DinoV2Attention final : public torch::nn::Module {
  public:
-  DinoV2Attention(std::int64_t dimension, std::int64_t heads)
-      : dimension_(dimension), heads_(heads) {
+  DinoV2Attention(std::int64_t dimension, std::int64_t heads,
+                  bool recomputation)
+      : dimension_(dimension), heads_(heads), recomputation_(recomputation) {
     qkv_ = register_module("qkv", torch::nn::Linear(dimension, dimension * 3));
     projection_ =
         register_module("proj", torch::nn::Linear(dimension, dimension));
@@ -208,6 +286,16 @@ class DinoV2Attention final : public torch::nn::Module {
     const auto batch = input.size(0);
     const auto tokens = input.size(1);
     const auto head_dimension = dimension_ / heads_;
+#if defined(USE_ROCM)
+    if (recomputation_ && is_training() && input.is_cuda() &&
+        input.scalar_type() == torch::kFloat32 &&
+        torch::GradMode::is_enabled() &&
+        !at::autocast::is_autocast_enabled(torch::kCUDA) &&
+        !at::globalContext().deterministicAlgorithms())
+      return RecomputedAttention::apply(
+          input, qkv_->weight, qkv_->bias, projection_->weight,
+          projection_->bias, heads_);
+#endif
 #if !defined(USE_ROCM)
     if (input.is_cuda() && !at::globalContext().deterministicAlgorithms()) {
       auto qkv = qkv_->forward(input)
@@ -252,6 +340,7 @@ class DinoV2Attention final : public torch::nn::Module {
  private:
   std::int64_t dimension_;
   std::int64_t heads_;
+  bool recomputation_;
   torch::nn::Linear qkv_{nullptr}, projection_{nullptr};
 };
 
@@ -309,7 +398,7 @@ class DinoV2LayerScale final : public torch::nn::Module {
 class DinoV2Block final : public torch::nn::Module {
  public:
   DinoV2Block(std::int64_t dimension, std::int64_t heads, std::int64_t hidden,
-              bool swiglu, double layer_scale) {
+              bool swiglu, double layer_scale, bool recomputation) {
     if (dimension <= 0 || heads <= 0 || dimension % heads != 0 || hidden <= 0 ||
         layer_scale <= 0) {
       detail::Invalid("dinov2.block", "positive divisible attention widths");
@@ -318,7 +407,7 @@ class DinoV2Block final : public torch::nn::Module {
         "norm1", torch::nn::LayerNorm(
                      torch::nn::LayerNormOptions({dimension}).eps(1e-6)));
     attention_ = register_module(
-        "attn", std::make_shared<DinoV2Attention>(dimension, heads));
+        "attn", std::make_shared<DinoV2Attention>(dimension, heads, recomputation));
     layer_scale1_ = register_module(
         "ls1", std::make_shared<DinoV2LayerScale>(dimension, layer_scale));
     norm2_ = register_module(
@@ -448,6 +537,10 @@ DinoV2Impl::DinoV2Impl(DinoV2Variant variant, DinoV2Options options)
     : options_(options), variant_(variant) {
   detail::Backend("dinov2.construct", [&] {
     ValidateOptions(options_);
+    if (options_.attention_recomputation &&
+        variant_ != DinoV2Variant::small_capacity)
+      detail::Invalid("dinov2.attention_recomputation",
+                      "DINOv2-S/14 attention recomputation only");
     const auto config = Config(variant_);
     embedding_dimension_ = config.dimension;
     attention_heads_ = config.heads;
@@ -466,7 +559,7 @@ DinoV2Impl::DinoV2Impl(DinoV2Variant variant, DinoV2Options options)
     for (std::int64_t i = 0; i < block_count_; ++i) {
       blocks_->push_back(std::make_shared<DinoV2Block>(
           embedding_dimension_, attention_heads_, hidden_dimension_, swiglu_,
-          options_.layer_scale_init));
+          options_.layer_scale_init, options_.attention_recomputation));
     }
     final_norm_ = register_module(
         "norm",

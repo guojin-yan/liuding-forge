@@ -259,7 +259,9 @@ void train(const t::CapabilityRecord& entry, const Device& device,
   recipe.extension.training_manifest = "__execution_fixture__";
   if (entry.architecture.starts_with("simmim_vit"))
     recipe.extension.model_patch_size = 16;
-  const I side = (std::max)(I{64}, entry.minimum_input_size);
+  const I minimum_side = (std::max)(I{64}, entry.minimum_input_size);
+  const I side = (minimum_side + entry.input_divisor - 1) /
+                 entry.input_divisor * entry.input_divisor;
   const I height = entry.fixed_input_size[0] ? entry.fixed_input_size[0] : side;
   const I width = entry.fixed_input_size[1] ? entry.fixed_input_size[1] : side;
   recipe.data.letterbox.canvas = {static_cast<std::uint32_t>(width),

@@ -57,6 +57,11 @@ struct DinoV2Options {
   double layer_scale_init = 1e-5;   ///< Positive LayerScale initialization.
   bool position_antialias = true;
   ///< Antialiased timm position resize; false matches Transformers DINOv2.
+  bool attention_recomputation = false;
+  ///< Opt-in first-order attention recomputation for DINOv2-S/14 ROCm FP32
+  ///< training without autocast or strict determinism. Other modes retain the
+  ///< original path. Other capacities reject this option. Active recomputation
+  ///< rejects higher-order gradients and backward inside autocast.
 };
 
 /** @brief Trainable DINOv2 ViT/14 image encoder with an optional head. */
