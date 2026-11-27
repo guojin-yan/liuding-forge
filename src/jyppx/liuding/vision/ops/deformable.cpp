@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#ifdef JYPPX_VISION_GPU_KERNELS
+#include "deformable_gpu.hpp"
+#endif
 namespace jyppx::liuding::vision_ops {
 namespace {
 using I = std::int64_t;
@@ -48,6 +51,11 @@ Tensor multiscale_deformable_attention(const Tensor& value,
       throw ResourceExhausted("Deformable sampling budget exceeded");
     count *= size;
   }
+#ifdef JYPPX_VISION_GPU_KERNELS
+  if (auto native = detail::try_deform_gpu(value, shapes, locations, weights);
+      native.defined())
+    return native;
+#endif
   std::vector<Tensor> sampled;
   // Share the reverse partition: separate slice/select nodes each expand a
   // full value/location gradient before accumulating the disjoint levels.

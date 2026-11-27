@@ -38,6 +38,7 @@
 #include <stdexcept>
 #ifdef VISION_CONSUMER_NATIVE_GPU
 #include <jyppx/liuding/core/device.hpp>
+#include <jyppx/liuding/vision/ops/deformable.hpp>
 #include <jyppx/liuding/vision/ops/roi.hpp>
 #endif
 int main() try {
@@ -61,6 +62,30 @@ int main() try {
     output.sum().backward();
     if (std::abs(image.grad().sum().item<double>() - 1.) > 1e-10)
       throw std::runtime_error("installed native ROIAlign gradient mismatch");
+    auto value = torch::arange(4, image.options())
+                     .view({1, 4, 1, 1})
+                     .detach()
+                     .requires_grad_(true);
+    auto locations = torch::full({1, 1, 1, 1, 1, 2}, .5, image.options())
+                         .requires_grad_(true);
+    auto weights =
+        torch::ones({1, 1, 1, 1, 1}, image.options()).requires_grad_(true);
+    const std::array<std::array<std::int64_t, 2>, 1> shapes{{{2, 2}}};
+    auto sampled = jyppx::liuding::vision_ops::multiscale_deformable_attention(
+        value, shapes, locations, weights);
+    if (sampled.grad_fn()->name().find("NativeDeform") == std::string::npos ||
+        std::abs(sampled.item<double>() - 1.5) > 1e-10)
+      throw std::runtime_error("installed native deformable output mismatch");
+    sampled.sum().backward();
+    if (!torch::allclose(value.grad(), torch::full_like(value, .25), 0,
+                         1e-10) ||
+        !torch::allclose(
+            locations.grad(),
+            torch::tensor({2., 4.}, image.options()).reshape_as(locations), 0,
+            1e-10) ||
+        std::abs(weights.grad().item<double>() - 1.5) > 1e-10)
+      throw std::runtime_error(
+          "installed native deformable gradients mismatch");
   }
 #endif
   {

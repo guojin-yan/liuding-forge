@@ -58,11 +58,8 @@ function(jyppx_add_vision_gpu_kernels target)
     file(WRITE "${config}.in"
         "#pragma once\n#define JYPPX_VISION_GPU_${backend} 1\n#define JYPPX_VISION_GPU_ARCHS ${arch_literals}\n")
     configure_file("${config}.in" "${config}" COPYONLY)
-    set(source "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/vision/ops/roi_gpu_kernel.cpp")
-    set(header "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/vision/ops/roi_gpu_launch.hpp")
     # SDK-only code always uses optimized Release CRT, independent of the host
     # configuration. A shared output also keeps OUTPUT compatible with 3.18.
-    set(object "${kernel_dir}/roi_gpu${CMAKE_CXX_OUTPUT_EXTENSION}")
     if(backend STREQUAL HIP)
         list(APPEND flags -O3 -std=c++17 -ffp-contract=off -x hip)
         if(WIN32)
@@ -80,19 +77,23 @@ function(jyppx_add_vision_gpu_kernels target)
             list(APPEND flags -Xcompiler -fPIC)
         endif()
     endif()
-    add_custom_command(OUTPUT "${object}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${kernel_dir}"
-        COMMAND "${JYPPX_LIUDING_VISION_GPU_COMPILER}" ${flags}
-            "-I${kernel_dir}" -c "${source}" -o "${object}"
-        DEPENDS "${source}" "${header}" "${config}" VERBATIM)
-    set_source_files_properties("${object}" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
-    set_source_files_properties("${source}" PROPERTIES HEADER_FILE_ONLY TRUE)
-    target_sources(${target} PRIVATE
-        src/jyppx/liuding/vision/ops/roi_gpu.cpp
-        src/jyppx/liuding/vision/ops/roi_gpu.hpp
-        src/jyppx/liuding/vision/ops/roi_gpu_launch.hpp
-        src/jyppx/liuding/vision/ops/roi_gpu_kernel.cpp
-        "${object}")
+    foreach(kernel IN ITEMS roi_gpu deformable_gpu)
+        set(source "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/vision/ops/${kernel}_kernel.cpp")
+        set(header "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/vision/ops/${kernel}_launch.hpp")
+        set(object "${kernel_dir}/${kernel}${CMAKE_CXX_OUTPUT_EXTENSION}")
+        add_custom_command(OUTPUT "${object}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${kernel_dir}"
+            COMMAND "${JYPPX_LIUDING_VISION_GPU_COMPILER}" ${flags}
+                "-I${kernel_dir}" -c "${source}" -o "${object}"
+            DEPENDS "${source}" "${header}" "${config}" VERBATIM)
+        set_source_files_properties("${object}" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+        set_source_files_properties("${source}" PROPERTIES HEADER_FILE_ONLY TRUE)
+        target_sources(${target} PRIVATE
+            src/jyppx/liuding/vision/ops/${kernel}.cpp
+            src/jyppx/liuding/vision/ops/${kernel}.hpp
+            src/jyppx/liuding/vision/ops/${kernel}_launch.hpp
+            "${source}" "${object}")
+    endforeach()
     target_compile_definitions(${target} PRIVATE JYPPX_VISION_GPU_KERNELS=1)
     message(STATUS "Native vision kernels: ${backend}, ${JYPPX_LIUDING_VISION_GPU_ARCHITECTURES}, ${JYPPX_LIUDING_VISION_GPU_COMPILER}")
 endfunction()

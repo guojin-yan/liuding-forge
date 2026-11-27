@@ -4,16 +4,22 @@
 // Licensed under the Apache License, Version 2.0.
 #ifndef JYPPX_LIUDING_VISION_OPS_DEFORMABLE_HPP
 #define JYPPX_LIUDING_VISION_OPS_DEFORMABLE_HPP
-/** @file deformable.hpp @brief Tensor-native differentiable multiscale sampling. */
+/** @file deformable.hpp @brief Tensor-native differentiable multiscale
+ * sampling. */
 #include <jyppx/liuding/core/types.hpp>
+
 #include <array>
 #include <span>
 namespace jyppx::liuding::vision_ops {
 /** @brief GridSample attention: value [B,S,heads,D], locations
  * [B,Q,heads,levels,points,2] in [0,1] coordinates, weights with no final axis.
- * Shapes sum to S; zeros padding/bilinear/align_corners=false. Returns [B,Q,H*D].
- * All floating inputs share device/dtype; no detach, custom kernel or host
- * index inference. Limits bound the sampled temporary before allocation.
+ * Shapes sum to S; zeros padding/bilinear/align_corners=false. Returns
+ * [B,Q,H*D]. All floating inputs share device/dtype; gradients reach all three
+ * inputs. Limits bound sampled elements before either implementation allocates.
+ * Optional native GPU kernels handle FP32/FP64 with at most 16 levels on
+ * compiled architectures; tracing and other inputs use ATen. Native backward
+ * is first-order only and rejects strict deterministic mode; it uses atomic
+ * feature updates.
  */
 Tensor multiscale_deformable_attention(
     const Tensor& value, std::span<const std::array<std::int64_t, 2>> shapes,

@@ -10,7 +10,7 @@ struct RoiGpuShape {
   std::int64_t count, channels, height, width, pooled_h, pooled_w, ratio;
   std::int64_t sn, sc, sh, sw;
 };
-bool roi_gpu_supported();
+bool vision_gpu_supported();
 int launch_roi_gpu(const void* input, const double* rows,
                    const std::int64_t* batches, void* output, RoiGpuShape shape,
                    bool fp64, bool backward, void* stream);

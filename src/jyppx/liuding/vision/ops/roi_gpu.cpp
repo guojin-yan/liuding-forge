@@ -100,7 +100,7 @@ Tensor try_roi_align_gpu(const Tensor& features, const Tensor& rows,
        features.scalar_type() != torch::kFloat64))
     return {};
   c10::cuda::CUDAGuard guard(features.device());
-  if (!roi_gpu_supported()) return {};
+  if (!vision_gpu_supported()) return {};
   auto values = rows.accessor<double, 2>();
   const auto count = rows.size(0), ph = options.output_size[0],
              pw = options.output_size[1], ratio = options.sampling_ratio;

@@ -109,7 +109,7 @@ __global__ void backward_kernel(const T* grad, const double* rows,
   }
 }
 }  // namespace
-bool roi_gpu_supported() {
+bool vision_gpu_supported() {
   int device = 0;
 #ifdef JYPPX_VISION_GPU_HIP
   hipDeviceProp_t properties{};

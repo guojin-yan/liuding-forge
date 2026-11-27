@@ -3,8 +3,11 @@
 if(JYPPX_LIUDING_VISION_GPU_KERNELS AND TARGET jyppx::liuding::vision_ops)
     jyppx_add_gtest(jyppx_test_vision_gpu_roi
         LINK_TARGET jyppx::liuding::vision_ops vision/test_roi_gpu.cpp)
+    jyppx_add_gtest(jyppx_test_vision_gpu_deformable
+        LINK_TARGET jyppx::liuding::vision_ops vision/test_deformable_gpu.cpp)
     if(TARGET torch_hip)
         target_compile_definitions(jyppx_test_vision_gpu_roi PRIVATE JYPPX_VISION_GPU_HIP=1)
+        target_compile_definitions(jyppx_test_vision_gpu_deformable PRIVATE JYPPX_VISION_GPU_HIP=1)
     endif()
 endif()
 

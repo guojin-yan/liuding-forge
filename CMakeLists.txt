@@ -26,7 +26,7 @@ option(JYPPX_LIUDING_BUILD_DOCS "Build documentation" OFF)
 option(JYPPX_LIUDING_BUILD_CORE "Build the LibTorch value and tensor core" ON)
 option(JYPPX_LIUDING_BUILD_VISION_OPS "Build optional native visual tensor operators" OFF)
 option(JYPPX_LIUDING_VISION_GPU_KERNELS
-    "Compile native ROIAlign kernels for the selected LibTorch GPU backend" OFF)
+    "Compile native vision sampling kernels for the selected LibTorch GPU backend" OFF)
 if(JYPPX_LIUDING_VISION_GPU_KERNELS AND NOT JYPPX_LIUDING_BUILD_VISION_OPS)
     message(FATAL_ERROR "VISION_GPU_KERNELS requires BUILD_VISION_OPS")
 endif()
