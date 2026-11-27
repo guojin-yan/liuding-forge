@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
+#include "../ops/target_grouping.hpp"
 #include "training/class_weights.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
@@ -83,10 +84,10 @@ TaskLoss faster_rcnn_loss(std::span<const Tensor> x, const Tensor& targets,
       logits.sum() * 0 + deltas.sum() * 0 + classes.sum() * 0 + boxes.sum() * 0;
   auto rpn_objectness = zero, rpn_box = zero;
   I sampled_count = 0;
+  const auto ground =
+      vision::detail::group_targets_by_image(targets, logits.size(0));
   for (I b = 0; b < logits.size(0); ++b) {
-    auto gt = targets.index({targets.select(1, 0) == b})
-                  .slice(1, 2, 6)
-                  .to(torch::kFloat32);
+    auto gt = ground[b].slice(1, 2, 6).to(torch::kFloat32);
     auto labels =
         torch::zeros({anchors.size(0)}, logits.options().dtype(torch::kInt64));
     auto matched = torch::zeros_like(anchors);
@@ -138,7 +139,7 @@ TaskLoss faster_rcnn_loss(std::span<const Tensor> x, const Tensor& targets,
     matched = torch::zeros({proposals.size(0), 4}, logits.options());
     for (I b = 0; b < logits.size(0); ++b) {
       auto rows = (proposals.select(1, 0) == b).nonzero().flatten();
-      auto gt = targets.index({targets.select(1, 0) == b});
+      const auto& gt = ground[b];
       if (!rows.numel() || !gt.size(0)) continue;
       auto iou = vision_ops::pairwise_box_iou(
           proposals.index_select(0, rows).slice(1, 1, 5),

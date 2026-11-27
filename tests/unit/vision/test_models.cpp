@@ -427,6 +427,8 @@ std::vector<AcceleratorCase> accelerator_cases() {
     const bool selected =
         entry.variant == "p5" &&
         (entry.architecture == "resnet18" || entry.architecture == "yolo26n" ||
+         entry.architecture == "faster_rcnn_resnet50_fpn" ||
+         entry.architecture == "fast_rcnn_resnet50_fpn" ||
          entry.architecture == "fcos_resnet50_fpn" ||
          entry.architecture == "fcos_vit_adapter_tiny_fpn" ||
          entry.architecture == "rtdetr_resnet18_vd" ||

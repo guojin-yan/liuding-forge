@@ -327,6 +327,97 @@ TEST_F(VisionContracts, RoiOperatorsMatchPlaneAndDiscreteMaxima) {
                            torch::tensor({5., 7., 13., 15.}, torch::kFloat64)));
 }
 
+void CheckRoiSampling(const Device& device) {
+  const auto host_rois = torch::tensor({{2., -1.8, -.6, 8.3, 6.1},
+                                        {0., .2, .3, 5.7, 4.2},
+                                        {2., 1.1, 2.2, 1.1, 2.2},
+                                        {1., 6.1, 4.3, 9.1, 7.2},
+                                        {0., -4., -3., -1.5, -.2}},
+                                       torch::kFloat64);
+  const auto rois = host_rois.to(device).requires_grad_(true);
+  const auto source =
+      torch::arange(3 * 2 * 5 * 14, torch::kFloat64).view({3, 2, 5, 14});
+  for (const bool aligned : {false, true})
+    for (const I ratio : {I{1}, I{2}, I{3}}) {
+      auto input =
+          source.to(device).slice(3, 0, 14, 2).detach().requires_grad_(true);
+      auto upstream = torch::linspace(-.7, .9, 5 * 2 * 2 * 3, torch::kFloat64)
+                          .view({5, 2, 2, 3});
+      auto expected = torch::zeros_like(upstream);
+      auto gradient = torch::zeros({3, 2, 5, 7}, torch::kFloat64);
+      const auto host_features = source.slice(3, 0, 14, 2);
+      const auto values = host_features.accessor<double, 4>();
+      const auto boxes = host_rois.accessor<double, 2>();
+      auto result = expected.accessor<double, 4>();
+      auto grad = gradient.accessor<double, 4>();
+      const auto adjoint = upstream.accessor<double, 4>();
+      for (I n = 0; n < 5; ++n) {
+        const auto batch = static_cast<I>(boxes[n][0]);
+        const double offset = aligned ? .5 : 0.;
+        const double x1 = boxes[n][1] * .75 - offset;
+        const double y1 = boxes[n][2] * .75 - offset;
+        const double width =
+            (std::max)(boxes[n][3] * .75 - offset - x1, aligned ? 0. : 1.);
+        const double height =
+            (std::max)(boxes[n][4] * .75 - offset - y1, aligned ? 0. : 1.);
+        for (I c = 0; c < 2; ++c)
+          for (I h = 0; h < 2; ++h)
+            for (I w = 0; w < 3; ++w)
+              for (I sy = 0; sy < ratio; ++sy)
+                for (I sx = 0; sx < ratio; ++sx) {
+                  double x = x1 + (w * ratio + sx + .5) * width / (3 * ratio);
+                  double y = y1 + (h * ratio + sy + .5) * height / (2 * ratio);
+                  if (x < -1 || x > 7 || y < -1 || y > 5) continue;
+                  x = std::clamp(x, 0., 6.);
+                  y = std::clamp(y, 0., 4.);
+                  const I lo_x = static_cast<I>(x), lo_y = static_cast<I>(y);
+                  const I hi_x = (std::min)(lo_x + 1, I{6});
+                  const I hi_y = (std::min)(lo_y + 1, I{4});
+                  for (I dy = 0; dy < 2; ++dy)
+                    for (I dx = 0; dx < 2; ++dx) {
+                      const auto yy = dy ? hi_y : lo_y;
+                      const auto xx = dx ? hi_x : lo_x;
+                      const double weight = (dy ? y - lo_y : 1 - (y - lo_y)) *
+                                            (dx ? x - lo_x : 1 - (x - lo_x)) /
+                                            (ratio * ratio);
+                      result[n][c][h][w] += values[batch][c][yy][xx] * weight;
+                      grad[batch][c][yy][xx] += adjoint[n][c][h][w] * weight;
+                    }
+                }
+      }
+      const auto output = ops::roi_align(input, rois,
+                                         {.output_size = {2, 3},
+                                          .spatial_scale = .75,
+                                          .sampling_ratio = ratio,
+                                          .aligned = aligned});
+      EXPECT_TRUE(torch::allclose(output.cpu(), expected, 0, 1e-10));
+      (output * upstream.to(device)).sum().backward();
+      EXPECT_TRUE(torch::allclose(input.grad().cpu(), gradient, 0, 1e-10));
+      EXPECT_FALSE(rois.grad().defined());
+    }
+  auto input = source.to(device).detach().requires_grad_(true);
+  auto empty = ops::roi_align(input, rois.narrow(0, 0, 0));
+  EXPECT_EQ(empty.numel(), 0);
+  empty.sum().backward();
+  EXPECT_TRUE(torch::equal(input.grad(), torch::zeros_like(input)));
+  EXPECT_THROW(ops::roi_align(input, rois, {.max_rois = 4}), ResourceExhausted);
+  EXPECT_THROW(ops::roi_align(input, rois, {.max_output_elements = 8}),
+               ResourceExhausted);
+  auto invalid = torch::tensor({1e300, 0., 0., 1., 1.}, torch::kFloat64)
+                     .view({1, 5})
+                     .to(device);
+  EXPECT_THROW(ops::roi_align(input, invalid), InvalidArgument);
+}
+
+TEST_F(VisionContracts, RoiPackedSamplingMatchesScalarOracleCpu) {
+  CheckRoiSampling(Device(torch::kCPU));
+}
+
+TEST_F(VisionContracts, RoiPackedSamplingMatchesScalarOracleGpu) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "No CUDA-compatible GPU";
+  CheckRoiSampling(Device(torch::kCUDA, 0));
+}
+
 TEST_F(VisionContracts, BoxCoderRoundTripsNonUnitWeights) {
   const auto anchors =
       torch::tensor({1., 2., 6., 10., 0., 1., 2., 3.}).view({2, 4});

@@ -10,8 +10,54 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 namespace jyppx::liuding::vision_ops {
 namespace {
+Tensor PerRoiSampling(const Tensor& features, const Tensor& rows,
+                      const RoiAlignOptions& o) {
+  const auto values = rows.accessor<double, 2>();
+  const auto channels = features.size(1), ph = o.output_size[0],
+             pw = o.output_size[1], ratio = o.sampling_ratio;
+  const auto tensor_options = features.options().requires_grad(false);
+  std::vector<Tensor> output;
+  for (std::int64_t i = 0; i < rows.size(0); ++i) {
+    const auto batch = static_cast<std::int64_t>(values[i][0]);
+    const double offset = o.aligned ? .5 : 0.;
+    const double x1 = values[i][1] * o.spatial_scale - offset;
+    const double y1 = values[i][2] * o.spatial_scale - offset;
+    const double width =
+        (std::max)(values[i][3] * o.spatial_scale - offset - x1,
+                   o.aligned ? 0. : 1.);
+    const double height =
+        (std::max)(values[i][4] * o.spatial_scale - offset - y1,
+                   o.aligned ? 0. : 1.);
+    auto xs = (torch::arange(pw * ratio, tensor_options) + .5) *
+                  (width / (pw * ratio)) +
+              x1;
+    auto ys = (torch::arange(ph * ratio, tensor_options) + .5) *
+                  (height / (ph * ratio)) +
+              y1;
+    auto xx = xs.view({1, -1}).expand({ph * ratio, pw * ratio});
+    auto yy = ys.view({-1, 1}).expand({ph * ratio, pw * ratio});
+    auto valid = (xx >= -1) & (xx <= features.size(3)) & (yy >= -1) &
+                 (yy <= features.size(2));
+    auto grid = torch::stack({(xx + .5) * (2. / features.size(3)) - 1,
+                              (yy + .5) * (2. / features.size(2)) - 1},
+                             -1)
+                    .unsqueeze(0);
+    auto sampled = torch::nn::functional::grid_sample(
+        features.slice(0, batch, batch + 1), grid,
+        torch::nn::functional::GridSampleFuncOptions()
+            .mode(torch::kBilinear)
+            .padding_mode(torch::kBorder)
+            .align_corners(false));
+    sampled = sampled * valid.to(sampled.scalar_type());
+    output.push_back(
+        sampled.view({channels, ph, ratio, pw, ratio}).mean({2, 4}));
+  }
+  return torch::stack(output);
+}
+
 void CheckBoxes(const Tensor& a, const Tensor& b) {
   if (!a.defined() || !b.defined() || a.dim() != 2 || b.dim() != 2 ||
       a.size(1) != 4 || a.size(0) != b.size(0) || !a.is_floating_point() ||
@@ -50,49 +96,108 @@ Tensor roi_align(const Tensor& features, const Tensor& rois,
            torch::empty({0, channels, ph, pw}, features.options());
   auto rows = rois.detach().to(torch::kCPU, torch::kFloat64).contiguous();
   auto values = rows.accessor<double, 2>();
-  std::vector<Tensor> output;
-  const auto tensor_options = features.options().requires_grad(false);
+  std::map<std::int64_t, std::vector<std::int64_t>> groups;
   for (std::int64_t i = 0; i < count; ++i) {
     for (int j = 0; j < 5; ++j)
       if (!std::isfinite(values[i][j]))
         throw InvalidArgument("Nonfinite ROIAlign coordinate");
-    const auto batch = static_cast<std::int64_t>(values[i][0]);
-    if (values[i][0] != static_cast<double>(batch) || batch < 0 ||
-        batch >= features.size(0) || values[i][3] < values[i][1] ||
-        values[i][4] < values[i][2])
+    // Check before converting to an integer, including finite out-of-range IDs.
+    if (values[i][0] < 0 || values[i][0] >= features.size(0) ||
+        values[i][0] != std::floor(values[i][0]) ||
+        values[i][3] < values[i][1] || values[i][4] < values[i][2])
       throw InvalidArgument("Invalid ROIAlign batch index or box extent");
-    const double offset = o.aligned ? .5 : 0.;
-    const double x1 = values[i][1] * o.spatial_scale - offset;
-    const double y1 = values[i][2] * o.spatial_scale - offset;
-    const double width = (std::max)(
-        values[i][3] * o.spatial_scale - offset - x1, o.aligned ? 0. : 1.);
-    const double height = (std::max)(
-        values[i][4] * o.spatial_scale - offset - y1, o.aligned ? 0. : 1.);
-    auto xs = (torch::arange(pw * ratio, tensor_options) + .5) *
-                  (width / (pw * ratio)) +
-              x1;
-    auto ys = (torch::arange(ph * ratio, tensor_options) + .5) *
-                  (height / (ph * ratio)) +
-              y1;
-    auto xx = xs.view({1, -1}).expand({ph * ratio, pw * ratio});
-    auto yy = ys.view({-1, 1}).expand({ph * ratio, pw * ratio});
-    auto valid = (xx >= -1) & (xx <= features.size(3)) & (yy >= -1) &
-                 (yy <= features.size(2));
-    auto grid = torch::stack({(xx + .5) * (2. / features.size(3)) - 1,
-                              (yy + .5) * (2. / features.size(2)) - 1},
-                             -1)
-                    .unsqueeze(0);
-    auto sampled = torch::nn::functional::grid_sample(
-        features.slice(0, batch, batch + 1), grid,
-        torch::nn::functional::GridSampleFuncOptions()
-            .mode(torch::kBilinear)
-            .padding_mode(torch::kBorder)
-            .align_corners(false));
-    sampled = sampled * valid.to(sampled.scalar_type());
-    output.push_back(
-        sampled.view({channels, ph, ratio, pw, ratio}).mean({2, 4}));
+    groups[static_cast<std::int64_t>(values[i][0])].push_back(i);
   }
-  return torch::stack(output);
+  // Keep per-ROI feature-gradient rounding/accumulation for low-precision
+  // storage. Packing those gradients changes the half/bfloat16 trajectory.
+  if (features.scalar_type() == torch::kFloat16 ||
+      features.scalar_type() == torch::kBFloat16)
+    return PerRoiSampling(features, rows, o);
+  const auto tensor_options = features.options().requires_grad(false);
+  const auto math_type = features.scalar_type() == torch::kFloat64
+                             ? torch::kFloat64
+                             : torch::kFloat32;
+  const auto x_steps = (torch::arange(pw * ratio, tensor_options) + .5)
+                           .to(math_type)
+                           .unsqueeze(0);
+  const auto y_steps = (torch::arange(ph * ratio, tensor_options) + .5)
+                           .to(math_type)
+                           .unsqueeze(0);
+  std::vector<Tensor> output;
+  std::vector<std::int64_t> order;
+  // Bound new coordinate temporaries and sampled chunks. A single ROI keeps
+  // its existing allowance; no feature map is expanded along a new ROI axis.
+  const auto cells = ph * pw * ratio * ratio;
+  const auto chunk =
+      (std::max)(std::int64_t{1},
+                 (std::min)(std::int64_t{1048576} / cells,
+                            std::int64_t{1048576} / channels / cells));
+  for (const auto& [batch, all_indices] : groups) {
+    for (std::size_t begin = 0; begin < all_indices.size(); begin += chunk) {
+      const auto end = (std::min)(all_indices.size(), begin + chunk);
+      const auto n = static_cast<std::int64_t>(end - begin);
+      std::vector<double> parameters;
+      parameters.reserve(n * 4);
+      for (auto position = begin; position < end; ++position) {
+        const auto i = all_indices[position];
+        const double offset = o.aligned ? .5 : 0.;
+        const double x1 = values[i][1] * o.spatial_scale - offset;
+        const double y1 = values[i][2] * o.spatial_scale - offset;
+        const double width =
+            (std::max)(values[i][3] * o.spatial_scale - offset - x1,
+                       o.aligned ? 0. : 1.);
+        const double height =
+            (std::max)(values[i][4] * o.spatial_scale - offset - y1,
+                       o.aligned ? 0. : 1.);
+        parameters.insert(parameters.end(), {width / (pw * ratio),
+                                             height / (ph * ratio), x1, y1});
+      }
+      auto p = torch::tensor(parameters, torch::kFloat64)
+                   .view({n, 4})
+                   .to(features.device(), math_type);
+      // Broadcast per-ROI scale and origin with the original separate
+      // multiply/add boundaries.
+      auto axis = [&](const Tensor& steps, int scale, int origin) {
+        auto scaled =
+            (steps * p.slice(1, scale, scale + 1)).to(features.scalar_type());
+        return (scaled.to(math_type) + p.slice(1, origin, origin + 1))
+            .to(features.scalar_type());
+      };
+      auto xs = axis(x_steps, 0, 2), ys = axis(y_steps, 1, 3);
+      auto xx = xs.unsqueeze(1).expand({n, ph * ratio, pw * ratio});
+      auto yy = ys.unsqueeze(2).expand({n, ph * ratio, pw * ratio});
+      auto valid = (xx >= -1) & (xx <= features.size(3)) & (yy >= -1) &
+                   (yy <= features.size(2));
+      auto grid = torch::stack({(xx + .5) * (2. / features.size(3)) - 1,
+                                (yy + .5) * (2. / features.size(2)) - 1},
+                               -1)
+                      .reshape({1, n * ph * ratio, pw * ratio, 2});
+      // Pack ROI grids along the spatial axis, so one feature slice is sampled
+      // once per image without replicating it for every ROI.
+      auto sampled = torch::nn::functional::grid_sample(
+          features.slice(0, batch, batch + 1), grid,
+          torch::nn::functional::GridSampleFuncOptions()
+              .mode(torch::kBilinear)
+              .padding_mode(torch::kBorder)
+              .align_corners(false));
+      sampled = sampled * valid.reshape({1, 1, n * ph * ratio, pw * ratio})
+                              .to(sampled.scalar_type());
+      output.push_back(sampled.view({channels, n, ph, ratio, pw, ratio})
+                           .mean({3, 5})
+                           .permute({1, 0, 2, 3}));
+      order.insert(order.end(), all_indices.begin() + begin,
+                   all_indices.begin() + end);
+    }
+  }
+  auto result = torch::cat(output);
+  bool ordered = true;
+  for (std::int64_t i = 0; i < count; ++i)
+    if (order[i] != i) ordered = false;
+  if (ordered) return result;
+  std::vector<std::int64_t> inverse(count);
+  for (std::int64_t i = 0; i < count; ++i) inverse[order[i]] = i;
+  return result.index_select(
+      0, torch::tensor(inverse, torch::kInt64).to(features.device()));
 }
 Tensor multiscale_roi_align(const std::vector<Tensor>& features,
                             const Tensor& rois,

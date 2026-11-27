@@ -3,6 +3,8 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
+#include "../../ops/target_grouping.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/models/registry.hpp>
 #include <jyppx/liuding/vision/models/rcnn/faster_rcnn.hpp>
@@ -342,10 +344,14 @@ FasterRcnnOutput FasterRcnnImpl::forward(const Tensor& images,
   auto matched = torch::zeros({rois.size(0), 4}, images.options());
   if (is_training() && targets.defined()) {
     torch::NoGradGuard guard;
+    const auto ground =
+        vision::detail::group_targets_by_image(targets, images.size(0));
     std::vector<Tensor> sampled_rois, sampled_labels, sampled_boxes;
     for (I b = 0; b < images.size(0); ++b) {
-      auto gt = targets.index({targets.select(1, 0) == b});
-      auto boxes = rois.index({rois.select(1, 0) == b}).slice(1, 1, 5);
+      const auto& gt = ground[b];
+      // RPN proposals are already partitioned in image order. Reuse those
+      // tensors rather than selecting the same rows from the joined matrix.
+      auto boxes = proposals[b].slice(1, 1, 5);
       if (gt.size(0)) boxes = torch::cat({boxes, gt.slice(1, 2, 6)});
       auto assigned_labels = torch::zeros({boxes.size(0)}, labels.options());
       auto assigned_boxes = torch::zeros_like(boxes);
